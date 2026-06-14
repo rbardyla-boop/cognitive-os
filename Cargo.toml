@@ -4,4 +4,4 @@
 # join as new crates in later sprints.
 [workspace]
 resolver = "2"
-members = ["crates/vibe-core", "crates/vibe-ingress"]
+members = ["crates/vibe-core", "crates/vibe-ingress", "crates/vibe-scheduler"]

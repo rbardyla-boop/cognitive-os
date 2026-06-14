@@ -77,7 +77,7 @@ Prototype-First Track (ADR-002 deterministic engine, then replaceable LLM codec)
 - [ ] P0 — Tag/snapshot the frozen v0.1 governance milestone (recoverable before engine work).
 - [x] P1 — Rust workspace skeleton + deterministic kernel boundary (`crates/vibe-core`). _Delivered 2026-06-14; 8 cargo tests green, release_check gates the L0 kernel boundary._
 - [x] P2 — ObservationEnvelope + IngressGate. _Delivered 2026-06-14; `crates/vibe-ingress`, 6 cargo tests green, admission-only (no tick eval, no EngineState), release_check gates the L1 boundary._
-- [ ] P3 — TickScheduler + ScheduledObservation.
+- [x] P3 — TickScheduler + ScheduledObservation. _Delivered 2026-06-14; `crates/vibe-scheduler`, 7 cargo tests green, scheduling-only (deterministic target ticks, bounded horizon, overload→receipt, idempotent), release_check gates the L1 boundary._
 - [ ] P4 — FrameCollector + ObservationFrame.
 - [ ] P5 — Minimal VibeEngine evaluation loop.
 - [ ] P6 — RunScript + RunRecorder + deterministic replay.
@@ -1286,7 +1286,7 @@ controlled before scheduling.
 
 ### P3 — TickScheduler and ScheduledObservation (L1)
 
-Status: Not started. Correct if accepted observations are scheduled to deterministic target ticks, the
+Status: delivered (2026-06-14). `crates/vibe-scheduler` (depends only on `vibe-core` + `vibe-ingress`) orders staged observations onto future logical ticks: `TickScheduler::schedule(now, request)` validates duplicate → target-required → strictly-future → bounded-horizon → overload, placing only valid in-window non-duplicate requests and returning an `Scheduled`/`Duplicate`/`Rejected` receipt otherwise. Determinism via `BTreeMap` tick lanes; `now` is a supplied logical tick, never wall-clock. 7 cargo tests green (`schedule_same_inputs_same_order`, `target_tick_required`, `future_horizon_enforced`, `overload_rejected_with_receipt`, `duplicate_schedule_idempotent`, `scheduler_does_not_call_evaluate_tick`, plus `scheduler_does_not_mutate_state`). Gated by a source-token scan + a workspace-only dependency-tree assertion; both a token and a behavioral (overload off-by-one) sabotage were probed. Correct if accepted observations are scheduled to deterministic target ticks, the
 future horizon is bounded, the same input order produces the same schedule, and overload is
 rejected/quarantined (never silently dropped). Wrong if scheduling is unbounded or wall-clock-based,
 queue order depends on runtime timing, or overload disappears without a receipt. Build: `TickScheduler`,

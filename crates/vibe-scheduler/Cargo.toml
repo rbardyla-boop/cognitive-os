@@ -1,0 +1,15 @@
+[package]
+name = "vibe-scheduler"
+version = "0.1.0"
+edition = "2021"
+description = "ADR-002 layer-L1 deterministic tick scheduling (TickScheduler + ScheduledObservation) for Cognitive OS"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# The scheduler orders admitted observations onto future logical ticks. It uses
+# only the L0 value types (Tick, Scalar) and the L1 staged type. No backend /
+# network / async / wall-clock crates; release_check asserts the dependency tree
+# is exactly the three workspace crates.
+[dependencies]
+vibe-core = { path = "../vibe-core" }
+vibe-ingress = { path = "../vibe-ingress" }

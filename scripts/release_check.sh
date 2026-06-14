@@ -90,6 +90,17 @@ test "$(grep -cE 'evaluate_tick|EngineState|VibeEngine|std::fs|std::net|tokio|as
 # which is vibe-core (fails closed if cargo tree cannot run, so the proof is never vacuous).
 test "$(cargo tree --offline --manifest-path crates/vibe-ingress/Cargo.toml --edges normal 2>/dev/null | wc -l)" -eq 2
 test "$(cargo tree --offline --manifest-path crates/vibe-ingress/Cargo.toml --edges normal 2>/dev/null | grep -cE 'vibe-core')" -eq 1
+# P3 — vibe-scheduler: ADR-002 L1 deterministic tick scheduling (TickScheduler + ScheduledObservation).
+cargo test --offline --quiet --manifest-path crates/vibe-scheduler/Cargo.toml >/dev/null 2>&1
+cargo fmt --manifest-path crates/vibe-scheduler/Cargo.toml --check >/dev/null 2>&1
+cargo clippy --offline --manifest-path crates/vibe-scheduler/Cargo.toml --all-targets -- -D warnings >/dev/null 2>&1
+# scheduler_does_not_call_evaluate_tick + no engine-state mutation + no wall-clock / backend tokens
+# in the scheduler source (sabotage-detectable).
+test "$(grep -cE 'evaluate_tick|EngineState|VibeEngine|std::fs|std::net|tokio|async fn|\.await|reqwest|sqlx|rusqlite|serde|rand::|use rand|SystemTime|Instant|std::time' crates/vibe-scheduler/src/scheduler.rs)" -eq 0
+# vibe-scheduler depends only on workspace crates (vibe-core + vibe-ingress): no foreign/backend
+# crate appears in the tree, and the root is present (fails closed if cargo tree cannot run).
+test "$(cargo tree --offline --manifest-path crates/vibe-scheduler/Cargo.toml --edges normal 2>/dev/null | grep -vcE 'vibe-core|vibe-ingress|vibe-scheduler')" -eq 0
+test "$(cargo tree --offline --manifest-path crates/vibe-scheduler/Cargo.toml --edges normal 2>/dev/null | grep -c 'vibe-scheduler')" -eq 1
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json
