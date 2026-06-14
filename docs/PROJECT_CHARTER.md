@@ -3,6 +3,23 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-14-C — P0: snapshot v0.1 governance as a git freeze point
+
+**Decision.** The repo was initialized as a git repository (Option A) and the frozen v0.1
+governance state tagged before any engine work begins. `release_check` was green + silent
+(`PATH=/usr/bin`) at snapshot time.
+
+```text
+tag     cognitive-os-governance-v0.1
+commit  bbd1113dbd9ccfbe398594959f20d026ed64efdd
+recover git checkout cognitive-os-governance-v0.1
+```
+
+Local only — no remote was added and nothing was pushed (a remote push needs separate
+authorization per the project security rule). Recorded in
+[GOVERNANCE_MILESTONE.md](../GOVERNANCE_MILESTONE.md) §0. P1 (Rust `crates/vibe-core`) may begin
+from this freeze point.
+
 ## DD-2026-06-14-B — Adopt the prototype-first engine track (ADR-002 L0–L2), additive
 
 **Decision.** The forward direction is prototype-first: build the minimal deterministic runtime

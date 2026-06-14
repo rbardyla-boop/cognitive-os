@@ -9,6 +9,21 @@
 > This file does not restate them — it freezes the chain, the invariants, the probes, the
 > gates, the verification discipline, the honest residuals, and the frozen-status declaration.
 
+## 0. Snapshot (P0 — recoverable freeze point)
+
+This milestone was snapshotted as a recoverable git freeze point before any engine work
+(`a.md` Prototype-First Track P0). The frozen state is the L3 evidence/governance layer of
+[ADR-002](ADR-002-runtime-engine-replay-contract.md); the L0–L2 engine is built on top of it,
+not in place of it.
+
+```text
+tag           cognitive-os-governance-v0.1
+commit        bbd1113dbd9ccfbe398594959f20d026ed64efdd
+release_check green + silent (PATH=/usr/bin) at snapshot time
+recover       git checkout cognitive-os-governance-v0.1
+caveats       preserved below (single-signer, adjudicator-only probe, AST-subset, watchmen) — not hidden
+```
+
 ## 1. What is frozen
 
 The development process itself is governed by the same machinery as the runtime loop. Eight
