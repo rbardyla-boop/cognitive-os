@@ -1,0 +1,30 @@
+{
+  "name": "degraded_action_failure_quarantines_memory",
+  "command": "I need to cross the river quickly. Is Bridge A safe?",
+  "weather": "heavy_rain",
+  "time_budget_minutes": 12,
+  "risk_budget": 0.25,
+  "post_action_correction": {
+    "id": "degraded_failure_quarantine",
+    "verifier_rule_id": "V_RULE_POST_ACTION_CORRECTION_REQUIRES_DEGRADED_OUTCOME",
+    "overconfirmation_blocked": true,
+    "outcome_override": {
+      "success": false,
+      "observed_state": "route_failed_under_degraded_evidence"
+    },
+    "mutations": [
+      {
+        "mutation_type": "procedure_status_update",
+        "target_object_id": "PROC_use_stable_bridge_under_rain",
+        "new_status": "quarantined",
+        "belief_update_position": "procedure_first"
+      },
+      {
+        "mutation_type": "semantic_status_update",
+        "target_object_id": "M_bridge_a_damage_reported",
+        "new_status": "quarantined",
+        "belief_update_position": "belief_second"
+      }
+    ]
+  }
+}

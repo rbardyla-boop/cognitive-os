@@ -1,0 +1,34 @@
+{
+  "name": "duplicate_correction_job_is_rejected_or_coalesced",
+  "command": "Coalesce duplicate correction work deterministically onto one canonical job.",
+  "resolve_jobs": true,
+  "source_packets": [
+    {
+      "header": {"packet_id": "P_ACTION_OUTCOME", "source_engine": "recovery_replay"},
+      "permissions": {"allowed_use": ["memory_consolidation"], "forbidden_use": ["direct_action"]}
+    }
+  ],
+  "target_objects": [
+    {"memory_id": "M_bridge_a_passable", "status": "retest_required"}
+  ],
+  "correction_jobs": [
+    {
+      "job_id": "CJ_dup_a",
+      "job_type": "post_action_revalidation",
+      "source_packet_id": "P_ACTION_OUTCOME",
+      "trace_id": "T_RECOVERY",
+      "created_at_tick": 1,
+      "target_object_ids": ["M_bridge_a_passable"],
+      "deferred_reason": "first copy of the same revalidation"
+    },
+    {
+      "job_id": "CJ_dup_b",
+      "job_type": "post_action_revalidation",
+      "source_packet_id": "P_ACTION_OUTCOME",
+      "trace_id": "T_RECOVERY",
+      "created_at_tick": 2,
+      "target_object_ids": ["M_bridge_a_passable"],
+      "deferred_reason": "duplicate copy of the same revalidation"
+    }
+  ]
+}

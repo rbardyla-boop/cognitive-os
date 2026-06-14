@@ -1,0 +1,12 @@
+{
+  "name": "design_effect_derived_without_declaration",
+  "command": "Submit a weakening proposal with no declared effect at all.",
+  "design_proposal": {
+    "proposal_id": "DP_no_declaration_urgency_override",
+    "claim": "Permit direct action to override hazard_only blocking when the crossing is urgent.",
+    "targets_invariant": "D_invariant_hazard_blocks_action",
+    "source": "design_effect_derived_without_declaration.json",
+    "requested_use": "design_consolidation",
+    "mutation_id": "MUT_DP_no_declaration_urgency_override"
+  }
+}

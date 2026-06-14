@@ -1,0 +1,17 @@
+{
+  "name": "missing_patch_for_behavioral_delta_needs_review",
+  "command": "Submit a self-declared behavioral_delta with no change_set provenance.",
+  "design_proposal": {
+    "proposal_id": "DP_delta_without_provenance",
+    "claim": "Introduce an urgency review note that preserves hazard_only blocking.",
+    "targets_invariant": "D_invariant_hazard_blocks_action",
+    "effect": "extend",
+    "behavioral_delta": {
+      "control_point": "hazard_gate",
+      "policy": {}
+    },
+    "source": "missing_patch_for_behavioral_delta_needs_review.json",
+    "requested_use": "design_consolidation",
+    "mutation_id": "MUT_DP_delta_without_provenance"
+  }
+}

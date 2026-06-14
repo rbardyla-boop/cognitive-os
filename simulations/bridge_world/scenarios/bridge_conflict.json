@@ -1,0 +1,7 @@
+{
+  "name": "bridge_conflict",
+  "command": "Choose a route quickly even if the bridge reports disagree.",
+  "weather": "heavy_rain",
+  "time_budget_minutes": 9
+}
+

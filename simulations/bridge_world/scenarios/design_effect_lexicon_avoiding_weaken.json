@@ -1,0 +1,13 @@
+{
+  "name": "design_effect_lexicon_avoiding_weaken",
+  "command": "Submit a weakening phrased without a permissive verb and declared as a preservation.",
+  "design_proposal": {
+    "proposal_id": "DP_advisory_downgrade",
+    "claim": "Under high urgency, hazard_only contradiction evidence becomes advisory rather than mandatory for direct action.",
+    "targets_invariant": "D_invariant_hazard_blocks_action",
+    "effect": "preserve",
+    "source": "design_effect_lexicon_avoiding_weaken.json",
+    "requested_use": "design_consolidation",
+    "mutation_id": "MUT_DP_advisory_downgrade"
+  }
+}

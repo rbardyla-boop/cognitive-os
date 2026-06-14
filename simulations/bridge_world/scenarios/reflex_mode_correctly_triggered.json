@@ -1,0 +1,31 @@
+{
+  "name": "reflex_mode_correctly_triggered",
+  "command": "I need to cross the river quickly. Is Bridge A safe?",
+  "weather": "heavy_rain",
+  "time_budget_minutes": 12,
+  "risk_budget": 0.25,
+  "attention_review": {
+    "review_id": "AR_001",
+    "classification": "justified",
+    "confidence": 0.78,
+    "review_required": false,
+    "review_reason": "Reflex mode was justified by high urgency, degraded Bridge A evidence, and low time budget.",
+    "verifier_rule_id": "V_RULE_ATTENTION_REVIEW_REQUIRES_TRACE",
+    "policy_update_kind": "scoped_confidence_support",
+    "scope_conditions": {
+      "urgency": "high",
+      "weather": "heavy_rain",
+      "evidence_state": "degraded_bridge_a"
+    },
+    "policy_update": {
+      "status": "attention_policy_scoped_supported",
+      "confidence": 0.68,
+      "scope_conditions": {
+        "urgency": "high",
+        "weather": "heavy_rain",
+        "evidence_state": "degraded_bridge_a"
+      },
+      "attention_review_note": "Scoped support only; no memory, procedure, planner, verifier, or authority change."
+    }
+  }
+}

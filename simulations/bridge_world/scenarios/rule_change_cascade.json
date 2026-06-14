@@ -1,0 +1,10 @@
+{
+  "name": "rule_change_cascade",
+  "command": "Cross safely after the bridge safety rule changes.",
+  "weather": "heavy_rain",
+  "time_budget_minutes": 12,
+  "rule_change": {
+    "rule_id": "R_bridge_safety:v1",
+    "new_claim": "Avoid Bridge A during any rain unless a fresh inspection verifies it open."
+  }
+}

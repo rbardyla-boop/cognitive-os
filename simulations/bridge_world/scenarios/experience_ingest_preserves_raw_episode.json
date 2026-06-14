@@ -1,0 +1,33 @@
+{
+  "name": "experience_ingest_preserves_raw_episode",
+  "command": "Ingest a raw bridge inspection experience.",
+  "trace_id": "T_RAW_001",
+  "experience_envelopes": [
+    {
+      "envelope_id": "bridge_a_inspection_raw",
+      "trace_id": "T_RAW_001",
+      "source": "human_inspector",
+      "observed_at": "2026-06-13T12:00:00Z",
+      "logical_tick": 1,
+      "modality": "human_report",
+      "ingestion_license": "semantic_candidate_allowed",
+      "capture_context": {
+        "bridge": "Bridge A",
+        "weather": "light_rain",
+        "inspection_status": "visual"
+      },
+      "raw_payload": {
+        "text": "Bridge A has fresh scrape marks but no visible structural crack.",
+        "bridge": "Bridge A",
+        "observer": "inspector_7"
+      }
+    }
+  ],
+  "semantic_candidates": [
+    {
+      "source_envelope_id": "bridge_a_inspection_raw",
+      "candidate_id": "SC_bridge_a_scrape_no_crack",
+      "claim": "Bridge A has scrape marks but no visible structural crack."
+    }
+  ]
+}

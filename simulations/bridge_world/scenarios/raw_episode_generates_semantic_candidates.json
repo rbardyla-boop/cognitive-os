@@ -1,0 +1,34 @@
+{
+  "name": "raw_episode_generates_semantic_candidates",
+  "command": "Extract candidate interpretations from a raw bridge report.",
+  "trace_id": "T_SEM_001",
+  "experience_envelopes": [
+    {
+      "envelope_id": "bridge_a_report_raw",
+      "trace_id": "T_SEM_001",
+      "source": "human_inspector",
+      "observed_at": "2026-06-13T13:00:00Z",
+      "logical_tick": 10,
+      "modality": "human_report",
+      "ingestion_license": "semantic_candidate_allowed",
+      "capture_context": {
+        "bridge": "Bridge A",
+        "weather": "light_rain"
+      },
+      "raw_payload": {
+        "bridge": "Bridge A",
+        "text": "Bridge A has standing water near the east approach."
+      }
+    }
+  ],
+  "candidate_extraction": {
+    "proposals": [
+      {
+        "source_envelope_id": "bridge_a_report_raw",
+        "candidate_id": "CMN_bridge_a_standing_water",
+        "claim": "Bridge A has standing water near the east approach.",
+        "extraction_method": "deterministic_stub"
+      }
+    ]
+  }
+}

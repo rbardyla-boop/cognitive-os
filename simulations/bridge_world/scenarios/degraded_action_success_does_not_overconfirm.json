@@ -1,0 +1,26 @@
+{
+  "name": "degraded_action_success_does_not_overconfirm",
+  "command": "I need to cross the river quickly. Is Bridge A safe?",
+  "weather": "heavy_rain",
+  "time_budget_minutes": 12,
+  "risk_budget": 0.25,
+  "post_action_correction": {
+    "id": "degraded_success_no_overconfirm",
+    "verifier_rule_id": "V_RULE_POST_ACTION_CORRECTION_REQUIRES_DEGRADED_OUTCOME",
+    "overconfirmation_blocked": true,
+    "mutations": [
+      {
+        "mutation_type": "procedure_status_update",
+        "target_object_id": "PROC_use_stable_bridge_under_rain",
+        "new_status": "procedure_supported_after_cautious_success",
+        "belief_update_position": "procedure_first"
+      },
+      {
+        "mutation_type": "semantic_status_update",
+        "target_object_id": "M_bridge_a_damage_reported",
+        "new_status": "retest_required",
+        "belief_update_position": "belief_second_no_promotion"
+      }
+    ]
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "name": "config_attempts_authority_field_injection_rejected",
+  "command": "Reject a correction job that tries to inject authority and mutation fields.",
+  "correction_jobs": [
+    {
+      "job_id": "CJ_inject",
+      "job_type": "contradiction_repair",
+      "source_packet_id": "P_CONTRADICTION",
+      "trace_id": "T_RECOVERY",
+      "created_at_tick": 1,
+      "target_object_ids": ["M_bridge_a_damage_reported"],
+      "epistemic_license": "full_premise",
+      "authority_class": "promoted_invariant",
+      "allowed_use": ["direct_action"],
+      "forbidden_use": [],
+      "verifier_rule_id": "V_RULE_FORGED",
+      "mutation_type": "bootstrap_promotion",
+      "deferred_reason": "attempts to smuggle authority and mutation authority fields"
+    }
+  ]
+}

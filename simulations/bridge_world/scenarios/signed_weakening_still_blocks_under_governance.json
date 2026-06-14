@@ -1,0 +1,31 @@
+{
+  "name": "signed_weakening_still_blocks_under_governance",
+  "command": "Submit a weakening change validly signed by an active, in-scope governed signer.",
+  "design_proposal": {
+    "proposal_id": "DP_governed_weaken",
+    "claim": "Tune the hazard urgency policy while preserving the overall block.",
+    "targets_invariant": "D_invariant_hazard_blocks_action",
+    "effect": "extend",
+    "evaluation_tick": 0,
+    "change_set": {
+      "target": "hazard_gate",
+      "changed_artifact": "simulations/bridge_world/control_point_policies/hazard_gate.json",
+      "pre_image": "{\n  \"urgency_overrides_hazard\": false\n}\n",
+      "pre_image_hash": "21f3c81af34b3edcbd71e8e1a766322e7ebc0483a38007e3e3f30d9fbe4ceb6d",
+      "post_image": "{\n  \"urgency_overrides_hazard\": true\n}\n",
+      "post_image_hash": "2b5101d9be64f53fbd3065f68e6ae9a7935e6ef14f2e84d5019a2cc5cf15ffc1",
+      "diff_digest": "d1cc31832c5431ca42143b752d9ba58589155267c2261ce66c179f89eacb5832",
+      "signature": {
+        "scheme": "ed25519",
+        "signer": "governed_authority",
+        "key_id": "ed25519_18a4571c0c05d6da",
+        "nonce": "nonce_governed_weaken",
+        "payload_digest": "fe99f4d768aea046d3f50672f6e9c244dea667e76f5be4fb87d2e32ca8ab708c",
+        "signature_hex": "4c1fc897ed9c32ea0b365762455fbab3814d43eed7f8a2921baacdd448a503dc9f84755f03f2a1bfe09912683cba4a5309c07083d189db0c8b010abd5a85330a"
+      }
+    },
+    "source": "signed_weakening_still_blocks_under_governance.json",
+    "requested_use": "design_consolidation",
+    "mutation_id": "MUT_DP_governed_weaken"
+  }
+}

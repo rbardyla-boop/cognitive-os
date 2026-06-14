@@ -1,0 +1,7 @@
+{
+  "name": "normal_crossing",
+  "command": "Get to the far side safely using the best bridge.",
+  "weather": "clear",
+  "time_budget_minutes": 20
+}
+

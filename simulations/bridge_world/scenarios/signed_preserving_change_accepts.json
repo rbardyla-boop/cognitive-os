@@ -1,0 +1,30 @@
+{
+  "name": "signed_preserving_change_accepts",
+  "command": "Submit a content-bound preserving change validly signed by the design authority.",
+  "design_proposal": {
+    "proposal_id": "DP_signed_preserving",
+    "claim": "Add an audit_log field that preserves hazard_only blocking and still blocks direct action.",
+    "targets_invariant": "D_invariant_hazard_blocks_action",
+    "effect": "extend",
+    "change_set": {
+      "target": "hazard_gate",
+      "changed_artifact": "simulations/bridge_world/control_point_policies/hazard_gate.json",
+      "pre_image": "{\n  \"urgency_overrides_hazard\": false\n}\n",
+      "pre_image_hash": "21f3c81af34b3edcbd71e8e1a766322e7ebc0483a38007e3e3f30d9fbe4ceb6d",
+      "post_image": "{\n  \"audit_log\": true,\n  \"urgency_overrides_hazard\": false\n}\n",
+      "post_image_hash": "bf410aa656f5f4e3bed73e4b0f329622e4341563b6014304a153599b04d692c0",
+      "diff_digest": "6aba2d5afea6318f946238a5471ab98dcaae10a7f09ad4cd32490487a2aee701",
+      "signature": {
+        "scheme": "ed25519",
+        "signer": "design_authority",
+        "key_id": "ed25519_9e45f5ccae4f8a19",
+        "nonce": "nonce_signed_preserve",
+        "payload_digest": "ac51bd91e2e2229c54cdb681143cabbc3d06569416e84f0a8314f451b87e6f6f",
+        "signature_hex": "84c6f866ef1d3c52aa64f6dd60a07e976c596dfb2c0151e02b141b67e4095d69a35b1659ab3e5c42b15cfe3da5258da2c74c4742ef1ee891ef9db6c91e26530d"
+      }
+    },
+    "source": "signed_preserving_change_accepts.json",
+    "requested_use": "design_consolidation",
+    "mutation_id": "MUT_DP_signed_preserving"
+  }
+}

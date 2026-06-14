@@ -1,0 +1,30 @@
+{
+  "name": "literal_diff_preserving_change_accepts",
+  "command": "Submit a literal policy change that adds a benign field without weakening the gate.",
+  "design_proposal": {
+    "proposal_id": "DP_literal_preserving",
+    "claim": "Add an audit_log field that preserves hazard_only blocking and still blocks direct action.",
+    "targets_invariant": "D_invariant_hazard_blocks_action",
+    "effect": "extend",
+    "change_set": {
+      "target": "hazard_gate",
+      "changed_artifact": "simulations/bridge_world/control_point_policies/hazard_gate.json",
+      "pre_image": "{\n  \"urgency_overrides_hazard\": false\n}\n",
+      "pre_image_hash": "21f3c81af34b3edcbd71e8e1a766322e7ebc0483a38007e3e3f30d9fbe4ceb6d",
+      "post_image": "{\n  \"audit_log\": true,\n  \"urgency_overrides_hazard\": false\n}\n",
+      "post_image_hash": "bf410aa656f5f4e3bed73e4b0f329622e4341563b6014304a153599b04d692c0",
+      "diff_digest": "6aba2d5afea6318f946238a5471ab98dcaae10a7f09ad4cd32490487a2aee701",
+      "signature": {
+        "scheme": "ed25519",
+        "signer": "design_authority",
+        "key_id": "ed25519_9e45f5ccae4f8a19",
+        "nonce": "nonce_literal_diff_preserving_change_accepts",
+        "payload_digest": "387827412c93ed5398560713dcc35129dc765452ba880e5146eb43c85f28b948",
+        "signature_hex": "e40d582de1d0c2a72d4b2113439e6b2c3507ca43ca55ebe02a75e176557ad08aa6c673c84bce75a9c0c3910b3ba70067ae1f2e1810a7b598da38834ba87af30f"
+      }
+    },
+    "source": "literal_diff_preserving_change_accepts.json",
+    "requested_use": "design_consolidation",
+    "mutation_id": "MUT_DP_literal_preserving"
+  }
+}

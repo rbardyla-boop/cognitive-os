@@ -1,0 +1,7 @@
+{
+  "name": "interrupt_storm",
+  "command": "Cross now, ignore low priority updates, and keep the trace.",
+  "weather": "rain",
+  "time_budget_minutes": 8,
+  "interrupts": 1000
+}

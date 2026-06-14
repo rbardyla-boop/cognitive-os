@@ -1,0 +1,7 @@
+{
+  "name": "bridge_a_safe_time_pressure",
+  "command": "I need to cross the river quickly. Is Bridge A safe?",
+  "weather": "heavy_rain",
+  "time_budget_minutes": 12,
+  "risk_budget": 0.25
+}

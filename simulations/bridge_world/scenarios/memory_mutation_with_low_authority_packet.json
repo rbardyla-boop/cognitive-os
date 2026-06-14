@@ -1,0 +1,29 @@
+{
+  "name": "memory_mutation_with_low_authority_packet",
+  "command": "Attempt memory mutation with low-authority evidence.",
+  "mutation_scenario": {
+    "mutation_id": "MUT_low_authority_packet",
+    "target_object_id": "M_bridge_a_damage_reported",
+    "requested_use": "memory_consolidation",
+    "mutation_type": "semantic_status_update",
+    "new_status": "superseded",
+    "verifier_decision_id": "V_DEC_low_authority_block",
+    "verifier_decision": "block",
+    "block_reason": "source packet authority forbids requested_use: memory_consolidation",
+    "source_packet": {
+      "packet_type": "ClaimPacket",
+      "source_engine": "adversarial_user",
+      "confidence": 0.31,
+      "epistemic_license": "hypothesis_only",
+      "allowed_use": ["human_explanation", "contradiction_detection"],
+      "forbidden_use": ["memory_consolidation", "direct_action", "rule_revision", "safety_certification"],
+      "payload": {
+        "claim": "Bridge A damage report should be superseded.",
+        "provenance": "user_assertion"
+      }
+    },
+    "authority_snapshot": {
+      "forbidden_use": []
+    }
+  }
+}

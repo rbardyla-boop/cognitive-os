@@ -1,0 +1,31 @@
+{
+  "name": "rotated_successor_accepted",
+  "command": "Submit a preserving change signed by the rotated successor key, in its validity window.",
+  "design_proposal": {
+    "proposal_id": "DP_rotated_successor",
+    "claim": "Add an audit_log field that preserves hazard_only blocking and still blocks direct action.",
+    "targets_invariant": "D_invariant_hazard_blocks_action",
+    "effect": "extend",
+    "evaluation_tick": 150,
+    "change_set": {
+      "target": "hazard_gate",
+      "changed_artifact": "simulations/bridge_world/control_point_policies/hazard_gate.json",
+      "pre_image": "{\n  \"urgency_overrides_hazard\": false\n}\n",
+      "pre_image_hash": "21f3c81af34b3edcbd71e8e1a766322e7ebc0483a38007e3e3f30d9fbe4ceb6d",
+      "post_image": "{\n  \"audit_log\": true,\n  \"urgency_overrides_hazard\": false\n}\n",
+      "post_image_hash": "bf410aa656f5f4e3bed73e4b0f329622e4341563b6014304a153599b04d692c0",
+      "diff_digest": "6aba2d5afea6318f946238a5471ab98dcaae10a7f09ad4cd32490487a2aee701",
+      "signature": {
+        "scheme": "ed25519",
+        "signer": "rotated_successor",
+        "key_id": "ed25519_e2251d73012645bf",
+        "nonce": "nonce_rotated",
+        "payload_digest": "0bba064af996baacb7ac27552f2132ba1a911e6edde628ad074174a7cad5190e",
+        "signature_hex": "b5e2c6889ec611b5d8c7dfdf36852ed8f6c3cbf1819eb76d877b9e0384f9805effc872d58b4fab04f8e4b523b0a9209f73d566712d392002f23df6745ecb6403"
+      }
+    },
+    "source": "rotated_successor_accepted.json",
+    "requested_use": "design_consolidation",
+    "mutation_id": "MUT_DP_rotated_successor"
+  }
+}

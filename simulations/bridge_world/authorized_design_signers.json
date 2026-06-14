@@ -1,0 +1,105 @@
+{
+  "schema": "authorized-design-signers-v0.2",
+  "note": "Public keys only. Each signer is a governed, authority-bearing object: a scope plus a lifecycle (status / valid_from_tick / expires_at_tick / revoked_at_tick / rotated_to). Authority is evaluated at the decision tick \u2014 a public key is not permanent authority. Private signing keys are NEVER committed.",
+  "signers": {
+    "design_authority": {
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA3rs4tajuO+RdPKAN1zXpQ4jciphp2N5StN4bFWDd+hw=\n-----END PUBLIC KEY-----\n",
+      "scope": [
+        "*"
+      ],
+      "status": "active",
+      "valid_from_tick": 0,
+      "expires_at_tick": null,
+      "revoked_at_tick": null,
+      "rotated_to": null
+    },
+    "governed_authority": {
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAbAQGu4mWAfBWj56IAA3kKEXGnTH9QZkjKSGMZMmlwNs=\n-----END PUBLIC KEY-----\n",
+      "scope": [
+        "hazard_gate"
+      ],
+      "status": "active",
+      "valid_from_tick": 0,
+      "expires_at_tick": null,
+      "revoked_at_tick": null,
+      "rotated_to": null
+    },
+    "revoked_authority": {
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAjgp2jbqUO6r8nLfTp8vNk7yw1HYeBFy0gpi3Fmri4X4=\n-----END PUBLIC KEY-----\n",
+      "scope": [
+        "hazard_gate"
+      ],
+      "status": "revoked",
+      "valid_from_tick": 0,
+      "expires_at_tick": null,
+      "revoked_at_tick": null,
+      "rotated_to": null
+    },
+    "expired_authority": {
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEACpUdd0ULJjROayhI8kFddmlET8eevyo8aPkHgGXccnU=\n-----END PUBLIC KEY-----\n",
+      "scope": [
+        "hazard_gate"
+      ],
+      "status": "active",
+      "valid_from_tick": 0,
+      "expires_at_tick": 50,
+      "revoked_at_tick": null,
+      "rotated_to": null
+    },
+    "scoped_authority": {
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAr9sXg+c4OrOdoTui3X+NKEDoSIexjMDKoLaN1U/3v2Q=\n-----END PUBLIC KEY-----\n",
+      "scope": [
+        "consolidation_gate"
+      ],
+      "status": "active",
+      "valid_from_tick": 0,
+      "expires_at_tick": null,
+      "revoked_at_tick": null,
+      "rotated_to": null
+    },
+    "replay_authority": {
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEATGYUe1omoYK1Egs0mC0DeOKYlu4nMtdv9exDqPlvkLk=\n-----END PUBLIC KEY-----\n",
+      "scope": [
+        "hazard_gate"
+      ],
+      "status": "active",
+      "valid_from_tick": 0,
+      "expires_at_tick": null,
+      "revoked_at_tick": 10,
+      "rotated_to": null
+    },
+    "rotated_predecessor": {
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA0VIciTrxMn8T2ZRA63YKsg8wA+QaqBV4K3XAjMXWjN4=\n-----END PUBLIC KEY-----\n",
+      "scope": [
+        "hazard_gate"
+      ],
+      "status": "revoked",
+      "valid_from_tick": 0,
+      "expires_at_tick": null,
+      "revoked_at_tick": 100,
+      "rotated_to": "rotated_successor"
+    },
+    "rotated_successor": {
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAEGvYd61sZ1aSPYoCU7vi00Q8ZFI2p940g1f6LAceuY0=\n-----END PUBLIC KEY-----\n",
+      "scope": [
+        "hazard_gate"
+      ],
+      "status": "active",
+      "valid_from_tick": 100,
+      "expires_at_tick": null,
+      "revoked_at_tick": null,
+      "rotated_to": null
+    },
+    "mechanism_authority": {
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAXCtFEHLXXK5caMT9vr6ZDdR9zn96mf5fbmuNTftvXzU=\n-----END PUBLIC KEY-----\n",
+      "scope": [
+        "hazard_gate"
+      ],
+      "status": "active",
+      "valid_from_tick": 0,
+      "expires_at_tick": null,
+      "revoked_at_tick": null,
+      "rotated_to": null
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "delta_provenance_required_for_locked_invariant",
+  "command": "Submit a consistent-sounding change to a locked invariant with no provenance at all.",
+  "design_proposal": {
+    "proposal_id": "DP_no_provenance_for_locked",
+    "claim": "Add audit logging that preserves hazard_only blocking and still blocks direct action.",
+    "targets_invariant": "D_invariant_hazard_blocks_action",
+    "effect": "extend",
+    "source": "delta_provenance_required_for_locked_invariant.json",
+    "requested_use": "design_consolidation",
+    "mutation_id": "MUT_DP_no_provenance_for_locked"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "trace_diff_blocks_llm_authority_laundering",
+  "command": "Launder LLM auto-consolidation behind candidate-provenance-preservation language.",
+  "design_proposal": {
+    "proposal_id": "DP_launder_llm_authority",
+    "claim": "While preserving candidate provenance, let the model's high-confidence candidates be consolidated automatically.",
+    "targets_invariant": "D_invariant_llm_no_authority",
+    "effect": "preserve",
+    "change_set": {
+      "target": "llm_authority_gate",
+      "changed_artifact": "simulations/bridge_world/control_point_policies/llm_authority_gate.json",
+      "pre_image": "{\n  \"grant_llm_authority\": false\n}\n",
+      "pre_image_hash": "2c8d3576027eceffde090e7a8f6ed1e517da1233a7e047f3a35566fc0def769a",
+      "post_image": "{\n  \"grant_llm_authority\": true\n}\n",
+      "post_image_hash": "f765cd2c72a73287d191918d94a17470f57f928a19f483e31f406f694bb0312b",
+      "diff_digest": "eca2f0d879473e831270a677c943702a5d0e9ab66c6b7fcfc17a6a2b074a8922"
+    },
+    "source": "trace_diff_blocks_llm_authority_laundering.json",
+    "requested_use": "design_consolidation",
+    "mutation_id": "MUT_DP_launder_llm_authority"
+  }
+}

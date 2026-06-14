@@ -1,0 +1,13 @@
+{
+  "name": "design_contradiction_in_sprint_plan",
+  "command": "Propose a sprint feature that lets urgency override hazard-only blocking.",
+  "design_proposal": {
+    "proposal_id": "DP_urgency_overrides_hazard",
+    "claim": "Allow direct action under hazard_only contradiction when urgency is high so urgent crossings are not blocked.",
+    "targets_invariant": "D_invariant_hazard_blocks_action",
+    "effect": "weaken",
+    "source": "design_contradiction_in_sprint_plan.json",
+    "requested_use": "design_consolidation",
+    "mutation_id": "MUT_DP_urgency_overrides_hazard"
+  }
+}

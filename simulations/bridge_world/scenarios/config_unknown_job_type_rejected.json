@@ -1,0 +1,15 @@
+{
+  "name": "config_unknown_job_type_rejected",
+  "command": "Reject a correction job whose job_type is not in the allowlist.",
+  "correction_jobs": [
+    {
+      "job_id": "CJ_bad_type",
+      "job_type": "delete_all_memory",
+      "source_packet_id": "P_BACKPRESSURE",
+      "trace_id": "T_RECOVERY",
+      "created_at_tick": 1,
+      "target_object_ids": ["M_bridge_b_open"],
+      "deferred_reason": "attempts to register an unknown job type"
+    }
+  ]
+}

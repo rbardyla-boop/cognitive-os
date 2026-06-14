@@ -1,0 +1,276 @@
+{
+  "schema": "design-memory-v0.1",
+  "doctrine": "The development process is a first-class citizen inside the same Cognitive Bus, Verifier, Epistemic License system, Trace Audit, and Correction Loop as the runtime bridge world. Design decisions are stored, retrieved, verified, contradicted, and revalidated by the identical machinery that governs Bridge A decisions.",
+  "invariants": [
+    {
+      "memory_id": "D_invariant_hazard_blocks_action",
+      "claim": "Hazard-only contradiction evidence blocks direct action, and urgency must never override that block.",
+      "node_type": "invariant",
+      "status": "regression_lock",
+      "source": "project_birth.md#urgency_spam_attack",
+      "trace_id": "T_design_bridge_proof_slice",
+      "epistemic_license": "full_premise",
+      "allowed_use": [
+        "release_invariant",
+        "human_review",
+        "design_discussion"
+      ],
+      "forbidden_use": [
+        "runtime_action"
+      ],
+      "verifier_rule_id": "VR_design_no_weaken_locked_invariant",
+      "regression_scenarios": [
+        "urgency_spam_attack",
+        "bridge_a_safe_time_pressure"
+      ],
+      "behavioral_probe": "hazard_gate"
+    },
+    {
+      "memory_id": "D_invariant_no_naked_facts",
+      "claim": "No retrieval result should return naked facts without an epistemic license and provenance.",
+      "node_type": "invariant",
+      "status": "regression_lock",
+      "source": "project_birth.md#retrieval_result_contract",
+      "trace_id": "T_design_retrieval_contract",
+      "epistemic_license": "full_premise",
+      "allowed_use": [
+        "release_invariant",
+        "human_review",
+        "design_discussion"
+      ],
+      "forbidden_use": [
+        "runtime_action"
+      ],
+      "verifier_rule_id": "VR_design_no_weaken_locked_invariant",
+      "regression_scenarios": [
+        "valid_human_promotion_allows_invariant"
+      ],
+      "behavioral_probe": "naked_fact_gate"
+    },
+    {
+      "memory_id": "D_invariant_mutation_requires_authority",
+      "claim": "No packet changes memory state without trace linkage, verifier assessment, source attribution, and an authorized epistemic license.",
+      "node_type": "invariant",
+      "status": "regression_lock",
+      "source": "COGNITIVE_OS_SELF_CORRECTING_LEAP.md#packet_integrity",
+      "trace_id": "T_design_mutation_discipline",
+      "epistemic_license": "full_premise",
+      "allowed_use": [
+        "release_invariant",
+        "human_review",
+        "design_discussion"
+      ],
+      "forbidden_use": [
+        "runtime_action"
+      ],
+      "verifier_rule_id": "VR_design_no_weaken_locked_invariant",
+      "regression_scenarios": [
+        "direct_mutation_without_verifier",
+        "memory_mutation_with_low_authority_packet"
+      ],
+      "behavioral_probe": "consolidation_gate"
+    },
+    {
+      "memory_id": "D_invariant_raw_episode_append_only",
+      "claim": "Raw episodes are append-only and must never be rewritten by later repair or consolidation.",
+      "node_type": "invariant",
+      "status": "regression_lock",
+      "source": "a.md#sprint_22_raw_experience_ingestion",
+      "trace_id": "T_design_raw_episode_kernel",
+      "epistemic_license": "full_premise",
+      "allowed_use": [
+        "release_invariant",
+        "human_review",
+        "design_discussion"
+      ],
+      "forbidden_use": [
+        "runtime_action"
+      ],
+      "verifier_rule_id": "VR_design_no_weaken_locked_invariant",
+      "regression_scenarios": [
+        "raw_episode_is_append_only"
+      ],
+      "behavioral_probe": "raw_append_only_gate"
+    },
+    {
+      "memory_id": "D_invariant_llm_no_authority",
+      "claim": "The LLM may propose typed candidates but must never assign authority, consolidate, or mutate memory directly.",
+      "node_type": "invariant",
+      "status": "regression_lock",
+      "source": "a.md#sprint_23_semantic_candidate_extraction",
+      "trace_id": "T_design_llm_boundary",
+      "epistemic_license": "full_premise",
+      "allowed_use": [
+        "release_invariant",
+        "human_review",
+        "design_discussion"
+      ],
+      "forbidden_use": [
+        "runtime_action"
+      ],
+      "verifier_rule_id": "VR_design_no_weaken_locked_invariant",
+      "regression_scenarios": [
+        "llm_output_cannot_create_authoritative_memory"
+      ],
+      "behavioral_probe": "llm_authority_gate"
+    }
+  ],
+  "design_decisions": [
+    {
+      "decision_id": "DD_sprint_20r_signed_replay_review",
+      "claim": "Signed replay identity review pass: only a valid signature may suppress a mutation.",
+      "node_type": "sprint_commitment",
+      "status": "consolidated",
+      "source": "a.md#sprint_20r",
+      "trace_id": "T_design_sprint_20r",
+      "epistemic_license": "full_premise",
+      "verifier_assessment": "V_DEC_sprint_20r_review_green",
+      "contradictions": [],
+      "revalidation_status": "closed"
+    },
+    {
+      "decision_id": "DD_sprint_21_asymmetric_identity",
+      "claim": "Asymmetric replay identity: public verification must not imply signing authority.",
+      "node_type": "sprint_commitment",
+      "status": "consolidated",
+      "source": "a.md#sprint_21",
+      "trace_id": "T_design_sprint_21",
+      "epistemic_license": "full_premise",
+      "verifier_assessment": "V_DEC_sprint_21_review_green",
+      "contradictions": [],
+      "revalidation_status": "closed"
+    },
+    {
+      "decision_id": "DD_sprint_22_raw_ingestion",
+      "claim": "Every incoming experience becomes an immutable raw episode before interpretation.",
+      "node_type": "sprint_commitment",
+      "status": "consolidated",
+      "source": "a.md#sprint_22",
+      "trace_id": "T_design_sprint_22",
+      "epistemic_license": "full_premise",
+      "verifier_assessment": "V_DEC_sprint_22_review_green",
+      "contradictions": [],
+      "revalidation_status": "closed"
+    },
+    {
+      "decision_id": "DD_sprint_23_semantic_candidates",
+      "claim": "Raw episodes produce candidate interpretations, not accepted facts.",
+      "node_type": "sprint_commitment",
+      "status": "consolidated",
+      "source": "a.md#sprint_23",
+      "trace_id": "T_design_sprint_23",
+      "epistemic_license": "full_premise",
+      "verifier_assessment": "V_DEC_sprint_23_review_green",
+      "contradictions": [],
+      "revalidation_status": "closed"
+    },
+    {
+      "decision_id": "DD_caitlin_leap_unification",
+      "claim": "Apply the runtime verifier, license, trace-audit, and correction-loop machinery to the project's own design decisions instead of grinding incremental collider sprints.",
+      "node_type": "design_proposal",
+      "status": "sprint_commitment",
+      "source": "COGNITIVE_OS_SELF_CORRECTING_LEAP.md",
+      "trace_id": "T_design_sprint_24_caitlin_leap",
+      "epistemic_license": "weak_premise",
+      "verifier_assessment": "V_DEC_design_leap_consistent",
+      "contradictions": [],
+      "revalidation_status": "scheduled"
+    },
+    {
+      "decision_id": "DD_sprint_25_derived_effect",
+      "claim": "Derive a design proposal's effect on an invariant from a semantic diff of the claims; a self-declared effect is an untrusted hint, never authority.",
+      "node_type": "sprint_commitment",
+      "status": "consolidated",
+      "source": "a.md#sprint_25",
+      "trace_id": "T_design_sprint_25_derived_effect",
+      "epistemic_license": "full_premise",
+      "verifier_assessment": "V_DEC_sprint_25_review_green",
+      "contradictions": [],
+      "revalidation_status": "closed"
+    },
+    {
+      "decision_id": "DD_sprint_26_trace_grounded_diff",
+      "claim": "Detect a weakening by what a proposal would break: bind protected invariants to real runtime behavioral probes and derive the effect from a pre/post trace; the lexical diff is only an early-warning layer and a probe-guarded invariant cannot be accepted without a passing trace.",
+      "node_type": "sprint_commitment",
+      "status": "consolidated",
+      "source": "a.md#sprint_26",
+      "trace_id": "T_design_sprint_26_trace_grounded_diff",
+      "epistemic_license": "full_premise",
+      "verifier_assessment": "V_DEC_sprint_26_review_green",
+      "contradictions": [],
+      "revalidation_status": "closed"
+    },
+    {
+      "decision_id": "DD_sprint_27_full_probe_coverage",
+      "claim": "Bind a real runtime behavioral probe to every locked invariant, and make a locked invariant without a probe ineligible for preserve/extend acceptance (no probe means no proof of preservation).",
+      "node_type": "sprint_commitment",
+      "status": "consolidated",
+      "source": "a.md#sprint_27",
+      "trace_id": "T_design_sprint_27_full_probe_coverage",
+      "epistemic_license": "full_premise",
+      "verifier_assessment": "V_DEC_sprint_27_review_green",
+      "contradictions": [],
+      "revalidation_status": "closed"
+    },
+    {
+      "decision_id": "DD_sprint_28_delta_provenance",
+      "claim": "The delta tested by trace_diff is derived from a provenance-verified change_set (structured patch bound to the real changed artifact and a digest), never from a self-declared behavioral_delta; missing or unverifiable provenance blocks a locked invariant.",
+      "node_type": "sprint_commitment",
+      "status": "consolidated",
+      "source": "a.md#sprint_28",
+      "trace_id": "T_design_sprint_28_delta_provenance",
+      "epistemic_license": "full_premise",
+      "verifier_assessment": "V_DEC_sprint_28_review_green",
+      "contradictions": [],
+      "revalidation_status": "closed"
+    },
+    {
+      "decision_id": "DD_sprint_29_artifact_content_binding",
+      "claim": "The tested delta is bound to the literal before/after content of a real on-disk policy artifact: a change_set carries pre/post image hashes and a diff digest, trace_diff verifies the pre-image against the artifact's actual content and derives the tested policy from the literal post-image; a stale, wrong-content, or structurally divergent patch is rejected.",
+      "node_type": "sprint_commitment",
+      "status": "consolidated",
+      "source": "a.md#sprint_29",
+      "trace_id": "T_design_sprint_29_artifact_content_binding",
+      "epistemic_license": "full_premise",
+      "verifier_assessment": "V_DEC_sprint_29_review_green",
+      "contradictions": [],
+      "revalidation_status": "closed"
+    },
+    {
+      "decision_id": "DD_sprint_30_signed_change_provenance",
+      "claim": "A content-bound change to a locked invariant requires a valid Ed25519 signature from an authorized signer over the content digest; authorization is necessary-not-sufficient and never overrides a trace regression (a signed weakening still blocks).",
+      "node_type": "sprint_commitment",
+      "status": "consolidated",
+      "source": "a.md#sprint_30",
+      "trace_id": "T_design_sprint_30_signed_change_provenance",
+      "epistemic_license": "full_premise",
+      "verifier_assessment": "V_DEC_sprint_30_review_green",
+      "contradictions": [],
+      "revalidation_status": "closed"
+    },
+    {
+      "decision_id": "DD_sprint_31_signer_set_governance",
+      "claim": "A public key is not permanent authority: each signer is a governed object with a scope and a lifecycle (active/expired/revoked/rotated), and authority is evaluated at the decision tick. A genuine signature from a now-revoked, expired, or out-of-scope signer is not authorization; a rotated successor is accepted while the revoked predecessor is not. Lifecycle is expressed in logical ticks (never wall-clock), and governance still never overrides a trace failure.",
+      "node_type": "sprint_commitment",
+      "status": "consolidated",
+      "source": "a.md#sprint_31",
+      "trace_id": "T_design_sprint_31_signer_set_governance",
+      "epistemic_license": "full_premise",
+      "verifier_assessment": "V_DEC_sprint_31_review_green",
+      "contradictions": [],
+      "revalidation_status": "closed"
+    },
+    {
+      "decision_id": "DD_sprint_32_mechanism_source_binding",
+      "claim": "A policy artifact says what the rule is; the mechanism SOURCE decides whether the rule is actually enforced. The enforcement code is bound by content hash in a manifest verified before any decision is trusted; a change to a mechanism-source file requires content-bound, signed provenance and is tested by running the bound probe against the PROPOSED source, so a gate-code weakening is caught by probe even when the policy artifacts stay clean. A signed policy is not enough if the gate code can be changed unsigned, and authorization never overrides a trace failure.",
+      "node_type": "sprint_commitment",
+      "status": "consolidated",
+      "source": "a.md#sprint_32",
+      "trace_id": "T_design_sprint_32_mechanism_source_binding",
+      "epistemic_license": "full_premise",
+      "verifier_assessment": "V_DEC_sprint_32_review_green",
+      "contradictions": [],
+      "revalidation_status": "closed"
+    }
+  ]
+}

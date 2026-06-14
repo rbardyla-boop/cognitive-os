@@ -1,0 +1,97 @@
+[
+  {
+    "id": "VR_scope_bridge_a",
+    "epistemic_license": "full_premise",
+    "when": {
+      "claim_contains": ["bridge a"],
+      "applies_to_excludes": ["Bridge A", "memory"]
+    },
+    "conflict_type": "scope_mismatch"
+  },
+  {
+    "id": "VR_known_exception",
+    "epistemic_license": "full_premise",
+    "when": {
+      "status": "exception_scoped"
+    },
+    "conflict_type": "known_exception"
+  },
+  {
+    "id": "VR_bridge_a_passable_heavy_rain",
+    "epistemic_license": "full_premise",
+    "when": {
+      "claim_contains": ["passable"],
+      "rule_claim_contains": ["avoid bridge a"],
+      "weather": "heavy_rain"
+    },
+    "conflict_type": "hard_contradiction"
+  },
+  {
+    "id": "VR_stale_dependency",
+    "epistemic_license": "weak_premise",
+    "when": {
+      "status": "confidence_reduced",
+      "rule_claim_contains": ["stale"]
+    },
+    "conflict_type": "soft_conflict"
+  },
+  {
+    "id": "VR_quarantined_memory",
+    "epistemic_license": "full_premise",
+    "when": {
+      "status": "quarantined"
+    },
+    "conflict_type": "unknown_anomaly"
+  },
+  {
+    "id": "V_RULE_CONTRADICTION_REPAIR_REQUIRES_STRONGER_EVIDENCE",
+    "epistemic_license": "full_premise",
+    "when": {
+      "repair_type": "resolved_by_new_evidence",
+      "new_evidence_authority": "higher"
+    },
+    "conflict_type": "no_conflict"
+  },
+  {
+    "id": "V_RULE_SCOPE_REPAIR_WHEN_CONTEXTS_DIFFER",
+    "epistemic_license": "full_premise",
+    "when": {
+      "repair_type": "resolved_by_scope",
+      "contexts_differ": true
+    },
+    "conflict_type": "no_conflict"
+  },
+  {
+    "id": "V_RULE_UNRESOLVED_CONTRADICTION_BLOCKS_FULL_PREMISE",
+    "epistemic_license": "full_premise",
+    "when": {
+      "repair_type": "unresolved",
+      "no_stronger_evidence": true
+    },
+    "conflict_type": "hard_contradiction"
+  },
+  {
+    "id": "V_RULE_PLANNER_REGRET_REQUIRES_OUTCOME_TRACE",
+    "epistemic_license": "weak_premise",
+    "when": {
+      "regret_type": "correct_under_uncertainty"
+    },
+    "conflict_type": "no_conflict"
+  },
+  {
+    "id": "V_RULE_PLANNER_NEAR_MISS_REQUIRES_REVIEW",
+    "epistemic_license": "weak_premise",
+    "when": {
+      "regret_type": "near_miss_policy_review"
+    },
+    "conflict_type": "soft_conflict"
+  },
+  {
+    "id": "V_RULE_PLANNER_OPPORTUNITY_COST_REVIEW",
+    "epistemic_license": "weak_premise",
+    "when": {
+      "regret_type": "opportunity_cost_regret"
+    },
+    "conflict_type": "soft_conflict"
+  }
+]

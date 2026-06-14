@@ -1,0 +1,30 @@
+{
+  "name": "signature_replay_against_different_artifact_rejected",
+  "command": "Copy a valid signature onto a change_set with different content.",
+  "design_proposal": {
+    "proposal_id": "DP_signature_replay",
+    "claim": "Add audit_log and audit_verbose fields that preserve hazard_only blocking.",
+    "targets_invariant": "D_invariant_hazard_blocks_action",
+    "effect": "extend",
+    "change_set": {
+      "target": "hazard_gate",
+      "changed_artifact": "simulations/bridge_world/control_point_policies/hazard_gate.json",
+      "pre_image": "{\n  \"urgency_overrides_hazard\": false\n}\n",
+      "pre_image_hash": "21f3c81af34b3edcbd71e8e1a766322e7ebc0483a38007e3e3f30d9fbe4ceb6d",
+      "post_image": "{\n  \"audit_log\": true,\n  \"audit_verbose\": true,\n  \"urgency_overrides_hazard\": false\n}\n",
+      "post_image_hash": "643e689745af38ecb8407e8c8bdb6df63bbbc0313b66b71027520d2b7a126095",
+      "diff_digest": "21acc129104e4a6624f7f6076429a7094d0fe623c719cea6ba2f213d85721549",
+      "signature": {
+        "scheme": "ed25519",
+        "signer": "design_authority",
+        "key_id": "ed25519_9e45f5ccae4f8a19",
+        "nonce": "nonce_replay",
+        "payload_digest": "64989cb8667909485e9e699f5984e76b04bcdc96b2e0a71ad912f684de381d6f",
+        "signature_hex": "05d819bf426345e92f9d3bf64b37cc719b55a2a717827f4f75c754167cfc6b4416a78a93883a6f767f1d3c2a51b537938ffa8fe4ccd758fe6b478089d6148f0b"
+      }
+    },
+    "source": "signature_replay_against_different_artifact_rejected.json",
+    "requested_use": "design_consolidation",
+    "mutation_id": "MUT_DP_signature_replay"
+  }
+}

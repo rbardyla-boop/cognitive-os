@@ -1,0 +1,53 @@
+{
+  "name": "planner_overconservative_waits_unnecessarily",
+  "command": "I need to cross the river quickly. Is Bridge A safe?",
+  "weather": "heavy_rain",
+  "time_budget_minutes": 12,
+  "risk_budget": 0.25,
+  "bridge_overrides": {
+    "B": {
+      "status": "unknown",
+      "rain_exposure": 0.9,
+      "damage_report": true
+    }
+  },
+  "planner_regret": {
+    "regret_id": "PR_003",
+    "regret_type": "opportunity_cost_regret",
+    "regret_class": "opportunity_cost",
+    "confidence": 0.7,
+    "target_policy_id": "PLAN_demo_bridge_choice",
+    "expected": {
+      "selected_route": "wait",
+      "likely_outcome": "waiting_for_conditions",
+      "risk_budget": 0.25
+    },
+    "actual": {
+      "observed_state": "waited_but_later_evidence_showed_bridge_b_was_passable",
+      "success": true
+    },
+    "outcome_override": {
+      "observed_state": "waited_but_later_evidence_showed_bridge_b_was_passable",
+      "success": true
+    },
+    "review_required": true,
+    "review_reason": "Overconservative wait created opportunity-cost regret; this is not a safety failure.",
+    "verifier_rule_id": "V_RULE_PLANNER_OPPORTUNITY_COST_REVIEW",
+    "policy_update_kind": "opportunity_cost_review",
+    "scope_conditions": {
+      "weather": "heavy_rain",
+      "selected_route": "wait",
+      "later_evidence": "bridge_b_passable"
+    },
+    "policy_update": {
+      "status": "planner_policy_opportunity_cost_review",
+      "confidence": 0.62,
+      "scope_conditions": {
+        "weather": "heavy_rain",
+        "selected_route": "wait",
+        "later_evidence": "bridge_b_passable"
+      },
+      "planner_regret_note": "Opportunity-cost review; not classified as safety failure."
+    }
+  }
+}

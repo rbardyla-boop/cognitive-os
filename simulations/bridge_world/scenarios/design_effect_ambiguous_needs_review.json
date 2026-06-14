@@ -1,0 +1,12 @@
+{
+  "name": "design_effect_ambiguous_needs_review",
+  "command": "Submit a proposal that touches a protected invariant without proving it preserves the protection.",
+  "design_proposal": {
+    "proposal_id": "DP_ambiguous_hazard_revisit",
+    "claim": "Revisit how hazard_only contradiction evidence interacts with direct action during urgent crossings.",
+    "targets_invariant": "D_invariant_hazard_blocks_action",
+    "source": "design_effect_ambiguous_needs_review.json",
+    "requested_use": "design_consolidation",
+    "mutation_id": "MUT_DP_ambiguous_hazard_revisit"
+  }
+}

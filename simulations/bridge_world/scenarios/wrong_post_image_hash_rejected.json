@@ -1,0 +1,22 @@
+{
+  "name": "wrong_post_image_hash_rejected",
+  "command": "Submit a change whose post-image hash does not match the post-image content.",
+  "design_proposal": {
+    "proposal_id": "DP_wrong_post_image",
+    "claim": "Add audit logging that preserves hazard_only blocking and still blocks direct action.",
+    "targets_invariant": "D_invariant_hazard_blocks_action",
+    "effect": "extend",
+    "change_set": {
+      "target": "hazard_gate",
+      "changed_artifact": "simulations/bridge_world/control_point_policies/hazard_gate.json",
+      "pre_image": "{\n  \"urgency_overrides_hazard\": false\n}\n",
+      "pre_image_hash": "21f3c81af34b3edcbd71e8e1a766322e7ebc0483a38007e3e3f30d9fbe4ceb6d",
+      "post_image": "{\n  \"audit_log\": true,\n  \"urgency_overrides_hazard\": false\n}\n",
+      "post_image_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "diff_digest": "6aba2d5afea6318f946238a5471ab98dcaae10a7f09ad4cd32490487a2aee701"
+    },
+    "source": "wrong_post_image_hash_rejected.json",
+    "requested_use": "design_consolidation",
+    "mutation_id": "MUT_DP_wrong_post_image"
+  }
+}

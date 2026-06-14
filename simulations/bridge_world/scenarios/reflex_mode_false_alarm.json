@@ -1,0 +1,41 @@
+{
+  "name": "reflex_mode_false_alarm",
+  "command": "I need to cross the river quickly. Is Bridge A safe?",
+  "weather": "clear",
+  "time_budget_minutes": 12,
+  "risk_budget": 0.25,
+  "bridge_overrides": {
+    "A": {
+      "status": "passable",
+      "rain_exposure": 0.0,
+      "damage_report": false
+    }
+  },
+  "attention_review": {
+    "review_id": "AR_002",
+    "classification": "over_triggered",
+    "confidence": 0.76,
+    "review_required": true,
+    "review_reason": "Reflex mode was over-triggered by urgency language after current context showed low bridge/weather risk.",
+    "verifier_rule_id": "V_RULE_ATTENTION_FALSE_REFLEX_REQUIRES_REVIEW",
+    "policy_update_kind": "threshold_review",
+    "scope_conditions": {
+      "urgency": "high",
+      "weather": "clear",
+      "bridge_a_damage_report": false
+    },
+    "policy_update": {
+      "status": "attention_policy_review_required",
+      "confidence": 0.6,
+      "mode_policy": {
+        "review": "check current hazard evidence before Reflex escalation on urgency alone"
+      },
+      "scope_conditions": {
+        "urgency": "high",
+        "weather": "clear",
+        "bridge_a_damage_report": false
+      },
+      "attention_review_note": "Over-trigger review opened; no memory, procedure, planner, verifier, or authority change."
+    }
+  }
+}

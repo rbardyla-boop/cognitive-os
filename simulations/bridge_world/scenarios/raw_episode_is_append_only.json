@@ -1,0 +1,34 @@
+{
+  "name": "raw_episode_is_append_only",
+  "command": "Attempt to overwrite a raw episode.",
+  "trace_id": "T_RAW_003",
+  "attempt_raw_episode_replace": true,
+  "experience_envelopes": [
+    {
+      "envelope_id": "bridge_b_audio_raw",
+      "trace_id": "T_RAW_003",
+      "source": "field_microphone",
+      "observed_at": "2026-06-13T12:05:00Z",
+      "logical_tick": 2,
+      "modality": "audio_transcript",
+      "ingestion_license": "semantic_candidate_allowed",
+      "capture_context": {
+        "bridge": "Bridge B",
+        "weather": "heavy_rain",
+        "sensor": "mic_2"
+      },
+      "raw_payload": {
+        "transcript": "No unusual vibration heard near Bridge B.",
+        "bridge": "Bridge B",
+        "duration_seconds": 20
+      }
+    }
+  ],
+  "semantic_candidates": [
+    {
+      "source_envelope_id": "bridge_b_audio_raw",
+      "candidate_id": "SC_bridge_b_no_unusual_vibration",
+      "claim": "Bridge B has no unusual vibration in this audio sample."
+    }
+  ]
+}

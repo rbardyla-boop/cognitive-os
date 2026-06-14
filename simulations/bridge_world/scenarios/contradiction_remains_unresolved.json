@@ -1,0 +1,34 @@
+{
+  "name": "contradiction_remains_unresolved",
+  "command": "Can you certify Bridge A is safe?",
+  "contradiction_repair": {
+    "repair_id": "CR_003",
+    "repair_type": "unresolved",
+    "source_contradiction": "C_bridge_a_003",
+    "target_nodes": ["M_bridge_a_passable", "M_bridge_a_damage_reported"],
+    "decision": "preserve_unresolved_contradiction",
+    "reason": "no stronger evidence and no valid scope boundary",
+    "source_evidence": [],
+    "verifier_rule_id": "V_RULE_UNRESOLVED_CONTRADICTION_BLOCKS_FULL_PREMISE",
+    "raw_episodes_preserved": true,
+    "strict_action_blocked": true,
+    "mutations": [
+      {
+        "mutation_type": "contradiction_status_update",
+        "target_object_id": "M_bridge_a_passable",
+        "new_status": "contradicted",
+        "patch": {
+          "repair_note": "Unresolved contradiction remains visible."
+        }
+      },
+      {
+        "mutation_type": "contradiction_status_update",
+        "target_object_id": "M_bridge_a_damage_reported",
+        "new_status": "contradicted",
+        "patch": {
+          "repair_note": "Unresolved contradiction remains visible."
+        }
+      }
+    ]
+  }
+}

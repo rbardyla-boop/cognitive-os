@@ -1,0 +1,30 @@
+{
+  "name": "wrong_signer_rejected",
+  "command": "Submit a content-bound change signed by a signer not in the authorized registry.",
+  "design_proposal": {
+    "proposal_id": "DP_wrong_signer",
+    "claim": "Add an audit_log field that preserves hazard_only blocking and still blocks direct action.",
+    "targets_invariant": "D_invariant_hazard_blocks_action",
+    "effect": "extend",
+    "change_set": {
+      "target": "hazard_gate",
+      "changed_artifact": "simulations/bridge_world/control_point_policies/hazard_gate.json",
+      "pre_image": "{\n  \"urgency_overrides_hazard\": false\n}\n",
+      "pre_image_hash": "21f3c81af34b3edcbd71e8e1a766322e7ebc0483a38007e3e3f30d9fbe4ceb6d",
+      "post_image": "{\n  \"audit_log\": true,\n  \"urgency_overrides_hazard\": false\n}\n",
+      "post_image_hash": "bf410aa656f5f4e3bed73e4b0f329622e4341563b6014304a153599b04d692c0",
+      "diff_digest": "6aba2d5afea6318f946238a5471ab98dcaae10a7f09ad4cd32490487a2aee701",
+      "signature": {
+        "scheme": "ed25519",
+        "signer": "rogue_signer",
+        "key_id": "ed25519_9e45f5ccae4f8a19",
+        "nonce": "nonce_rogue",
+        "payload_digest": "9b5bac18be525ce4931c3da95d39a74b2a796827b89a053ebb9e4d715ced426b",
+        "signature_hex": "b6185220993826c4cf2bea31e1f64ca8b7e842617da0517c0357dccd79b27cedbf30c7e3f5d6f00059086eaa046b68998beb6464b586db09d08b0813d14f8708"
+      }
+    },
+    "source": "wrong_signer_rejected.json",
+    "requested_use": "design_consolidation",
+    "mutation_id": "MUT_DP_wrong_signer"
+  }
+}

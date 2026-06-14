@@ -1,0 +1,7 @@
+{
+  "release": "cognitive-os-v0.1.0",
+  "cip_schema": "cip-schema-v0.1",
+  "memory_schema": "memory-schema-v0.1",
+  "simulation": "simulation-bridge-world-v0.1"
+}
+

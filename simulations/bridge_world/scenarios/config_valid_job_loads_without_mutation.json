@@ -1,0 +1,17 @@
+{
+  "name": "config_valid_job_loads_without_mutation",
+  "command": "Load a valid correction job that requires no state mutation.",
+  "resolve_jobs": true,
+  "correction_jobs": [
+    {
+      "job_id": "CJ_valid_safety",
+      "job_type": "safety_interrupt_recovery",
+      "source_packet_id": "P_SAFETY",
+      "trace_id": "T_RECOVERY",
+      "created_at_tick": 1,
+      "target_object_ids": ["Bridge A"],
+      "required_authority": "none",
+      "deferred_reason": "valid P0 recovery job with no governed mutation"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "name": "revoked_signer_rejected",
+  "command": "Submit a content-bound preserving change signed by a signer whose authority is revoked.",
+  "design_proposal": {
+    "proposal_id": "DP_revoked_signer",
+    "claim": "Add an audit_log field that preserves hazard_only blocking and still blocks direct action.",
+    "targets_invariant": "D_invariant_hazard_blocks_action",
+    "effect": "extend",
+    "evaluation_tick": 0,
+    "change_set": {
+      "target": "hazard_gate",
+      "changed_artifact": "simulations/bridge_world/control_point_policies/hazard_gate.json",
+      "pre_image": "{\n  \"urgency_overrides_hazard\": false\n}\n",
+      "pre_image_hash": "21f3c81af34b3edcbd71e8e1a766322e7ebc0483a38007e3e3f30d9fbe4ceb6d",
+      "post_image": "{\n  \"audit_log\": true,\n  \"urgency_overrides_hazard\": false\n}\n",
+      "post_image_hash": "bf410aa656f5f4e3bed73e4b0f329622e4341563b6014304a153599b04d692c0",
+      "diff_digest": "6aba2d5afea6318f946238a5471ab98dcaae10a7f09ad4cd32490487a2aee701",
+      "signature": {
+        "scheme": "ed25519",
+        "signer": "revoked_authority",
+        "key_id": "ed25519_9a1091ca047baab2",
+        "nonce": "nonce_revoked",
+        "payload_digest": "ddee61d58fab4fdb4728bbdacbafb2e7a7faca28257399ba13070c38943f7a31",
+        "signature_hex": "bb7b90f84ad8083f5de3b30905c86b847cd15c4f4c3822a2eca04e0a1d62067823921f7eeb5885cab523c6c3d41a95bfa9bb3d98e236df3aef08827f5d0f0302"
+      }
+    },
+    "source": "revoked_signer_rejected.json",
+    "requested_use": "design_consolidation",
+    "mutation_id": "MUT_DP_revoked_signer"
+  }
+}

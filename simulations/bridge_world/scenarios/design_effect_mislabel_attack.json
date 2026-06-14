@@ -1,0 +1,13 @@
+{
+  "name": "design_effect_mislabel_attack",
+  "command": "Submit a weakening proposal disguised as an extension.",
+  "design_proposal": {
+    "proposal_id": "DP_mislabel_urgency_override",
+    "claim": "Allow direct action under hazard_only contradiction when urgency is high so urgent crossings are not blocked.",
+    "targets_invariant": "D_invariant_hazard_blocks_action",
+    "effect": "extend",
+    "source": "design_effect_mislabel_attack.json",
+    "requested_use": "design_consolidation",
+    "mutation_id": "MUT_DP_mislabel_urgency_override"
+  }
+}

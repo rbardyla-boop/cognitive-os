@@ -1,0 +1,30 @@
+{
+  "name": "design_effect_preserve_consistent",
+  "command": "Submit a proposal that restates and strengthens the hazard block.",
+  "design_proposal": {
+    "proposal_id": "DP_preserve_hazard_block",
+    "claim": "The hazard_only block on direct action must still hold under all urgency levels and is strengthened by this proposal.",
+    "targets_invariant": "D_invariant_hazard_blocks_action",
+    "effect": "preserve",
+    "change_set": {
+      "target": "hazard_gate",
+      "changed_artifact": "simulations/bridge_world/control_point_policies/hazard_gate.json",
+      "pre_image": "{\n  \"urgency_overrides_hazard\": false\n}\n",
+      "pre_image_hash": "21f3c81af34b3edcbd71e8e1a766322e7ebc0483a38007e3e3f30d9fbe4ceb6d",
+      "post_image": "{\n  \"urgency_overrides_hazard\": false\n}\n",
+      "post_image_hash": "21f3c81af34b3edcbd71e8e1a766322e7ebc0483a38007e3e3f30d9fbe4ceb6d",
+      "diff_digest": "94c57f2dbca9bc9f4c49be8e27f7c7e7ddb2f88f7b494bcc033a2150d3ac5413",
+      "signature": {
+        "scheme": "ed25519",
+        "signer": "design_authority",
+        "key_id": "ed25519_9e45f5ccae4f8a19",
+        "nonce": "nonce_design_effect_preserve_consistent",
+        "payload_digest": "bfbe0da319ab1b3fd7edb72e0d5653d10a3d527d8980e871465db54e0b492b13",
+        "signature_hex": "42ed78143fda3ef1ff8ae0d79b402787a5930f96d5500eae42bb73027290a8d6151ff016829fddaefbbdf25de095c123d77de64f895ae910c8ffc2477cc7db09"
+      }
+    },
+    "source": "design_effect_preserve_consistent.json",
+    "requested_use": "design_consolidation",
+    "mutation_id": "MUT_DP_preserve_hazard_block"
+  }
+}

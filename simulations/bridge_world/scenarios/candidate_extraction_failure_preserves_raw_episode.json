@@ -1,0 +1,33 @@
+{
+  "name": "candidate_extraction_failure_preserves_raw_episode",
+  "command": "Fail candidate extraction without losing raw evidence.",
+  "trace_id": "T_SEM_005",
+  "experience_envelopes": [
+    {
+      "envelope_id": "bridge_a_bad_candidate_raw",
+      "trace_id": "T_SEM_005",
+      "source": "human_inspector",
+      "observed_at": "2026-06-13T13:20:00Z",
+      "logical_tick": 14,
+      "modality": "human_report",
+      "ingestion_license": "semantic_candidate_allowed",
+      "capture_context": {
+        "bridge": "Bridge A"
+      },
+      "raw_payload": {
+        "bridge": "Bridge A",
+        "text": "Bridge A report is garbled but still raw evidence."
+      }
+    }
+  ],
+  "candidate_extraction": {
+    "proposals": [
+      {
+        "source_envelope_id": "bridge_a_bad_candidate_raw",
+        "candidate_id": "CMN_bad_empty_claim",
+        "claim": "",
+        "extraction_method": "deterministic_stub"
+      }
+    ]
+  }
+}

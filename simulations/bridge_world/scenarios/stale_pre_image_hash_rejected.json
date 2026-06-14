@@ -1,0 +1,22 @@
+{
+  "name": "stale_pre_image_hash_rejected",
+  "command": "Submit a change against a pre-image that is not the artifact's current content.",
+  "design_proposal": {
+    "proposal_id": "DP_stale_pre_image",
+    "claim": "Add audit logging that preserves hazard_only blocking and still blocks direct action.",
+    "targets_invariant": "D_invariant_hazard_blocks_action",
+    "effect": "extend",
+    "change_set": {
+      "target": "hazard_gate",
+      "changed_artifact": "simulations/bridge_world/control_point_policies/hazard_gate.json",
+      "pre_image": "{\n  \"_stale_marker\": true,\n  \"urgency_overrides_hazard\": false\n}\n",
+      "pre_image_hash": "ddacbc0b4a291d3bd93c1892b77945ca63ac8e2ab20516a9b360bf86a1104088",
+      "post_image": "{\n  \"_stale_marker\": true,\n  \"audit_log\": true,\n  \"urgency_overrides_hazard\": false\n}\n",
+      "post_image_hash": "c0e8ae0fa99ad7dd88b1e0b435628c235883ac9da700b137944d443d9533d1db",
+      "diff_digest": "c2db6a57c057dd17c19eba298cb35c729d29503dd0126c7a2fc2661207d590ca"
+    },
+    "source": "stale_pre_image_hash_rejected.json",
+    "requested_use": "design_consolidation",
+    "mutation_id": "MUT_DP_stale_pre_image"
+  }
+}

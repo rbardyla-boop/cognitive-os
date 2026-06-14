@@ -1,0 +1,31 @@
+{
+  "name": "valid_human_promotion_allows_invariant",
+  "command": "Promote a reviewed bootstrap invariant.",
+  "mutation_scenario": {
+    "mutation_id": "MUT_valid_human_promotion",
+    "target_object_id": "D_claim_no_naked_facts",
+    "requested_use": "human_approved_promotion",
+    "mutation_type": "bootstrap_promotion",
+    "verifier_decision_id": "V_DEC_human_promotion_allowed",
+    "verifier_decision": "allow",
+    "verifier_rule_id": "V_RULE_HUMAN_PROMOTION_REQUIRED",
+    "bootstrap_claim": "No retrieval result should return naked facts without license and provenance.",
+    "source_packet": {
+      "packet_type": "HumanPromotionPacket",
+      "source_engine": "human_review",
+      "confidence": 0.98,
+      "epistemic_license": "full_premise",
+      "allowed_use": ["human_approved_promotion", "human_explanation"],
+      "forbidden_use": ["direct_action", "rule_revision", "safety_certification"],
+      "payload": {
+        "type": "HumanPromotionPacket",
+        "reviewer": "human",
+        "decision": "approve_bootstrap_promotion",
+        "target_object_id": "D_claim_no_naked_facts"
+      }
+    },
+    "authority_snapshot": {
+      "forbidden_use": []
+    }
+  }
+}

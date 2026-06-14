@@ -1,0 +1,51 @@
+{
+  "name": "recovery_queue_orders_mixed_jobs",
+  "command": "Replay mixed correction work deterministically.",
+  "correction_jobs": [
+    {
+      "job_id": "CJ_planner_003",
+      "job_type": "planner_review",
+      "source_packet_id": "P_PLAN_REGRET",
+      "trace_id": "T_RECOVERY",
+      "created_at_tick": 30,
+      "target_object_ids": ["PLAN_demo_bridge_choice"],
+      "deferred_reason": "planner near miss review"
+    },
+    {
+      "job_id": "CJ_contradiction_001",
+      "job_type": "contradiction_repair",
+      "source_packet_id": "P_CONTRADICTION",
+      "trace_id": "T_RECOVERY",
+      "created_at_tick": 20,
+      "target_object_ids": ["M_bridge_a_damage_reported"],
+      "deferred_reason": "unresolved contradiction"
+    },
+    {
+      "job_id": "CJ_attention_004",
+      "job_type": "attention_mode_review",
+      "source_packet_id": "P_ATTENTION_REVIEW",
+      "trace_id": "T_RECOVERY",
+      "created_at_tick": 25,
+      "target_object_ids": ["ATTN_bridge_world_v0_1"],
+      "deferred_reason": "false reflex review"
+    },
+    {
+      "job_id": "CJ_action_002",
+      "job_type": "post_action_revalidation",
+      "source_packet_id": "P_ACTION_OUTCOME",
+      "trace_id": "T_RECOVERY",
+      "created_at_tick": 40,
+      "target_object_ids": ["M_bridge_a_passable"],
+      "deferred_reason": "degraded action used stale memory"
+    },
+    {
+      "job_id": "CJ_semantic_005",
+      "job_type": "semantic_consolidation",
+      "source_packet_id": "P_BACKPRESSURE",
+      "trace_id": "T_RECOVERY",
+      "created_at_tick": 10,
+      "target_object_ids": ["M_bridge_b_open"],
+      "deferred_reason": "background consolidation"
+    }
+  ]
+}

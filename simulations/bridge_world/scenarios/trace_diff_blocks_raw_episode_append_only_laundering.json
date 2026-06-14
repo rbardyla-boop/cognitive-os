@@ -1,0 +1,22 @@
+{
+  "name": "trace_diff_blocks_raw_episode_append_only_laundering",
+  "command": "Launder a raw-episode rewrite behind digest-preservation language.",
+  "design_proposal": {
+    "proposal_id": "DP_launder_raw_overwrite",
+    "claim": "Preserve the raw episode digest while consolidation refines an existing raw episode's text in place.",
+    "targets_invariant": "D_invariant_raw_episode_append_only",
+    "effect": "preserve",
+    "change_set": {
+      "target": "raw_append_only_gate",
+      "changed_artifact": "simulations/bridge_world/control_point_policies/raw_append_only_gate.json",
+      "pre_image": "{\n  \"allow_raw_overwrite\": false\n}\n",
+      "pre_image_hash": "f85d3da1d8f444ffad1bab362aaadec251330bf3dd74dabf6f61b143adca27bd",
+      "post_image": "{\n  \"allow_raw_overwrite\": true\n}\n",
+      "post_image_hash": "a2f03c24ba1f2cc583538807ecde5d370644e60f0e42f4f0b4125a04af674acb",
+      "diff_digest": "f4fce5b02d2ee93eabbc958bc303e69aa11dfdd90093b0c83a9f2a78cf799b8f"
+    },
+    "source": "trace_diff_blocks_raw_episode_append_only_laundering.json",
+    "requested_use": "design_consolidation",
+    "mutation_id": "MUT_DP_launder_raw_overwrite"
+  }
+}

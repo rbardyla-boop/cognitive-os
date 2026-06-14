@@ -1,0 +1,16 @@
+# Python caches (regenerable)
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Virtualenvs (the correct interpreter is system /usr/bin/python3 — see ENVIRONMENT.md)
+.venv/
+venv/
+
+# Stray run-output captures (regenerable; not artifacts)
+release_check_out.txt
+run_output.txt
+
+# OS noise
+.DS_Store
+*.tmp

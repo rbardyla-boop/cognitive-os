@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.cognitive-os/schemas/cip/envelope.schema.json",
+  "title": "CIP Envelope",
+  "type": "object",
+  "required": ["header", "epistemics", "permissions", "payload"],
+  "properties": {
+    "header": {
+      "type": "object",
+      "required": [
+        "packet_id",
+        "packet_type",
+        "schema_version",
+        "source_engine",
+        "target_engine",
+        "trace_id",
+        "created_at",
+        "priority",
+        "time_budget_ms"
+      ],
+      "properties": {
+        "packet_id": { "type": "string", "pattern": "^P_[A-Za-z0-9_-]+$" },
+        "packet_type": {
+          "type": "string",
+          "enum": [
+            "IntentPacket",
+            "ClaimPacket",
+            "EvidencePacket",
+            "EpisodePacket",
+            "RulePacket",
+            "RetrievalRequest",
+            "RetrievalResult",
+            "ContradictionPacket",
+            "PlanProposal",
+            "ActionCommand",
+            "ActionOutcome",
+            "MemoryMutation",
+            "SystemStatePacket",
+            "BackpressureCommand",
+            "HumanPromotionPacket",
+            "PlanRegretPacket",
+            "AttentionModeReviewPacket"
+          ]
+        },
+        "schema_version": { "type": "string", "const": "0.1" },
+        "source_engine": { "type": "string" },
+        "target_engine": { "type": "string" },
+        "trace_id": { "type": "string", "pattern": "^T_[A-Za-z0-9_-]+$" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "priority": { "type": "string", "enum": ["P0", "P1", "P2", "P3", "P4", "P5", "P6"] },
+        "time_budget_ms": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "epistemics": {
+      "type": "object",
+      "required": [
+        "confidence",
+        "uncertainty_type",
+        "epistemic_license",
+        "provenance",
+        "contradictions"
+      ],
+      "properties": {
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "uncertainty_type": {
+          "type": "string",
+          "enum": ["observed", "derived", "user_assertion", "memory_retrieval", "rule_based", "simulation_result"]
+        },
+        "epistemic_license": {
+          "type": "string",
+          "enum": [
+            "full_premise",
+            "weak_premise",
+            "hypothesis_only",
+            "hazard_only",
+            "do_not_use_for_action"
+          ]
+        },
+        "provenance": {
+          "type": "array",
+          "items": { "type": "object" }
+        },
+        "contradictions": {
+          "type": "array",
+          "items": { "type": "object" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "permissions": {
+      "type": "object",
+      "required": ["allowed_use", "forbidden_use"],
+      "properties": {
+        "allowed_use": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "retrieval",
+              "planning",
+              "planning_with_fallback",
+              "human_explanation",
+              "contradiction_detection",
+              "sandbox_testing",
+              "direct_action",
+              "memory_consolidation",
+              "rule_revision",
+              "safety_certification",
+              "human_approved_promotion",
+              "planner_policy_update",
+              "attention_policy_update"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "forbidden_use": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "retrieval",
+              "planning",
+              "planning_with_fallback",
+              "human_explanation",
+              "contradiction_detection",
+              "sandbox_testing",
+              "direct_action",
+              "memory_consolidation",
+              "rule_revision",
+              "safety_certification",
+              "human_approved_promotion",
+              "planner_policy_update",
+              "attention_policy_update"
+            ]
+          },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "payload": { "type": "object" }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,29 @@
+{
+  "name": "failed_job_retry_preserves_audit_lineage",
+  "command": "Retry a failed correction job while preserving its original failure record.",
+  "resolve_jobs": true,
+  "source_packets": [
+    {
+      "header": {"packet_id": "P_ACTION_OUTCOME", "source_engine": "recovery_replay"},
+      "permissions": {"allowed_use": ["memory_consolidation"], "forbidden_use": ["direct_action"]}
+    }
+  ],
+  "target_objects": [
+    {"memory_id": "M_bridge_a_passable", "status": "retest_required"}
+  ],
+  "correction_jobs": [
+    {
+      "job_id": "CJ_retry_001",
+      "job_type": "post_action_revalidation",
+      "source_packet_id": "P_ACTION_OUTCOME",
+      "trace_id": "T_RECOVERY",
+      "created_at_tick": 1,
+      "target_object_ids": ["M_bridge_a_passable"],
+      "status": "failed",
+      "blocked_reason": "missing_target_or_source_packet",
+      "deferred_reason": "first resolution attempt failed before target was available",
+      "original_failure": {"attempt": 1, "outcome": "failed", "reason": "missing_target_or_source_packet", "at_tick": 1},
+      "retry_lineage": [{"attempt": 1, "outcome": "failed", "reason": "missing_target_or_source_packet", "at_tick": 1}]
+    }
+  ]
+}

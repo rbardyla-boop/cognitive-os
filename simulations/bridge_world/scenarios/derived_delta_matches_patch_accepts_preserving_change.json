@@ -1,0 +1,30 @@
+{
+  "name": "derived_delta_matches_patch_accepts_preserving_change",
+  "command": "Submit a genuine preserving change whose change_set patch does not regress the gate.",
+  "design_proposal": {
+    "proposal_id": "DP_provenance_preserving_logging",
+    "claim": "Add a logging field that preserves hazard_only blocking and still blocks direct action, recording why each crossing was blocked.",
+    "targets_invariant": "D_invariant_hazard_blocks_action",
+    "effect": "extend",
+    "change_set": {
+      "target": "hazard_gate",
+      "changed_artifact": "simulations/bridge_world/control_point_policies/hazard_gate.json",
+      "pre_image": "{\n  \"urgency_overrides_hazard\": false\n}\n",
+      "pre_image_hash": "21f3c81af34b3edcbd71e8e1a766322e7ebc0483a38007e3e3f30d9fbe4ceb6d",
+      "post_image": "{\n  \"audit_log\": true,\n  \"urgency_overrides_hazard\": false\n}\n",
+      "post_image_hash": "bf410aa656f5f4e3bed73e4b0f329622e4341563b6014304a153599b04d692c0",
+      "diff_digest": "6aba2d5afea6318f946238a5471ab98dcaae10a7f09ad4cd32490487a2aee701",
+      "signature": {
+        "scheme": "ed25519",
+        "signer": "design_authority",
+        "key_id": "ed25519_9e45f5ccae4f8a19",
+        "nonce": "nonce_derived_delta_matches_patch_accepts_preserving_change",
+        "payload_digest": "7d240f614bbfcc8ca0da7fb9ddee47fd6856dc45b4dc9105a408e20d0bdde944",
+        "signature_hex": "41e4571ac1c35d2b62dd5671ec9a5b86e19fa6e829c05746b025961f707d410372374dc4665bbd18aaab2af6ae13dfa8a6419ef56f1f52d648586055bd577c0f"
+      }
+    },
+    "source": "derived_delta_matches_patch_accepts_preserving_change.json",
+    "requested_use": "design_consolidation",
+    "mutation_id": "MUT_DP_provenance_preserving_logging"
+  }
+}

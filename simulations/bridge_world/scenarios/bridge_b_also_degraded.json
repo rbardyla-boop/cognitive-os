@@ -1,0 +1,15 @@
+{
+  "name": "bridge_b_also_degraded",
+  "command": "I need to cross the river quickly. Is Bridge A safe?",
+  "weather": "heavy_rain",
+  "time_budget_minutes": 12,
+  "risk_budget": 0.25,
+  "bridge_overrides": {
+    "B": {
+      "status": "unknown",
+      "rain_exposure": 0.9,
+      "damage_report": true
+    }
+  }
+}
+

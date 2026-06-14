@@ -1,0 +1,31 @@
+{
+  "name": "wrong_scope_signer_rejected",
+  "command": "Submit a hazard_gate change signed by a signer scoped only to consolidation_gate.",
+  "design_proposal": {
+    "proposal_id": "DP_wrong_scope_signer",
+    "claim": "Add an audit_log field that preserves hazard_only blocking and still blocks direct action.",
+    "targets_invariant": "D_invariant_hazard_blocks_action",
+    "effect": "extend",
+    "evaluation_tick": 0,
+    "change_set": {
+      "target": "hazard_gate",
+      "changed_artifact": "simulations/bridge_world/control_point_policies/hazard_gate.json",
+      "pre_image": "{\n  \"urgency_overrides_hazard\": false\n}\n",
+      "pre_image_hash": "21f3c81af34b3edcbd71e8e1a766322e7ebc0483a38007e3e3f30d9fbe4ceb6d",
+      "post_image": "{\n  \"audit_log\": true,\n  \"urgency_overrides_hazard\": false\n}\n",
+      "post_image_hash": "bf410aa656f5f4e3bed73e4b0f329622e4341563b6014304a153599b04d692c0",
+      "diff_digest": "6aba2d5afea6318f946238a5471ab98dcaae10a7f09ad4cd32490487a2aee701",
+      "signature": {
+        "scheme": "ed25519",
+        "signer": "scoped_authority",
+        "key_id": "ed25519_3519fc422a221cda",
+        "nonce": "nonce_scope",
+        "payload_digest": "637a3ad2f407314ee072cfa14bcd10bd075a6459fbf30d5269d15013acbd0bdf",
+        "signature_hex": "3103b0cb9f2d34c0467ce61a1fd128b080b2b0414a42bb6f6ccba62d00a7de5428ef5d52ba13f2794984fc71d9e1ed07bc32c163e43c97f33f6c7fee9ac54f07"
+      }
+    },
+    "source": "wrong_scope_signer_rejected.json",
+    "requested_use": "design_consolidation",
+    "mutation_id": "MUT_DP_wrong_scope_signer"
+  }
+}

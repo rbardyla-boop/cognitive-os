@@ -1,0 +1,30 @@
+{
+  "name": "signed_weakening_change_still_blocks",
+  "command": "Submit a validly-signed weakening; authorization must not override the trace block.",
+  "design_proposal": {
+    "proposal_id": "DP_signed_weakening",
+    "claim": "Tune the hazard urgency policy while preserving the overall block.",
+    "targets_invariant": "D_invariant_hazard_blocks_action",
+    "effect": "preserve",
+    "change_set": {
+      "target": "hazard_gate",
+      "changed_artifact": "simulations/bridge_world/control_point_policies/hazard_gate.json",
+      "pre_image": "{\n  \"urgency_overrides_hazard\": false\n}\n",
+      "pre_image_hash": "21f3c81af34b3edcbd71e8e1a766322e7ebc0483a38007e3e3f30d9fbe4ceb6d",
+      "post_image": "{\n  \"urgency_overrides_hazard\": true\n}\n",
+      "post_image_hash": "2b5101d9be64f53fbd3065f68e6ae9a7935e6ef14f2e84d5019a2cc5cf15ffc1",
+      "diff_digest": "d1cc31832c5431ca42143b752d9ba58589155267c2261ce66c179f89eacb5832",
+      "signature": {
+        "scheme": "ed25519",
+        "signer": "design_authority",
+        "key_id": "ed25519_9e45f5ccae4f8a19",
+        "nonce": "nonce_signed_weaken",
+        "payload_digest": "ab2a736dc6d15d983f6a93d0838b374d8a13264eef5140325dd4f29873dcc08d",
+        "signature_hex": "851cb4d2f7ff9e799856763c4b1c5385ecb59e79c36b31f863c72062f321d6d56ccd1efffb244bbc0739048324d165d0b94a442438803d97676f1504812f110d"
+      }
+    },
+    "source": "signed_weakening_change_still_blocks.json",
+    "requested_use": "design_consolidation",
+    "mutation_id": "MUT_DP_signed_weakening"
+  }
+}

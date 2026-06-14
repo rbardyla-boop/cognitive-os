@@ -1,0 +1,40 @@
+{
+  "name": "contradiction_resolved_by_new_evidence",
+  "command": "Repair Bridge A contradiction using official inspection evidence.",
+  "contradiction_repair": {
+    "repair_id": "CR_001",
+    "repair_type": "resolved_by_new_evidence",
+    "source_contradiction": "C_bridge_a_001",
+    "target_nodes": ["M_bridge_a_passable", "M_bridge_a_damage_reported"],
+    "decision": "supersede_damage_report",
+    "source_evidence": [
+      {
+        "episode_id": "E_bridge_a_inspection_clear",
+        "source": "inspection_report",
+        "authority": "full_premise",
+        "claim": "Official inspection clears Bridge A after damage report."
+      }
+    ],
+    "verifier_rule_id": "V_RULE_CONTRADICTION_REPAIR_REQUIRES_STRONGER_EVIDENCE",
+    "raw_episodes_preserved": true,
+    "mutations": [
+      {
+        "mutation_type": "semantic_status_update",
+        "target_object_id": "M_bridge_a_damage_reported",
+        "new_status": "superseded",
+        "patch": {
+          "repair_note": "Superseded by later official inspection; raw damage episode preserved."
+        }
+      },
+      {
+        "mutation_type": "semantic_status_update",
+        "target_object_id": "M_bridge_a_passable",
+        "new_status": "retest_required",
+        "patch": {
+          "authority_scope": "weak_premise_under_current_inspection",
+          "repair_note": "Improved only under current inspection; not full_premise forever."
+        }
+      }
+    ]
+  }
+}

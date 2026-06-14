@@ -1,0 +1,20 @@
+{
+  "location": "start",
+  "destination": "far_side",
+  "weather": "heavy_rain",
+  "time_budget_minutes": 12,
+  "bridges": {
+    "A": {
+      "status": "unknown",
+      "rain_exposure": 0.7,
+      "damage_report": true,
+      "base_minutes": 6
+    },
+    "B": {
+      "status": "passable",
+      "rain_exposure": 0.2,
+      "damage_report": false,
+      "base_minutes": 10
+    }
+  }
+}

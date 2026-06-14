@@ -1,0 +1,45 @@
+{
+  "name": "interrupt_storm_recovery_replay",
+  "command": "Cross now, preserve safety interrupts, coalesce low value updates, and recover deferred work.",
+  "weather": "rain",
+  "time_budget_minutes": 8,
+  "interrupts": 1000,
+  "attention_review": {
+    "review_id": "AR_003",
+    "classification": "recovery_replay_required",
+    "confidence": 0.8,
+    "review_required": true,
+    "review_reason": "Interrupt storm required coalescing and Recovery replay for deferred low-priority work.",
+    "verifier_rule_id": "V_RULE_ATTENTION_STORM_REQUIRES_RECOVERY_REPLAY",
+    "policy_update_kind": "coalescing_backpressure_review",
+    "kept_alive": ["P0", "P1"],
+    "deferred_priorities": ["P4", "P5", "P6"],
+    "recovery_replay": {
+      "mode": "Recovery",
+      "processed_deferred_jobs": ["semantic_consolidation"],
+      "remaining_deferred_jobs": []
+    },
+    "scope_conditions": {
+      "interrupt_count": 1000,
+      "coalesced_signal": "Bridge A risk increasing"
+    },
+    "policy_update": {
+      "status": "attention_policy_recovery_reviewed",
+      "confidence": 0.66,
+      "coalescing_policy": {
+        "low_value_signal_threshold": 3,
+        "storm_replay_required": true
+      },
+      "backpressure_policy": {
+        "preserve": ["P0", "P1"],
+        "defer_below": "P4",
+        "recovery_replay": true
+      },
+      "scope_conditions": {
+        "interrupt_count": 1000,
+        "coalesced_signal": "Bridge A risk increasing"
+      },
+      "attention_review_note": "Storm handled with raw preservation, coalescing, P0/P1 preservation, and Recovery replay."
+    }
+  }
+}

@@ -1,0 +1,72 @@
+[
+  {
+    "memory_id": "M_bridge_a_passable",
+    "claim": "Bridge A is passable in clear or light rain when recent inspection is available.",
+    "confidence": 0.56,
+    "status": "confidence_reduced",
+    "source_episodes": ["E_bridge_a_yesterday_open"],
+    "depends_on_rules": ["R_shortest_route:v1", "R_stale_dispatch:v1"],
+    "used_by_procedures": ["PROC_cautious_bridge_crossing"],
+    "used_by_plans": ["PLAN_demo_bridge_choice"],
+    "contradictions": ["M_bridge_a_risky_heavy_rain", "M_bridge_a_damage_reported", "R_flooded_bridges_unreliable"],
+    "created_by": "seed_demo",
+    "updated_by": "verifier",
+    "schema_version": "0.1"
+  },
+  {
+    "memory_id": "M_bridge_a_risky_heavy_rain",
+    "claim": "Bridge A risk increases during heavy rain.",
+    "confidence": 0.83,
+    "status": "active",
+    "source_episodes": ["E_bridge_a_rain_increasing"],
+    "depends_on_rules": ["R_bridge_safety:v1"],
+    "used_by_procedures": ["PROC_use_stable_bridge_under_rain"],
+    "used_by_plans": ["PLAN_demo_bridge_choice"],
+    "contradictions": ["M_bridge_a_passable"],
+    "created_by": "seed_demo",
+    "updated_by": "seed_demo",
+    "schema_version": "0.1"
+  },
+  {
+    "memory_id": "M_bridge_a_damage_reported",
+    "claim": "Bridge A has a fresh damage report after the rain event.",
+    "confidence": 0.87,
+    "status": "active",
+    "source_episodes": ["E_bridge_a_damage_report"],
+    "depends_on_rules": ["R_bridge_safety:v1"],
+    "used_by_procedures": [],
+    "used_by_plans": ["PLAN_demo_bridge_choice"],
+    "contradictions": ["M_bridge_a_passable"],
+    "created_by": "seed_demo",
+    "updated_by": "seed_demo",
+    "schema_version": "0.1"
+  },
+  {
+    "memory_id": "M_bridge_b_open",
+    "claim": "Bridge B is open after inspection.",
+    "confidence": 0.88,
+    "status": "active",
+    "source_episodes": ["E_bridge_b_inspected_open"],
+    "depends_on_rules": [],
+    "used_by_procedures": ["PROC_use_stable_bridge_under_rain"],
+    "used_by_plans": ["PLAN_demo_bridge_choice"],
+    "contradictions": [],
+    "created_by": "seed_demo",
+    "updated_by": "seed_demo",
+    "schema_version": "0.1"
+  },
+  {
+    "memory_id": "R_flooded_bridges_unreliable",
+    "claim": "Flooded bridge reports are unreliable without fresh inspection.",
+    "confidence": 0.79,
+    "status": "active",
+    "source_episodes": ["E_bridge_a_rain_increasing"],
+    "depends_on_rules": ["R_bridge_safety:v1"],
+    "used_by_procedures": [],
+    "used_by_plans": ["PLAN_demo_bridge_choice"],
+    "contradictions": ["M_bridge_a_passable"],
+    "created_by": "seed_demo",
+    "updated_by": "seed_demo",
+    "schema_version": "0.1"
+  }
+]

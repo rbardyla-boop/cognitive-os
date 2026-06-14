@@ -1,0 +1,36 @@
+{
+  "name": "embedded_test_trusted_ledger_still_test_only",
+  "command": "The embedded test-trusted marker is still test-only and cannot suppress without a signature.",
+  "resolve_jobs": true,
+  "replay_ledger_trust": "test_trusted",
+  "replay_ledger": {
+    "provenance": {"schema": "recovery-ledger-v1", "writer": "recovery_replay", "run_id": "R_marker_only_test"},
+    "resolved_jobs": {
+      "CJ_action_001": {"resolution": "resolved_through_mutation_gateway", "mutation_ids": ["MUT_CJ_action_001"], "trace_id": "T_RECOVERY", "source_packet_id": "P_ACTION_OUTCOME"}
+    },
+    "applied_mutations": {
+      "MUT_CJ_action_001": {"job_id": "CJ_action_001", "target_object_id": "M_bridge_a_passable", "resolution": "resolved_through_mutation_gateway", "trace_id": "T_RECOVERY", "source_packet_id": "P_ACTION_OUTCOME"}
+    },
+    "failures": {}
+  },
+  "source_packets": [
+    {
+      "header": {"packet_id": "P_ACTION_OUTCOME", "source_engine": "recovery_replay"},
+      "permissions": {"allowed_use": ["memory_consolidation"], "forbidden_use": ["direct_action"]}
+    }
+  ],
+  "target_objects": [
+    {"memory_id": "M_bridge_a_passable", "status": "retest_required"}
+  ],
+  "correction_jobs": [
+    {
+      "job_id": "CJ_action_001",
+      "job_type": "post_action_revalidation",
+      "source_packet_id": "P_ACTION_OUTCOME",
+      "trace_id": "T_RECOVERY",
+      "created_at_tick": 1,
+      "target_object_ids": ["M_bridge_a_passable"],
+      "deferred_reason": "test_trusted marker is integrity-trusted but not signed"
+    }
+  ]
+}

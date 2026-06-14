@@ -1,0 +1,31 @@
+{
+  "name": "expired_signer_rejected",
+  "command": "Submit a preserving change whose signer's authority has expired by the decision tick.",
+  "design_proposal": {
+    "proposal_id": "DP_expired_signer",
+    "claim": "Add an audit_log field that preserves hazard_only blocking and still blocks direct action.",
+    "targets_invariant": "D_invariant_hazard_blocks_action",
+    "effect": "extend",
+    "evaluation_tick": 60,
+    "change_set": {
+      "target": "hazard_gate",
+      "changed_artifact": "simulations/bridge_world/control_point_policies/hazard_gate.json",
+      "pre_image": "{\n  \"urgency_overrides_hazard\": false\n}\n",
+      "pre_image_hash": "21f3c81af34b3edcbd71e8e1a766322e7ebc0483a38007e3e3f30d9fbe4ceb6d",
+      "post_image": "{\n  \"audit_log\": true,\n  \"urgency_overrides_hazard\": false\n}\n",
+      "post_image_hash": "bf410aa656f5f4e3bed73e4b0f329622e4341563b6014304a153599b04d692c0",
+      "diff_digest": "6aba2d5afea6318f946238a5471ab98dcaae10a7f09ad4cd32490487a2aee701",
+      "signature": {
+        "scheme": "ed25519",
+        "signer": "expired_authority",
+        "key_id": "ed25519_036b230092341081",
+        "nonce": "nonce_expired",
+        "payload_digest": "1525aa27096023c491af100c25e08dc21e613827d74bd791a9d29da7feb62f0a",
+        "signature_hex": "252642046f01ce1d1b4641500377272b1f58c0525a1e5a1f8ee36d66fac31d54f0a6a4a00d12f22b3fba6758beab98cc40f5213c758c94a4052df5da8977b60f"
+      }
+    },
+    "source": "expired_signer_rejected.json",
+    "requested_use": "design_consolidation",
+    "mutation_id": "MUT_DP_expired_signer"
+  }
+}

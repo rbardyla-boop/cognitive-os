@@ -1,0 +1,20 @@
+{
+  "name": "malformed_experience_rejected_without_partial_state",
+  "command": "Reject malformed raw experience without partial state.",
+  "trace_id": "T_RAW_004",
+  "experience_envelopes": [
+    {
+      "envelope_id": "malformed_missing_payload",
+      "trace_id": "T_RAW_004",
+      "source": "broken_sensor",
+      "observed_at": "2026-06-13T12:10:00Z",
+      "logical_tick": 3,
+      "modality": "sensor_json",
+      "ingestion_license": "semantic_candidate_allowed",
+      "capture_context": {
+        "bridge": "Bridge A"
+      }
+    }
+  ],
+  "semantic_candidates": []
+}

@@ -1,0 +1,7 @@
+{
+  "name": "stale_memory_crossing",
+  "command": "Use Bridge A if it is still the fastest route.",
+  "weather": "heavy_rain",
+  "time_budget_minutes": 12
+}
+

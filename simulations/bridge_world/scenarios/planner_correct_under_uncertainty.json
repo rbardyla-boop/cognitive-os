@@ -1,0 +1,42 @@
+{
+  "name": "planner_correct_under_uncertainty",
+  "command": "I need to cross the river quickly. Is Bridge A safe?",
+  "weather": "heavy_rain",
+  "time_budget_minutes": 12,
+  "risk_budget": 0.25,
+  "planner_regret": {
+    "regret_id": "PR_001",
+    "regret_type": "correct_under_uncertainty",
+    "regret_class": "policy_success",
+    "confidence": 0.74,
+    "target_policy_id": "PLAN_demo_bridge_choice",
+    "expected": {
+      "selected_route": "Bridge B",
+      "likely_outcome": "arrived",
+      "risk_budget": 0.25
+    },
+    "actual": {
+      "observed_state": "arrived",
+      "success": true
+    },
+    "review_required": false,
+    "review_reason": "Decision matched outcome under degraded evidence; strengthen only scoped planner confidence.",
+    "verifier_rule_id": "V_RULE_PLANNER_REGRET_REQUIRES_OUTCOME_TRACE",
+    "policy_update_kind": "scoped_confidence_strengthening",
+    "scope_conditions": {
+      "weather": "heavy_rain",
+      "evidence_state": "degraded_bridge_a",
+      "selected_route": "Bridge B"
+    },
+    "policy_update": {
+      "status": "planner_policy_scoped_strengthened",
+      "confidence": 0.67,
+      "scope_conditions": {
+        "weather": "heavy_rain",
+        "evidence_state": "degraded_bridge_a",
+        "selected_route": "Bridge B"
+      },
+      "planner_regret_note": "Scoped strengthening only; no belief or procedure authority changed."
+    }
+  }
+}

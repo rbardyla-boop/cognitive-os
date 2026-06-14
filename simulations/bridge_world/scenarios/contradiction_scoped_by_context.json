@@ -1,0 +1,45 @@
+{
+  "name": "contradiction_scoped_by_context",
+  "command": "Scope Bridge A contradiction by context.",
+  "contradiction_repair": {
+    "repair_id": "CR_002",
+    "repair_type": "resolved_by_scope",
+    "source_contradiction": "C_bridge_a_002",
+    "target_nodes": ["M_bridge_a_passable", "M_bridge_a_damage_reported"],
+    "decision": "scope_both_nodes",
+    "source_evidence": ["E_bridge_a_yesterday_open", "E_bridge_a_damage_report"],
+    "verifier_rule_id": "V_RULE_SCOPE_REPAIR_WHEN_CONTEXTS_DIFFER",
+    "raw_episodes_preserved": true,
+    "scope_conditions": {
+      "rain_level": "heavy",
+      "inspection_status": "not_recent",
+      "applies_to": "Bridge A safety"
+    },
+    "mutations": [
+      {
+        "mutation_type": "authority_scope_update",
+        "target_object_id": "M_bridge_a_passable",
+        "new_status": "exception_scoped",
+        "patch": {
+          "scope_conditions": {
+            "rain_level": "clear_or_light",
+            "inspection_status": "recent",
+            "applies_to": "Bridge A passability"
+          }
+        }
+      },
+      {
+        "mutation_type": "authority_scope_update",
+        "target_object_id": "M_bridge_a_damage_reported",
+        "new_status": "exception_scoped",
+        "patch": {
+          "scope_conditions": {
+            "rain_level": "heavy",
+            "inspection_status": "not_recent",
+            "applies_to": "Bridge A damage risk"
+          }
+        }
+      }
+    ]
+  }
+}

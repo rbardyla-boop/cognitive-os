@@ -1,0 +1,38 @@
+[
+  {
+    "id": "ep-001",
+    "observed_at": "2026-06-11T09:00:00Z",
+    "claim": "Bridge A was open and fast yesterday morning.",
+    "bridge": "Bridge A",
+    "status": "open",
+    "staleness": "stale",
+    "trust": 0.42
+  },
+  {
+    "id": "ep-002",
+    "observed_at": "2026-06-12T12:00:00Z",
+    "claim": "Bridge B is open after inspection.",
+    "bridge": "Bridge B",
+    "status": "open",
+    "staleness": "fresh",
+    "trust": 0.88
+  },
+  {
+    "id": "ep-003",
+    "observed_at": "2026-06-12T12:20:00Z",
+    "claim": "Rain is increasing near Bridge A.",
+    "bridge": "Bridge A",
+    "status": "risky",
+    "staleness": "fresh",
+    "trust": 0.81
+  },
+  {
+    "id": "ep-004",
+    "observed_at": "2026-06-12T12:30:00Z",
+    "claim": "Bridge A damage reported after rain event.",
+    "bridge": "Bridge A",
+    "status": "damaged",
+    "staleness": "fresh",
+    "trust": 0.87
+  }
+]

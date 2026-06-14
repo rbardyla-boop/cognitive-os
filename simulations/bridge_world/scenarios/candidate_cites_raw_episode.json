@@ -1,0 +1,34 @@
+{
+  "name": "candidate_cites_raw_episode",
+  "command": "Confirm semantic candidate provenance points at raw capture.",
+  "trace_id": "T_SEM_003",
+  "experience_envelopes": [
+    {
+      "envelope_id": "bridge_a_audio_raw",
+      "trace_id": "T_SEM_003",
+      "source": "field_microphone",
+      "observed_at": "2026-06-13T13:10:00Z",
+      "logical_tick": 12,
+      "modality": "audio_transcript",
+      "ingestion_license": "semantic_candidate_allowed",
+      "capture_context": {
+        "bridge": "Bridge A",
+        "sensor": "mic_3"
+      },
+      "raw_payload": {
+        "bridge": "Bridge A",
+        "transcript": "Loud clank heard near Bridge A center span."
+      }
+    }
+  ],
+  "candidate_extraction": {
+    "proposals": [
+      {
+        "source_envelope_id": "bridge_a_audio_raw",
+        "candidate_id": "CMN_bridge_a_loud_clank",
+        "claim": "A loud clank was heard near Bridge A center span.",
+        "extraction_method": "deterministic_stub"
+      }
+    ]
+  }
+}

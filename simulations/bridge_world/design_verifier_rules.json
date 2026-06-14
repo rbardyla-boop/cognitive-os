@@ -1,0 +1,81 @@
+[
+  {
+    "id": "VR_design_no_weaken_locked_invariant",
+    "epistemic_license": "full_premise",
+    "when": {
+      "effect": "weaken",
+      "targets_status": "regression_lock"
+    },
+    "conflict_type": "hard_contradiction",
+    "adjudication": "reject_episode",
+    "blocks_release": true,
+    "contradiction_license": "hazard_only"
+  },
+  {
+    "id": "VR_design_no_contradict_locked_invariant",
+    "epistemic_license": "full_premise",
+    "when": {
+      "effect": "contradict",
+      "targets_status": "regression_lock"
+    },
+    "conflict_type": "hard_contradiction",
+    "adjudication": "reject_episode",
+    "blocks_release": true,
+    "contradiction_license": "hazard_only"
+  },
+  {
+    "id": "VR_design_contradict_any",
+    "epistemic_license": "full_premise",
+    "when": {
+      "effect": "contradict"
+    },
+    "conflict_type": "hard_contradiction",
+    "adjudication": "reject_episode",
+    "blocks_release": true,
+    "contradiction_license": "hazard_only"
+  },
+  {
+    "id": "VR_design_weaken_unlocked_requires_review",
+    "epistemic_license": "full_premise",
+    "when": {
+      "effect": "weaken"
+    },
+    "conflict_type": "soft_conflict",
+    "adjudication": "candidate_rule_revision",
+    "blocks_release": true,
+    "contradiction_license": "hazard_only"
+  },
+  {
+    "id": "VR_design_needs_review",
+    "epistemic_license": "full_premise",
+    "when": {
+      "effect": "needs_review"
+    },
+    "conflict_type": "soft_conflict",
+    "adjudication": "candidate_rule_revision",
+    "blocks_release": true,
+    "contradiction_license": "hypothesis_only"
+  },
+  {
+    "id": "VR_design_extend_consistent",
+    "epistemic_license": "full_premise",
+    "when": {
+      "effect": "extend"
+    },
+    "conflict_type": "no_conflict",
+    "adjudication": "preserve_as_exception",
+    "blocks_release": false,
+    "contradiction_license": "weak_premise"
+  },
+  {
+    "id": "VR_design_preserve_consistent",
+    "epistemic_license": "full_premise",
+    "when": {
+      "effect": "preserve"
+    },
+    "conflict_type": "no_conflict",
+    "adjudication": "preserve_as_exception",
+    "blocks_release": false,
+    "contradiction_license": "weak_premise"
+  }
+]

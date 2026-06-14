@@ -1,0 +1,8 @@
+{
+  "name": "semantic_candidate_requires_raw_episode",
+  "command": "Try to create a semantic candidate without raw evidence.",
+  "trace_id": "T_RAW_002",
+  "experience_envelopes": [],
+  "semantic_candidates": [],
+  "attempt_candidate_without_raw": true
+}

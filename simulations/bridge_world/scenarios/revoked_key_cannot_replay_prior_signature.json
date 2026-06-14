@@ -1,0 +1,31 @@
+{
+  "name": "revoked_key_cannot_replay_prior_signature",
+  "command": "Submit a change carrying a genuine signature whose signer was revoked before this tick.",
+  "design_proposal": {
+    "proposal_id": "DP_revoked_replay",
+    "claim": "Add an audit_log field that preserves hazard_only blocking and still blocks direct action.",
+    "targets_invariant": "D_invariant_hazard_blocks_action",
+    "effect": "extend",
+    "evaluation_tick": 20,
+    "change_set": {
+      "target": "hazard_gate",
+      "changed_artifact": "simulations/bridge_world/control_point_policies/hazard_gate.json",
+      "pre_image": "{\n  \"urgency_overrides_hazard\": false\n}\n",
+      "pre_image_hash": "21f3c81af34b3edcbd71e8e1a766322e7ebc0483a38007e3e3f30d9fbe4ceb6d",
+      "post_image": "{\n  \"audit_log\": true,\n  \"urgency_overrides_hazard\": false\n}\n",
+      "post_image_hash": "bf410aa656f5f4e3bed73e4b0f329622e4341563b6014304a153599b04d692c0",
+      "diff_digest": "6aba2d5afea6318f946238a5471ab98dcaae10a7f09ad4cd32490487a2aee701",
+      "signature": {
+        "scheme": "ed25519",
+        "signer": "replay_authority",
+        "key_id": "ed25519_7ae7b72218b7f43e",
+        "nonce": "nonce_replay",
+        "payload_digest": "3e774a6c0570edc00bb7a66c5273e1858bedc6c7fcc026bbdc46a507ec5551af",
+        "signature_hex": "21e2987615f0075e0a999f5f482bdcfb6616f87b827bef8f972afed71b139b43ae725fa292b5bfe63e6fc6a8a1263f564072cd9df4163cf1afb3d4c1576c7608"
+      }
+    },
+    "source": "revoked_key_cannot_replay_prior_signature.json",
+    "requested_use": "design_consolidation",
+    "mutation_id": "MUT_DP_revoked_replay"
+  }
+}

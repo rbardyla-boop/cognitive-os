@@ -1,0 +1,14 @@
+{
+  "name": "false_alarm_damage_report",
+  "command": "I need to cross the river quickly. Is Bridge A safe?",
+  "weather": "heavy_rain",
+  "time_budget_minutes": 12,
+  "risk_budget": 0.25,
+  "false_alarm_revalidation": {
+    "memory_id": "M_bridge_a_damage_reported",
+    "old_status": "active",
+    "new_status": "superseded",
+    "reason": "Later inspection says the Bridge A damage report was false."
+  }
+}
+

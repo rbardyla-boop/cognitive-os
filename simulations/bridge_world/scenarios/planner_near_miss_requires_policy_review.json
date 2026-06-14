@@ -1,0 +1,46 @@
+{
+  "name": "planner_near_miss_requires_policy_review",
+  "command": "I need to cross the river quickly. Is Bridge A safe?",
+  "weather": "heavy_rain",
+  "time_budget_minutes": 12,
+  "risk_budget": 0.25,
+  "planner_regret": {
+    "regret_id": "PR_002",
+    "regret_type": "near_miss_policy_review",
+    "regret_class": "safety_near_miss",
+    "confidence": 0.78,
+    "target_policy_id": "PLAN_demo_bridge_choice",
+    "expected": {
+      "selected_route": "Bridge B",
+      "likely_outcome": "arrived",
+      "risk_budget": 0.25
+    },
+    "actual": {
+      "observed_state": "arrived_with_vibration_near_miss",
+      "success": true
+    },
+    "outcome_override": {
+      "observed_state": "arrived_with_vibration_near_miss",
+      "success": true
+    },
+    "review_required": true,
+    "review_reason": "Near miss means selected policy needs human/planner review; no automatic global rule rewrite.",
+    "verifier_rule_id": "V_RULE_PLANNER_NEAR_MISS_REQUIRES_REVIEW",
+    "policy_update_kind": "review_required",
+    "scope_conditions": {
+      "weather": "heavy_rain",
+      "selected_route": "Bridge B",
+      "signal": "vibration_near_miss"
+    },
+    "policy_update": {
+      "status": "planner_policy_review_required",
+      "confidence": 0.62,
+      "scope_conditions": {
+        "weather": "heavy_rain",
+        "selected_route": "Bridge B",
+        "signal": "vibration_near_miss"
+      },
+      "planner_regret_note": "Review opened; no belief, procedure, or rule rewrite."
+    }
+  }
+}

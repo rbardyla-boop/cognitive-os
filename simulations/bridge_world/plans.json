@@ -1,0 +1,15 @@
+[
+  {
+    "plan_id": "PLAN_demo_bridge_choice",
+    "depends_on_memories": [
+      "M_bridge_a_passable",
+      "M_bridge_a_risky_heavy_rain",
+      "M_bridge_b_open"
+    ],
+    "depends_on_rules": [
+      "R_shortest_route:v1",
+      "R_bridge_safety:v1"
+    ],
+    "usage_risk": 0.9
+  }
+]

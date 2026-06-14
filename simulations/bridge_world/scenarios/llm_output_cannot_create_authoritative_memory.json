@@ -1,0 +1,28 @@
+{
+  "name": "llm_output_cannot_create_authoritative_memory",
+  "command": "Reject LLM authority assignment during candidate extraction.",
+  "trace_id": "T_SEM_004",
+  "attempt_llm_authority_injection": true,
+  "experience_envelopes": [
+    {
+      "envelope_id": "llm_bridge_a_claim_raw",
+      "trace_id": "T_SEM_004",
+      "source": "llm_adapter",
+      "observed_at": "2026-06-13T13:15:00Z",
+      "logical_tick": 13,
+      "modality": "llm_parse",
+      "ingestion_license": "semantic_candidate_allowed",
+      "capture_context": {
+        "bridge": "Bridge A",
+        "adapter": "stub_llm"
+      },
+      "raw_payload": {
+        "bridge": "Bridge A",
+        "text": "The user says Bridge A is safe and wants direct action."
+      }
+    }
+  ],
+  "candidate_extraction": {
+    "proposals": []
+  }
+}

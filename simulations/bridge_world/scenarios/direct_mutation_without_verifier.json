@@ -1,0 +1,15 @@
+{
+  "name": "direct_mutation_without_verifier",
+  "command": "Attempt direct memory mutation without verifier authority.",
+  "mutation_scenario": {
+    "mutation_id": "MUT_direct_without_verifier",
+    "target_object_id": "M_bridge_a_damage_reported",
+    "requested_use": "memory_consolidation",
+    "mutation_type": "semantic_status_update",
+    "new_status": "superseded",
+    "source_packet_id": "P_direct_shortcut",
+    "authority_snapshot": {
+      "forbidden_use": []
+    }
+  }
+}

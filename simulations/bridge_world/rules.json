@@ -1,0 +1,26 @@
+[
+  {
+    "id": "R_shortest_route:v1",
+    "base_id": "R_shortest_route",
+    "version": 1,
+    "claim": "Prefer the shortest open bridge when time is tight.",
+    "applies_to": ["Bridge A", "Bridge B"],
+    "priority": 50
+  },
+  {
+    "id": "R_bridge_safety:v1",
+    "base_id": "R_bridge_safety",
+    "version": 1,
+    "claim": "Avoid Bridge A during heavy rain unless verified open.",
+    "applies_to": ["Bridge A"],
+    "priority": 80
+  },
+  {
+    "id": "R_stale_dispatch:v1",
+    "base_id": "R_stale_dispatch",
+    "version": 1,
+    "claim": "Old dispatch notes may be stale after weather changes.",
+    "applies_to": ["memory"],
+    "priority": 90
+  }
+]
