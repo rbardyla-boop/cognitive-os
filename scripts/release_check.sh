@@ -79,6 +79,17 @@ test "$(grep -cE 'std::time|SystemTime|Instant|std::thread|thread::sleep|use ran
 # vibe-core declares zero dependencies: cargo tree is exactly the crate itself (one line; also
 # fails closed if cargo tree cannot run, so the no-backend proof is never vacuous).
 test "$(cargo tree --offline --manifest-path crates/vibe-core/Cargo.toml --edges normal 2>/dev/null | wc -l)" -eq 1
+# P2 — vibe-ingress: ADR-002 L1 admission control (ObservationEnvelope + IngressGate).
+cargo test --offline --quiet --manifest-path crates/vibe-ingress/Cargo.toml >/dev/null 2>&1
+cargo fmt --manifest-path crates/vibe-ingress/Cargo.toml --check >/dev/null 2>&1
+cargo clippy --offline --manifest-path crates/vibe-ingress/Cargo.toml --all-targets -- -D warnings >/dev/null 2>&1
+# ingress_does_not_call_evaluate_tick + cannot touch engine state: the ingress source (gate.rs)
+# references no engine type and no backend / wall-clock / entropy token (sabotage-detectable).
+test "$(grep -cE 'evaluate_tick|EngineState|VibeEngine|std::fs|std::net|tokio|async fn|\.await|reqwest|sqlx|rusqlite|serde|rand::|use rand|SystemTime|Instant|std::time' crates/vibe-ingress/src/gate.rs)" -eq 0
+# vibe-ingress depends ONLY on vibe-core (no backend crates): the tree is exactly two lines, one of
+# which is vibe-core (fails closed if cargo tree cannot run, so the proof is never vacuous).
+test "$(cargo tree --offline --manifest-path crates/vibe-ingress/Cargo.toml --edges normal 2>/dev/null | wc -l)" -eq 2
+test "$(cargo tree --offline --manifest-path crates/vibe-ingress/Cargo.toml --edges normal 2>/dev/null | grep -cE 'vibe-core')" -eq 1
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json

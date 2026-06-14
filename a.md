@@ -76,7 +76,7 @@ Prototype-First Track (ADR-002 deterministic engine, then replaceable LLM codec)
 
 - [ ] P0 — Tag/snapshot the frozen v0.1 governance milestone (recoverable before engine work).
 - [x] P1 — Rust workspace skeleton + deterministic kernel boundary (`crates/vibe-core`). _Delivered 2026-06-14; 8 cargo tests green, release_check gates the L0 kernel boundary._
-- [ ] P2 — ObservationEnvelope + IngressGate.
+- [x] P2 — ObservationEnvelope + IngressGate. _Delivered 2026-06-14; `crates/vibe-ingress`, 6 cargo tests green, admission-only (no tick eval, no EngineState), release_check gates the L1 boundary._
 - [ ] P3 — TickScheduler + ScheduledObservation.
 - [ ] P4 — FrameCollector + ObservationFrame.
 - [ ] P5 — Minimal VibeEngine evaluation loop.
@@ -1274,7 +1274,7 @@ math.
 
 ### P2 — ObservationEnvelope and IngressGate (L1)
 
-Status: Not started. Correct if all external input enters as an `ObservationEnvelope`, the
+Status: delivered (2026-06-14). `crates/vibe-ingress` (depends only on `vibe-core` value types) admits external input as a typed `ObservationEnvelope`, validating malformed → duplicate → sequence and returning an `Accepted`/`Duplicate`/`Rejected` receipt; only fully-valid, in-order, non-duplicate observations are staged. 6 cargo tests green (`valid_observation_accepted`, `malformed_observation_rejected`, `duplicate_event_id_idempotent`, `source_sequence_gap_detected`, `rejected_observation_does_not_mutate_state`, `ingress_does_not_call_evaluate_tick`). Admission-only: the ingress source references no engine type, never schedules ticks (P3), and never touches engine state — gated by a source-token scan and a `vibe-ingress → vibe-core` two-line dependency-tree assertion, both sabotage-probed. Correct if all external input enters as an `ObservationEnvelope`, the
 `IngressGate` validates schema/source/sequence/admissibility, invalid observations are rejected
 without mutating engine state, and accepted observations produce receipts. Wrong if raw external data
 mutates state directly, invalid input partially enters the scheduler, or missing

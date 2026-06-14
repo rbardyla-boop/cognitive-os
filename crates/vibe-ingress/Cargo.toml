@@ -1,0 +1,12 @@
+[package]
+name = "vibe-ingress"
+version = "0.1.0"
+edition = "2021"
+description = "ADR-002 layer-L1 admission control (ObservationEnvelope + IngressGate) for Cognitive OS"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# Ingress depends ONLY on the L0 kernel's value types. No backend/network/async
+# crates; release_check asserts the dependency tree is exactly vibe-ingress -> vibe-core.
+[dependencies]
+vibe-core = { path = "../vibe-core" }
