@@ -30,6 +30,22 @@ Install:
 /usr/bin/python3 -m pip install -r requirements.txt
 ```
 
+## Rust toolchain (engine, P1+)
+
+The deterministic engine ([ADR-002](ADR-002-runtime-engine-replay-contract.md), `a.md` Prototype-First
+Track) is a Rust workspace at the repo root (`Cargo.toml` → `crates/vibe-core`). `release_check.sh`
+builds and tests it, so a Rust toolchain is **required** from P1 onward:
+
+```text
+cargo / rustc 1.94.0 (system, at /usr/bin/cargo — on the documented PATH=/usr/bin)
+rustfmt + clippy components (release_check runs `cargo fmt --check` and `cargo clippy -D warnings`)
+```
+
+`vibe-core` (the L0 kernel) declares **zero dependencies**, so `cargo test --offline` needs no network
+and no registry access — only the toolchain and std. `target/` is git-ignored; `Cargo.lock` is tracked
+for reproducibility. The kernel holds no wall-clock, entropy, filesystem, network, signing, async, or
+backend code; release_check enforces this by source scan + an empty dependency tree.
+
 ## CRITICAL: interpreter pitfall
 
 The default `python3` on the shell PATH in this environment is an **unrelated virtualenv**

@@ -1,0 +1,12 @@
+[package]
+name = "vibe-core"
+version = "0.1.0"
+edition = "2021"
+description = "ADR-002 layer-L0 deterministic replay kernel for Cognitive OS"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# The L0 kernel depends on NOTHING. An empty dependency table is the strongest
+# proof of the ADR-002 "no backend in the kernel" boundary; release_check and a
+# unit test both assert this table stays empty.
+[dependencies]

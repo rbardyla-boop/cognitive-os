@@ -11,6 +11,10 @@ venv/
 release_check_out.txt
 run_output.txt
 
+# Rust build artifacts (Cargo.lock IS tracked for reproducibility)
+/target/
+**/target/
+
 # OS noise
 .DS_Store
 *.tmp

@@ -1,0 +1,7 @@
+# Cognitive OS engine workspace. Members are added per ADR-002 layer:
+#   crates/vibe-core — L0 deterministic replay kernel (P1)
+# L1 ingress/scheduling/frames (P2–P4), L2 record/replay (P6), and the CLI (P7)
+# join as new crates in later sprints.
+[workspace]
+resolver = "2"
+members = ["crates/vibe-core"]

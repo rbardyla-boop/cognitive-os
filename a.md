@@ -75,7 +75,7 @@ planning pass — the section below is the spec the P-sprints execute.
 Prototype-First Track (ADR-002 deterministic engine, then replaceable LLM codec):
 
 - [ ] P0 — Tag/snapshot the frozen v0.1 governance milestone (recoverable before engine work).
-- [ ] P1 — Rust workspace skeleton + deterministic kernel boundary (`crates/vibe-core`).
+- [x] P1 — Rust workspace skeleton + deterministic kernel boundary (`crates/vibe-core`). _Delivered 2026-06-14; 8 cargo tests green, release_check gates the L0 kernel boundary._
 - [ ] P2 — ObservationEnvelope + IngressGate.
 - [ ] P3 — TickScheduler + ScheduledObservation.
 - [ ] P4 — FrameCollector + ObservationFrame.
@@ -1262,7 +1262,7 @@ sub-decision, e.g. `git init` + tag, or an archived tarball + recorded hash.)_
 
 ### P1 — Rust workspace skeleton and deterministic kernel boundary (L0)
 
-Status: Not started. Correct if the Rust workspace builds, a kernel module exists with no
+Status: delivered (2026-06-14). `crates/vibe-core` builds with zero dependencies; 8 cargo tests prove determinism, purity (input state never mutated), seed-only noise, and the kernel-boundary source invariants. `release_check.sh` runs `cargo test` (silenced) plus a source-absence scan over `kernel.rs` and a zero-dependency-tree assertion; both sabotage probes (inject a wall-clock token / add a dependency) were confirmed to fail the gate, then reverted byte-identically. Correct if the Rust workspace builds, a kernel module exists with no
 backend/network/storage/auth code, and scalar/state/tick primitives are deterministic with tests
 proving repeated-run equality. Wrong if HTTP/API/storage/signing enters the kernel, randomness is
 unseeded, wall-clock enters evaluation, or float nondeterminism appears where fixed-point is required.

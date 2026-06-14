@@ -68,6 +68,17 @@ grep -q '^## Sprint 31i ' a.md
 grep -q '^## Sprint 32i ' a.md
 test "$(grep -c '^## Sprint 31 ' a.md)" -eq 1
 test "$(grep -c '^## Sprint 32 ' a.md)" -eq 1
+# P1 — vibe-core: the ADR-002 L0 deterministic replay kernel. cargo test runs the
+# determinism + kernel-boundary suite; output is silenced so release_check stays byte-silent.
+cargo test --offline --quiet --manifest-path crates/vibe-core/Cargo.toml >/dev/null 2>&1
+cargo fmt --manifest-path crates/vibe-core/Cargo.toml --check >/dev/null 2>&1
+cargo clippy --offline --manifest-path crates/vibe-core/Cargo.toml --all-targets -- -D warnings >/dev/null 2>&1
+# no_wall_clock_in_core / no external entropy / kernel_has_no_backend_dependencies: the kernel
+# source (kernel.rs) carries none of these tokens (sabotage-detectable, independent of the test).
+test "$(grep -cE 'std::time|SystemTime|Instant|std::thread|thread::sleep|use rand|rand::|extern crate rand|thread_rng|getrandom|std::fs|std::net|tokio|async fn|\.await|reqwest|sqlx|rusqlite|ed25519|openssl|::ring|serde' crates/vibe-core/src/kernel.rs)" -eq 0
+# vibe-core declares zero dependencies: cargo tree is exactly the crate itself (one line; also
+# fails closed if cargo tree cannot run, so the no-backend proof is never vacuous).
+test "$(cargo tree --offline --manifest-path crates/vibe-core/Cargo.toml --edges normal 2>/dev/null | wc -l)" -eq 1
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json
