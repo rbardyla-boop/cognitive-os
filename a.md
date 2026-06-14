@@ -78,7 +78,7 @@ Prototype-First Track (ADR-002 deterministic engine, then replaceable LLM codec)
 - [x] P1 — Rust workspace skeleton + deterministic kernel boundary (`crates/vibe-core`). _Delivered 2026-06-14; 8 cargo tests green, release_check gates the L0 kernel boundary._
 - [x] P2 — ObservationEnvelope + IngressGate. _Delivered 2026-06-14; `crates/vibe-ingress`, 6 cargo tests green, admission-only (no tick eval, no EngineState), release_check gates the L1 boundary._
 - [x] P3 — TickScheduler + ScheduledObservation. _Delivered 2026-06-14; `crates/vibe-scheduler`, 7 cargo tests green, scheduling-only (deterministic target ticks, bounded horizon, overload→receipt, idempotent), release_check gates the L1 boundary._
-- [ ] P4 — FrameCollector + ObservationFrame.
+- [x] P4 — FrameCollector + ObservationFrame. _Delivered 2026-06-14; `crates/vibe-frame`, 8 cargo tests green, canonical hash-stable frame (frame-only), release_check gates the L1 boundary; passed a fresh-context adversarial panel (0 confirmed rubric defects; 2 surfaced coverage gaps closed)._
 - [ ] P5 — Minimal VibeEngine evaluation loop.
 - [ ] P6 — RunScript + RunRecorder + deterministic replay.
 - [ ] P7 — Local CLI prototype (`vibe run` / `vibe replay` / `vibe verify`).
@@ -1297,7 +1297,7 @@ deterministic before they reach frames.
 
 ### P4 — FrameCollector and ObservationFrame (L1)
 
-Status: Not started. Correct if all scheduled observations for a tick become one canonical
+Status: delivered (2026-06-14). `crates/vibe-frame` (depends only on `vibe-core` + `vibe-ingress` + `vibe-scheduler`) folds the observations scheduled for one tick into a canonical, hash-stable `ObservationFrame`: `FrameCollector::collect(tick, &[ScheduledObservation])` filters by `target_tick == tick`, sorts by `(event_id, signal)`, and FNV-1a hashes `(tick, len, per-obs event_id + signal)`. Empty ticks yield an explicit empty frame. 8 cargo tests green (the 6 named + `different_content_different_frame_hash` and `repeated_identity_canonicalized_deterministically`, added to close gaps a fresh-context adversarial panel surfaced — the panel confirmed 0 rubric-breaking defects). Gated by a source-token scan + a workspace-only dependency-tree assertion; a token and a canonicalization (remove-sort) sabotage were both probed. NOTE: this canonical frame lives in L1 for P4; P5 promotes it into vibe-core (L0) and rewires the engine, retiring the P1 stub frame. Correct if all scheduled observations for a tick become one canonical
 `ObservationFrame`, frame ordering is stable, the frame hash is reproducible, and empty ticks are
 handled explicitly. Wrong if the engine consumes loose observations, the frame hash changes across
 equivalent runs, or empty-tick behavior is implicit. Build: `FrameCollector`, `ObservationFrame`,

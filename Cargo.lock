@@ -7,6 +7,15 @@ name = "vibe-core"
 version = "0.1.0"
 
 [[package]]
+name = "vibe-frame"
+version = "0.1.0"
+dependencies = [
+ "vibe-core",
+ "vibe-ingress",
+ "vibe-scheduler",
+]
+
+[[package]]
 name = "vibe-ingress"
 version = "0.1.0"
 dependencies = [

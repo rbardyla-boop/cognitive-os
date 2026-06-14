@@ -101,6 +101,15 @@ test "$(grep -cE 'evaluate_tick|EngineState|VibeEngine|std::fs|std::net|tokio|as
 # crate appears in the tree, and the root is present (fails closed if cargo tree cannot run).
 test "$(cargo tree --offline --manifest-path crates/vibe-scheduler/Cargo.toml --edges normal 2>/dev/null | grep -vcE 'vibe-core|vibe-ingress|vibe-scheduler')" -eq 0
 test "$(cargo tree --offline --manifest-path crates/vibe-scheduler/Cargo.toml --edges normal 2>/dev/null | grep -c 'vibe-scheduler')" -eq 1
+# P4 — vibe-frame: ADR-002 L1 frame collection (FrameCollector + canonical ObservationFrame).
+cargo test --offline --quiet --manifest-path crates/vibe-frame/Cargo.toml >/dev/null 2>&1
+cargo fmt --manifest-path crates/vibe-frame/Cargo.toml --check >/dev/null 2>&1
+cargo clippy --offline --manifest-path crates/vibe-frame/Cargo.toml --all-targets -- -D warnings >/dev/null 2>&1
+# collector_does_not_call_evaluate_tick + no engine-state mutation + no wall-clock / backend tokens.
+test "$(grep -cE 'evaluate_tick|EngineState|VibeEngine|std::fs|std::net|tokio|async fn|\.await|reqwest|sqlx|rusqlite|serde|rand::|use rand|SystemTime|Instant|std::time' crates/vibe-frame/src/collector.rs)" -eq 0
+# vibe-frame depends only on workspace crates: no foreign/backend crate, root present (fails closed).
+test "$(cargo tree --offline --manifest-path crates/vibe-frame/Cargo.toml --edges normal 2>/dev/null | grep -vcE 'vibe-core|vibe-ingress|vibe-scheduler|vibe-frame')" -eq 0
+test "$(cargo tree --offline --manifest-path crates/vibe-frame/Cargo.toml --edges normal 2>/dev/null | grep -c 'vibe-frame')" -eq 1
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json
