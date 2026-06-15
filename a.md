@@ -81,7 +81,7 @@ Prototype-First Track (ADR-002 deterministic engine, then replaceable LLM codec)
 - [x] P4 — FrameCollector + ObservationFrame. _Delivered 2026-06-14; `crates/vibe-frame`, 8 cargo tests green, canonical hash-stable frame (frame-only), release_check gates the L1 boundary; passed a fresh-context adversarial panel (0 confirmed rubric defects; 2 surfaced coverage gaps closed)._
 - [x] P5 — Minimal VibeEngine evaluation loop. _Delivered 2026-06-14; canonical `ObservationFrame` promoted into vibe-core (L0), P1 stub retired, `evaluate_tick` folds the frame + emits `EngineOutput` with explicit `StateTransition` + `output_hash`. One frame definition. 12 vibe-core + 9 vibe-frame tests green; passed a fresh-context adversarial panel (0 confirmed defects)._
 - [x] P6 — RunScript + RunRecorder + deterministic replay. _Delivered 2026-06-15; `crates/vibe-run` (L2) records the full pipeline + replays from recorded frames alone, detecting tampering. 8 cargo tests green; passed a fresh-context adversarial panel (0 confirmed defects; closed a surfaced tick-label internal-consistency gap)._
-- [ ] P7 — Local CLI prototype (`vibe run` / `vibe replay` / `vibe verify`).
+- [x] P7 — Local CLI prototype (`vibe run` / `vibe replay` / `vibe verify`). _Delivered 2026-06-15; `crates/vibe-cli` (the `vibe` binary), serde confined to the CLI, 5 cargo tests + end-to-end binary smoke (run→replay MATCH→verify OK→tamper exit 1)._
 - [ ] P8 — Prototype release gate (Rust tests + replay determinism + governance checks + no-secrets).
 - [ ] P9 — Language-codec boundary (LLM proposes typed packets; cannot mutate state).
 - [ ] P10 — Baseline off-the-shelf local LLM adapter (zero training).
@@ -1328,7 +1328,7 @@ not just runnable.
 
 ### P7 — Local CLI prototype
 
-Status: Not started. Correct if an operator can run one local command that ingests a scenario, evaluates
+Status: delivered (2026-06-15). `crates/vibe-cli` exposes the `vibe` binary: `vibe run <scenario.json> [out.json]` ingests a scenario, records the deterministic run, and writes a recorded-run file; `vibe replay <run.json>` re-derives the run from the recorded frames alone (via `vibe_run::RunRecorder::record_from_frames`, which rebuilds each frame through `ObservationFrame::new` and re-runs the engine) and reports MATCH/MISMATCH; `vibe verify <run.json>` exits non-zero on tamper. serde/serde_json live ONLY in the CLI (the IO layer) via primitive DTOs — the engine crates stay dependency-free, gated by a serde-confinement check. 5 cargo tests (run/writes/replay-matches/verify-detects-tamper/malformed-rejected) + an end-to-end binary smoke (run→replay MATCH→verify OK→tampered exit 1). Sabotage (defeat verify; leak serde into the engine) both caught. Correct if an operator can run one local command that ingests a scenario, evaluates
 ticks, writes a recorded run, replays it, and prints a concise report. Wrong if manual script chaining is
 required, or there is no operator-facing run/replay command, or output cannot be inspected. Build:
 `vibe run <scenario>`, `vibe replay <recorded_run>`, `vibe verify <recorded_run>`. Tests:

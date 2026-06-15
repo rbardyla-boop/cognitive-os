@@ -147,6 +147,36 @@ impl RunRecorder {
             run_hash: hash,
         }
     }
+
+    /// Re-derive a recorded run from FRAMES alone — no ingress, no scheduler, no
+    /// live input. Each frame is evaluated by the engine in order and the run
+    /// hash recomputed. This is the load-side entry point: a persisted run keeps
+    /// only its frames + run hash, and reproducing it (e.g. by the CLI) rebuilds
+    /// the frames via `ObservationFrame::new` and re-runs them here. The result's
+    /// `run_hash` equals the recording's iff the frames are authentic.
+    pub fn record_from_frames(&self, seed: u64, frames: Vec<ObservationFrame>) -> RecordedRun {
+        let engine = VibeEngine::new();
+        let mut state = EngineState::genesis(seed);
+        let mut ticks = Vec::new();
+        for frame in frames {
+            let tick = frame.tick();
+            let (output, next_state) = engine.evaluate_tick(&state, &frame);
+            ticks.push(RecordedTick {
+                tick,
+                frame,
+                output,
+            });
+            state = next_state;
+        }
+        let hash = run_hash(seed, &ticks);
+        RecordedRun {
+            seed,
+            accepted: Vec::new(),
+            scheduled: Vec::new(),
+            ticks,
+            run_hash: hash,
+        }
+    }
 }
 
 /// The result of replaying a recorded run.

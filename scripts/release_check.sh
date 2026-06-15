@@ -137,6 +137,17 @@ grep -q 'evaluate_tick' crates/vibe-run/src/runner.rs
 # vibe-run depends only on workspace crates: no foreign/backend crate, root present (fails closed).
 test "$(cargo tree --offline --manifest-path crates/vibe-run/Cargo.toml --edges normal 2>/dev/null | grep -vcE 'vibe-core|vibe-ingress|vibe-scheduler|vibe-frame|vibe-run')" -eq 0
 test "$(cargo tree --offline --manifest-path crates/vibe-run/Cargo.toml --edges normal 2>/dev/null | grep -c 'vibe-run v')" -eq 1
+# P7 — vibe-cli: the local operator CLI (vibe run / replay / verify), incl. the `vibe` binary.
+cargo test --offline --quiet --manifest-path crates/vibe-cli/Cargo.toml >/dev/null 2>&1
+cargo fmt --manifest-path crates/vibe-cli/Cargo.toml --check >/dev/null 2>&1
+cargo clippy --offline --manifest-path crates/vibe-cli/Cargo.toml --all-targets -- -D warnings >/dev/null 2>&1
+cargo build --offline --quiet --manifest-path crates/vibe-cli/Cargo.toml >/dev/null 2>&1
+test -f crates/vibe-cli/src/main.rs
+# serde is confined to the CLI (IO layer): it must NOT appear in any engine crate's manifest, so
+# the deterministic engine stays dependency-free.
+test "$(grep -lE '^serde' crates/vibe-core/Cargo.toml crates/vibe-ingress/Cargo.toml crates/vibe-scheduler/Cargo.toml crates/vibe-frame/Cargo.toml crates/vibe-run/Cargo.toml 2>/dev/null | wc -l)" -eq 0
+# the CLI re-derives runs through vibe-run; it reimplements no engine internals.
+test "$(grep -cE 'fn evaluate_tick|split_mix64' crates/vibe-cli/src/lib.rs)" -eq 0
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json

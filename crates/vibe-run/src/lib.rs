@@ -183,6 +183,25 @@ mod tests {
         assert_eq!(report.run_hash, recorded.run_hash);
     }
 
+    #[test]
+    fn record_from_frames_reproduces_run() {
+        // The load-side entry point: re-deriving a run from its frames alone
+        // reproduces the same run_hash and outputs (this is what the CLI replays).
+        let recorded = RunRecorder::new().record(&script());
+        let frames: Vec<_> = recorded.ticks.iter().map(|t| t.frame.clone()).collect();
+        let rebuilt = RunRecorder::new().record_from_frames(recorded.seed, frames);
+        assert_eq!(
+            rebuilt.run_hash, recorded.run_hash,
+            "re-deriving from frames reproduces the run_hash"
+        );
+        let recorded_outputs: Vec<_> = recorded.ticks.iter().map(|t| &t.output).collect();
+        let rebuilt_outputs: Vec<_> = rebuilt.ticks.iter().map(|t| &t.output).collect();
+        assert_eq!(
+            recorded_outputs, rebuilt_outputs,
+            "re-derived outputs match the recording"
+        );
+    }
+
     // The recorder/replayer drive the one engine; they do not reimplement it.
     #[test]
     fn run_layer_does_not_reimplement_the_engine() {

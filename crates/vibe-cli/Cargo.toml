@@ -1,0 +1,22 @@
+[package]
+name = "vibe-cli"
+version = "0.1.0"
+edition = "2021"
+description = "ADR-002 local operator CLI (vibe run / replay / verify) for Cognitive OS"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# The CLI is the operator/IO outer layer — it is allowed external dependencies
+# (serde/serde_json) for file serialization. The engine crates stay zero/workspace
+# dependency; release_check asserts serde never leaks into them.
+[[bin]]
+name = "vibe"
+path = "src/main.rs"
+
+[dependencies]
+vibe-core = { path = "../vibe-core" }
+vibe-ingress = { path = "../vibe-ingress" }
+vibe-scheduler = { path = "../vibe-scheduler" }
+vibe-run = { path = "../vibe-run" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
