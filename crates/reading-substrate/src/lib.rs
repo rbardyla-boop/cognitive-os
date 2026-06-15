@@ -41,8 +41,11 @@ pub fn fixture() -> (Corpus, String, ReadingTrace) {
     );
     let question = "Which bridge is safe to cross after the storm?".to_string();
 
-    let claim_b = "Bridge B remained passable during light rain.";
-    let claim_a = "Bridge A was reported damaged and inspectors advised against using it.";
+    // Claims are VERBATIM excerpts of their cited spans (the deterministic
+    // grounding floor: a claim's statement must be a literal substring of the
+    // cited span text). Paraphrase is intentionally not accepted yet.
+    let claim_b = "Bridge B remained passable during light rain on the same day.";
+    let claim_a = "Bridge A was reported structurally damaged after the June storm.";
 
     let mut trace = ReadingTrace::new();
     trace.push(ReadingAction::InspectCorpus);
@@ -196,6 +199,37 @@ mod tests {
         assert!(
             !report.answer_supported,
             "an unsupported answer sentence must fail support"
+        );
+        assert!(!report.passed);
+    }
+
+    // --- claim fidelity (READ-1): a claim is grounded only if its statement is
+    //     literally supported by its cited span text, not merely if it cites a
+    //     real, read span ---
+
+    #[test]
+    fn verbatim_claim_is_grounded_by_cited_span_text() {
+        let (corpus, question, trace) = fixture();
+        let run = execute(&corpus, &question, &trace).unwrap();
+        assert!(
+            verify(&corpus, &run).grounded,
+            "verbatim claims drawn from their cited spans are grounded"
+        );
+    }
+
+    #[test]
+    fn sabotage_fabricated_claim_citing_a_real_span_fails_fidelity() {
+        let (corpus, question, trace) = fixture();
+        let mut run = execute(&corpus, &question, &trace).unwrap();
+        // Keep the real, read cited spans [0,2]; replace the statement with text
+        // the cited spans do NOT support (in fact, the opposite of span 0). Under
+        // the old structural-only grounding this verified; fidelity must reject.
+        run.memory.claims[1].statement =
+            "Bridge A is fully safe to cross after the storm.".to_string();
+        let report = verify(&corpus, &run);
+        assert!(
+            !report.grounded,
+            "a fabricated statement citing a real span must fail fidelity grounding"
         );
         assert!(!report.passed);
     }

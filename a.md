@@ -83,7 +83,7 @@ Prototype-First Track (ADR-002 deterministic engine, then replaceable LLM codec)
 - [x] P6 — RunScript + RunRecorder + deterministic replay. _Delivered 2026-06-15; `crates/vibe-run` (L2) records the full pipeline + replays from recorded frames alone, detecting tampering. 8 cargo tests green; passed a fresh-context adversarial panel (0 confirmed defects; closed a surfaced tick-label internal-consistency gap)._
 - [x] P7 — Local CLI prototype (`vibe run` / `vibe replay` / `vibe verify`). _Delivered 2026-06-15; `crates/vibe-cli` (the `vibe` binary), serde confined to the CLI, 5 cargo tests + end-to-end binary smoke (run→replay MATCH→verify OK→tamper exit 1)._
 - [x] P8 — Prototype release gate (Rust tests + replay determinism + governance checks + no-secrets). _Delivered 2026-06-15; `release_check.sh` consolidates P1–P7 + Python governance + an end-to-end `vibe` binary smoke (replay determinism through the recorded-run path) + a no-secrets scan; green+silent; 3 sabotage probes (broken verify / serde-in-core / secret fixture) each fail it. No engine behavior added._
-- [ ] P9 — Language-codec boundary (LLM proposes typed packets; cannot mutate state).
+- [x] P9 — Language-codec boundary (LLM proposes typed packets; cannot mutate state). _Delivered 2026-06-15; `crates/reading-codec` — an untrained, deterministic codec on top of READ-0: untrusted model text → typed reading actions; prose/malformed/unknown/under-specified output rejected (never repaired); accepted actions execute ONLY through `reading_substrate::execute`; an answer finalizes ONLY if `reading_substrate::verify` approves it. 11-fixture eval harness (runnable `eval_report` example) scores valid/invalid/injection outputs; 14 codec + 11 substrate cargo tests incl. 3 codec sabotage probes (disable unknown-action rejection / source-span requirement / verify-finalize gate → eval fails). No trained weights, no live model. Depends on reading-substrate, no vibe-* dep; serde stays out of engine/substrate cores. **Folds in READ-1 claim-fidelity hardening** (an ultracode panel found READ-0 grounding was structural-only): a claim is grounded only if its statement is a literal substring of its cited span TEXT (deterministic floor, no paraphrase/LLM) — so a fabricated claim citing a real read span no longer finalizes. release_check gates it; P8 still green; vibe engine + CLI 0-diff._
 - [ ] P10 — Baseline off-the-shelf local LLM adapter (zero training).
 - [ ] P11 — LLM codec eval harness (30–100 cases; model cannot self-grade).
 - [ ] P12 — Training-justification gate.
@@ -1368,6 +1368,47 @@ replayable state. The constraint-engineering discipline for any training decisio
   memory/state directly, LLM confidence becomes evidence, or hidden context becomes world storage. Tests:
   `llm_intent_to_observation_envelope`, `invalid_llm_packet_rejected`, `llm_cannot_call_mutation_gateway`,
   `llm_cannot_assign_epistemic_license`, `llm_explanation_requires_audit_source`.
+
+  Status: delivered (2026-06-15). Built on the Reading Substrate track (READ-0) as `crates/reading-codec`
+  — the boundary/IO layer for the reading line (serde allowed here, never in the engine or substrate
+  cores). A strict, deterministic codec maps **untrusted model text** → typed `ReadingAction` proposals:
+  invalid JSON / free-form prose / unknown action / missing-or-mistyped fields are rejected with a
+  precise, recorded reason and **never silently repaired**. Referenced span ids are checked against the
+  corpus *before* execution; an `extract_claim`/`extract_entity` with no source span is rejected.
+  Accepted actions execute **only** through `reading_substrate::execute` (the codec mutates no memory
+  itself), and a synthesized answer **finalizes only if `reading_substrate::verify` approves it**
+  (grounded + supported + replayable) — so a prompt-injection that asserts an ungrounded answer is
+  refused at the finalize gate. A `CodecPolicy` carries the three guards (reject-unknown,
+  require-source-spans, require-verified-finalize); production builds only the strict policy, and
+  `#[cfg(test)]` weakened constructors drive the **3 sabotage probes** (disable any one guard → the eval
+  battery fails). The **eval harness** (`evaluate` + the runnable `eval_report` example) scores the
+  required 10-fixture battery — valid inspect/read, malformed, unknown action, missing field, nonexistent
+  span, ungrounded claim, synthesize-before-verify, prompt-injection override, and the full valid
+  sequence (which must reproduce the canonical READ-0 answer + trace) — checking the **reason** for each
+  rejection, not just that it was rejected. **No trained weights, no RL, no live-model dependency**;
+  model output is untrusted strings. 13 cargo tests; `release_check` gates it (test + fmt + clippy +
+  substrate-is-only-executor + purity/no-network + no-ML-dependency + separation: depends on
+  reading-substrate, no `vibe-*`). READ-0 and the P8 engine gate stay green; substrate + engine 0-diff.
+  (The map onto the engine packet names — `ObservationEnvelope`/`IngressGate`/mutation gateway — is the
+  P10+ adapter's job; READ-0/codec proves the **shape** of the boundary on the reading substrate first.)
+
+  **READ-1 claim-fidelity hardening (folded into this milestone).** An ultracode adversarial panel (7
+  agents) confirmed — and the build reproduced first-hand — that READ-0's grounding was purely
+  *structural*: a claim was "grounded" merely by citing a span that existed and was read; the claim's
+  `statement` was never compared to the span's actual text. So a fabricated claim citing a real read
+  span (`extract_claim "Bridge A is fully safe…" cite [0]` against a span that says Bridge A was
+  *damaged*) finalized a verifier-approved answer that contradicted the source — the exact "model
+  confidence becomes evidence" failure the boundary exists to stop. Because P9 is the first milestone
+  that accepts untrusted, model-shaped text, shipping a codec that faithfully routes such claims through
+  a structurally weak verifier would be a known-unsafe milestone, so the fix was folded in here rather
+  than deferred. Fix (deterministic floor, no semantic entailment / no LLM judge): `reading_substrate`'s
+  verifier now reads the cited span **text**, concatenates the cited spans, minimally normalizes
+  (collapse whitespace, lowercase), and requires each claim's statement to be a **literal substring** of
+  that text; the canonical READ-0 claims were rewritten as verbatim span excerpts, and the codec's
+  accepted fixture uses verbatim support. An exploit-regression fixture (`grounded_injection_fabricated_claim`)
+  and a substrate fidelity probe pin it; disabling the fidelity check fails `release_check` (gate exit
+  101). Boundary rule: **P9 may accept untrusted language only because READ-1 verifies cited-text
+  support.** Paraphrase / semantic entailment is explicitly a later sprint.
 - **P10 — Baseline local LLM adapter (zero training).** A local model parses requests into candidate
   typed packets at `temperature = 0`, structured/schema output, no autonomous tool calls, no write
   authority; bad output is rejected cleanly. Acceptance: the baseline works as a *proposed* translator,

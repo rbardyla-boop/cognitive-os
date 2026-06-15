@@ -186,6 +186,38 @@ cargo clippy --offline --manifest-path crates/reading-substrate/Cargo.toml --all
 # Separation: reading-substrate depends on NO vibe engine crate, and is zero-dependency.
 test "$(cargo tree --offline --manifest-path crates/reading-substrate/Cargo.toml --edges normal 2>/dev/null | grep -cE 'vibe-')" -eq 0
 test "$(cargo tree --offline --manifest-path crates/reading-substrate/Cargo.toml --edges normal 2>/dev/null | wc -l)" -eq 1
+# READ-1 claim fidelity: the verifier reads cited span TEXT (not just span ids) and a claim is grounded
+# only if its statement is literally supported by that text. The cargo test above runs the fidelity
+# probe (fabricated claim citing a real, read span -> grounding fails); this positive signal asserts the
+# verifier actually consults span text, so it cannot silently degrade to a structural id-only check.
+grep -q 'read_span' crates/reading-substrate/src/verify.rs
+grep -q 'fn normalize' crates/reading-substrate/src/verify.rs
+# ---------------------------------------------------------------------------------------------------
+# P9 — reading-codec: the untrained LLM codec boundary + eval harness. A strict, deterministic codec
+# parses UNTRUSTED model output into typed reading actions, validates them, executes accepted actions
+# ONLY through the READ-0 substrate, and finalizes an answer ONLY if the verifier approves it. No
+# trained weights, no live model — model output is untrusted text (fixtures). The codec is the
+# boundary/IO layer for the reading track (serde allowed here, never in the engine or substrate core).
+# ---------------------------------------------------------------------------------------------------
+cargo test --offline --quiet --manifest-path crates/reading-codec/Cargo.toml >/dev/null 2>&1
+cargo fmt --manifest-path crates/reading-codec/Cargo.toml --check >/dev/null 2>&1
+cargo clippy --offline --manifest-path crates/reading-codec/Cargo.toml --all-targets -- -D warnings >/dev/null 2>&1
+# The eval harness is a runnable gate: it scores the 10-fixture battery and exits non-zero on any
+# divergence between the codec's actual decision and the required decision.
+cargo run --offline --quiet --example eval_report -p reading-codec >/dev/null 2>&1
+# The substrate is the ONLY executor: the codec DRIVES reading_substrate::execute/verify and defines
+# no executor/verifier/hashing internals of its own (sabotage-detectable, like the vibe-run gate).
+test "$(grep -rlE 'fn execute\(|fn verify\(|fn hash_memory|fn hash_proof|fn require_grounded' crates/reading-codec/src/ | wc -l)" -eq 0
+grep -q 'execute(corpus' crates/reading-codec/src/codec.rs
+grep -q 'verify(corpus' crates/reading-codec/src/codec.rs
+# Determinism: the decode decision is pure — no wall-clock, no entropy, no network in the codec source.
+test "$(grep -rlE 'SystemTime|Instant|std::time|thread_rng|getrandom|rand::|use rand|std::net|tokio|\.await|reqwest' crates/reading-codec/src/ | wc -l)" -eq 0
+# No model is trained or loaded: the codec manifest pulls no ML/inference/training framework.
+test "$(grep -riE 'torch|tensorflow|candle|onnx|tract|\bburn\b|llama|inference' crates/reading-codec/Cargo.toml | wc -l)" -eq 0
+# Separation: reading-codec depends on the reading-substrate (its only executor) and on NO vibe engine
+# crate. (serde/serde_json are allowed boundary deps; fails closed if cargo tree cannot run.)
+test "$(cargo tree --offline --manifest-path crates/reading-codec/Cargo.toml --edges normal 2>/dev/null | grep -cE 'vibe-')" -eq 0
+test "$(cargo tree --offline --manifest-path crates/reading-codec/Cargo.toml --edges normal 2>/dev/null | grep -c 'reading-substrate')" -ge 1
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json

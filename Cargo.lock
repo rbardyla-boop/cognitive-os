@@ -33,6 +33,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "reading-codec"
+version = "0.1.0"
+dependencies = [
+ "reading-substrate",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "reading-substrate"
 version = "0.1.0"
 

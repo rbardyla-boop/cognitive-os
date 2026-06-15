@@ -12,4 +12,5 @@ members = [
     "crates/vibe-run",
     "crates/vibe-cli",
     "crates/reading-substrate",
+    "crates/reading-codec",
 ]

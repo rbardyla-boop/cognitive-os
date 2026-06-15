@@ -28,18 +28,40 @@ pub struct VerifyReport {
 pub fn verify(corpus: &Corpus, run: &ReadingRun) -> VerifyReport {
     let mut problems = Vec::new();
 
-    // 1. Grounding: every claim cites ≥1 existing source span.
+    // 1. Grounding: every claim cites ≥1 existing source span, AND its statement
+    //    is literally supported by the cited span TEXT. A claim is NOT grounded
+    //    merely because it points at a span that was read — a fabricated
+    //    statement citing a real span must fail. Deterministic floor: minimal
+    //    whitespace/case normalization + literal substring. No semantic
+    //    entailment, no paraphrase acceptance, no model judge (those are later).
     let mut grounded = true;
     for c in &run.memory.claims {
         if c.source_spans.is_empty() {
             grounded = false;
             problems.push(format!("claim {} has no source span", c.id));
+            continue;
         }
+        let mut cited_text = String::new();
+        let mut all_spans_exist = true;
         for s in &c.source_spans {
-            if !corpus.contains(*s) {
-                grounded = false;
-                problems.push(format!("claim {} cites unknown span {}", c.id, s.0));
+            match corpus.read_span(*s) {
+                Some(span) => {
+                    cited_text.push_str(span.text());
+                    cited_text.push(' ');
+                }
+                None => {
+                    grounded = false;
+                    all_spans_exist = false;
+                    problems.push(format!("claim {} cites unknown span {}", c.id, s.0));
+                }
             }
+        }
+        if all_spans_exist && !normalize(&cited_text).contains(&normalize(&c.statement)) {
+            grounded = false;
+            problems.push(format!(
+                "claim {} is not supported by its cited span text",
+                c.id
+            ));
         }
     }
 
@@ -94,4 +116,14 @@ pub fn verify(corpus: &Corpus, run: &ReadingRun) -> VerifyReport {
         passed,
         problems,
     }
+}
+
+/// Minimal, deterministic normalization for the literal-substring grounding
+/// floor: collapse every whitespace run to a single space, trim, and lowercase.
+/// Deliberately NOT semantic — no stemming, synonyms, or paraphrase handling.
+fn normalize(text: &str) -> String {
+    text.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
 }

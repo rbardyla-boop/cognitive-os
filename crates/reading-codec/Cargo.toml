@@ -1,0 +1,18 @@
+[package]
+name = "reading-codec"
+version = "0.1.0"
+edition = "2021"
+description = "P9 — untrained LLM codec boundary + eval harness: parses untrusted model output into typed reading actions and executes them only through the READ-0 substrate"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# reading-codec is the BOUNDARY/IO layer for the reading track (the P9–P15 LLM
+# codec line). Like vibe-cli for the engine, it is allowed serialization deps
+# (serde/serde_json) to parse untrusted model text. It depends on the READ-0
+# reading-substrate — the ONLY component allowed to mutate reading memory — and
+# on NO vibe engine crate. release_check asserts both boundaries. There is no
+# model, no training, no network: model output is represented as untrusted text.
+[dependencies]
+reading-substrate = { path = "../reading-substrate" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
