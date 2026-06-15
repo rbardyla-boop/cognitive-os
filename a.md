@@ -86,7 +86,7 @@ Prototype-First Track (ADR-002 deterministic engine, then replaceable LLM codec)
 - [x] P9 — Language-codec boundary (LLM proposes typed packets; cannot mutate state). _Delivered 2026-06-15; `crates/reading-codec` — an untrained, deterministic codec on top of READ-0: untrusted model text → typed reading actions; prose/malformed/unknown/under-specified output rejected (never repaired); accepted actions execute ONLY through `reading_substrate::execute`; an answer finalizes ONLY if `reading_substrate::verify` approves it. 11-fixture eval harness (runnable `eval_report` example) scores valid/invalid/injection outputs; 14 codec + 11 substrate cargo tests incl. 3 codec sabotage probes (disable unknown-action rejection / source-span requirement / verify-finalize gate → eval fails). No trained weights, no live model. Depends on reading-substrate, no vibe-* dep; serde stays out of engine/substrate cores. **Folds in READ-1 claim-fidelity hardening** (an ultracode panel found READ-0 grounding was structural-only): a claim is grounded only if its statement is a literal substring of its cited span TEXT (deterministic floor, no paraphrase/LLM) — so a fabricated claim citing a real read span no longer finalizes. release_check gates it; P8 still green; vibe engine + CLI 0-diff._
 - [x] P10 — Baseline off-the-shelf local LLM adapter (zero training). _Delivered 2026-06-15; `crates/reading-adapter` — a REPLACEABLE `ModelBackend` boundary: a backend produces untrusted reading-action text routed ONLY through `reading_codec::decode` (validate → substrate execute → READ-1 verifier finalize); the adapter holds no authority, mutates no memory, cannot finalize without verification. Default `ScriptedBackend` is deterministic; optional `local-model` feature adds a real local model via subprocess (`std::process`), OFF by default, never run by the gate (only compiled+linted). Baseline failure-profile eval (`baseline_report` + runnable example): 1 finalized / 7, 5 rejected across all classes incl. a fabricated-but-cited claim → Unverified. 7 cargo tests. release_check gates it (test+fmt+clippy ×2 features + runnable eval + no-executor-call scan + purity + feature-gate + no-ML-dep + separation); live bypass sabotage (adapter calls substrate executor directly) → gate fails, restored. P8/P9/READ-0/READ-1 still green; vibe + codec + substrate 0-diff. Hard rule honored: a model backend, not a smarter authority._
 - [x] P11 — LLM codec eval harness (30–100 cases; model cannot self-grade). _Delivered 2026-06-15; `crates/reading-eval` — 37 committed fixtures (raw untrusted proposal text + a COMMITTED expected outcome) across all 10 categories (valid action, correct finalization, malformed JSON, unknown action, missing fields, bad span, ungrounded claim, fabricated cited claim, premature synthesize, prompt injection), scored through the P10 adapter → codec → READ-1/READ-2 verifier. The scorer compares the codec's actual decision to the committed label (never the model's prose); false-accepts (should-reject-but-accepted — the unsafe class) are surfaced as an explicit list and the report carries score + false-accepts + classified false-rejects + failure-category histogram + a deterministic `next_change`. **Folds in READ-2 sentence-fidelity** (a panel found the prior literal-substring floor finalized false answers built from verbatim sub-fragments): a claim must now be a complete sentence-level unit of a cited span, killing the fragment/composition false-accept class. Battery: **37/37 correct, 0 false-accepts, 0 false-rejects** (incl. the new fragment/composition cases). 9 tests incl. controls proving the scorer uses committed labels. release_check gates it (test+fmt+clippy + runnable example enforcing ≥30 + 0-false-accepts + source-count + purity + separation); live sabotage (disable the sentence-boundary check) reintroduces 2 false-accepts → gate exit 101. No model, no training. P8/P9/P10/READ-0/READ-1 green; vibe engine + CLI 0-diff._
-- [ ] P12 — Training-justification gate.
+- [x] P12 — Training-justification gate. _Delivered 2026-06-15; `crates/reading-train-gate` — a deterministic, machine-checkable gate that BLOCKS weight training unless a clean, recurring model failure survives cleanup of every fixable cause (bad fixture, schema, prompt, tooling, missing context, verifier weakness). `decide(false_accept_ids, diagnoses) -> TrainingDecision{training_justified, safety_fix_required, cited_failures, blockers, reason}`; the load-bearing bit is the bool, not prose. Doctrine: no failed cases → no training; any false-accept → a verifier/safety fix (never training); any defect-caused failure → no training; only a `CleanModelFailure` that survived cleanup AND recurs (≥2) can justify weights, and even one remaining defect blocks. On the live P11 battery (0 false-accepts, 0 residual) the decision is **training_justified=false** ("no unresolved failures"). 12 tests (the 6 first-tests + recurrence/cleanup/mixed-defect/determinism). release_check gates it (test+fmt+clippy + runnable decision example + purity + no-ML-dep + separation); live sabotage (ignore blockers) → doctrine test + gate exit 101. No model, no training. All prior crates 0-diff._
 - [ ] P13 — Local LoRA/adapter candidate (only if justified).
 - [ ] P14 — Shadow-mode insertion.
 - [ ] P15 — Promotion / rejection gate.
@@ -1497,6 +1497,40 @@ replayable state. The constraint-engineering discipline for any training decisio
   the baseline still repeatedly failed the same pattern. Not justified if failures trace to bad
   schema/prompt/examples/eval-labels/task-definition/tooling/context. Acceptance: the decision cites exact
   failed cases; no training without clean failures.
+
+  Status: delivered (2026-06-15). `crates/reading-train-gate` is the deterministic, machine-checkable
+  gate. `decide(false_accept_ids, diagnoses)` returns a `TrainingDecision` whose load-bearing field is
+  the bool `training_justified` (plus `safety_fix_required`, `cited_failures`, structured `blockers`, and
+  a derived one-line `reason` — the bool decides, not the prose). A residual failure is a `CleanModelFailure`
+  only if it survived cleanup of every fixable cause — `BadFixture`, `SchemaDefect`, `PromptDefect`,
+  `ToolingDefect`, `MissingContext`, `VerifierWeakness` — AND recurs (≥ `MIN_RECURRENCES` = 2). The
+  decision logic: any **false-accept** sets `safety_fix_required` and blocks (the cure is hardening the
+  verifier, never training); each diagnosed residual failure is either a clean candidate or a named
+  blocker citing its cause; **zero failures** yields a "no unresolved failures" block; an undiagnosed
+  false-reject (via `decide_from_report`) is forced to a non-clean cause so it blocks until triaged.
+  `training_justified` is true **only** with ≥ 1 clean candidate AND zero blockers — so a single
+  remaining defect, a non-recurring clean failure, or a not-survived-cleanup failure all block, and the
+  decision always names exact fixture ids. `decide_from_eval()` runs the live P11 battery: 0 false-accepts,
+  0 residual ⇒ **training_justified = false** ("no unresolved failures — no clean residual to justify
+  training"). 12 cargo tests (the six first-tests — no-failures / false-accept-needs-safety-fix /
+  eval-design / schema / clean-recurring-candidate / cites-fixture-ids — plus verifier-weakness,
+  single-occurrence, not-survived, mixed-defect, current-battery, determinism). `release_check` gates it
+  (test + fmt + clippy + a runnable `decision_report` example that refuses an unjustified "yes" + purity +
+  no-ML-dep + separation); a live sabotage that ignores blockers fails the gate (exit 101). **No model is
+  trained.** Hard doctrine in code: **no failed cases → no training; verifier defect → no training; schema
+  defect → no training; only a clean recurring codec failure can justify weights.** The current verdict is
+  a firm "not justified", which is correct: there is no clean residual failure to train against.
+
+  Phantom-diagnosis hardening (P12 adversarial panel, 2026-06-15): the panel found — and the build
+  reproduced first-hand — that `decide_from_report` admitted any reviewer-supplied diagnosis without
+  checking it corresponded to a real failure, so a clean eval (0 false-accepts, 0 residual) could be
+  coerced to `training_justified=true` by injecting one "phantom" diagnosis citing a fixture the eval
+  never failed. The production path (`decide_from_eval`, always `&[]`) was already safe, but the public
+  helper's contract was broken, so it was hardened before commit: `decide_from_report` now admits a
+  diagnosis only if its `fixture_id` matches an actual residual failure (false-reject) in the report;
+  a phantom becomes a `phantom_diagnosis` blocker and can never justify training. Pinned by
+  `phantom_diagnosis_cannot_justify_training_on_clean_eval` (plus valid-admission and
+  undiagnosed-residual tests). 15 cargo tests.
 - **P13 — Local LoRA/adapter candidate (only if justified).** Train a small local adapter for the
   language-codec task only, from accepted eval traces + corrected examples; it emits typed packets or
   explanations only — no world facts as authoritative memory. Correct if codec accuracy improves without

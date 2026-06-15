@@ -63,6 +63,13 @@ name = "reading-substrate"
 version = "0.1.0"
 
 [[package]]
+name = "reading-train-gate"
+version = "0.1.0"
+dependencies = [
+ "reading-eval",
+]
+
+[[package]]
 name = "serde"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"

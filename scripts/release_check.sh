@@ -275,6 +275,25 @@ test "$(grep -riE 'torch|tensorflow|candle|onnx|tract|\bburn\b|llama|inference' 
 # Separation: reading-eval depends on the reading track (adapter→codec→substrate) and NO vibe engine crate.
 test "$(cargo tree --offline --manifest-path crates/reading-eval/Cargo.toml --edges normal 2>/dev/null | grep -cE 'vibe-')" -eq 0
 test "$(cargo tree --offline --manifest-path crates/reading-eval/Cargo.toml --edges normal 2>/dev/null | grep -c 'reading-adapter')" -ge 1
+# ---------------------------------------------------------------------------------------------------
+# P12 — reading-train-gate: the training-justification gate. A deterministic, machine-checkable decision
+# that BLOCKS weight training unless a clean, recurring model failure survives cleanup of every fixable
+# cause (fixture/schema/prompt/tooling/context/verifier). No failed cases → no training; any false-accept
+# → a verifier/safety fix, never training. On the current P11 battery (0 false-accepts, 0 residual) the
+# decision is training_justified=false. No training, no ML dependency.
+# ---------------------------------------------------------------------------------------------------
+cargo test --offline --quiet --manifest-path crates/reading-train-gate/Cargo.toml >/dev/null 2>&1
+cargo fmt --manifest-path crates/reading-train-gate/Cargo.toml --check >/dev/null 2>&1
+cargo clippy --offline --manifest-path crates/reading-train-gate/Cargo.toml --all-targets -- -D warnings >/dev/null 2>&1
+# The runnable decision is internally consistent (never "train" without citing a clean recurring failure).
+cargo run --offline --quiet --example decision_report -p reading-train-gate >/dev/null 2>&1
+# Determinism/purity: the decision is pure — no clock, entropy, network, or process in the gate source.
+test "$(grep -rlE 'SystemTime|Instant|std::time|thread_rng|getrandom|rand::|use rand|std::net|std::process|tokio|\.await|reqwest' crates/reading-train-gate/src/ | wc -l)" -eq 0
+# No model is trained or loaded: the gate manifest pulls no ML/inference/training framework.
+test "$(grep -riE 'torch|tensorflow|candle|onnx|tract|\bburn\b|llama|inference' crates/reading-train-gate/Cargo.toml | wc -l)" -eq 0
+# Separation: reading-train-gate depends on reading-eval (the harness it gates on) and NO vibe engine crate.
+test "$(cargo tree --offline --manifest-path crates/reading-train-gate/Cargo.toml --edges normal 2>/dev/null | grep -cE 'vibe-')" -eq 0
+test "$(cargo tree --offline --manifest-path crates/reading-train-gate/Cargo.toml --edges normal 2>/dev/null | grep -c 'reading-eval')" -ge 1
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json

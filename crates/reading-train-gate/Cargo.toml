@@ -1,0 +1,16 @@
+[package]
+name = "reading-train-gate"
+version = "0.1.0"
+edition = "2021"
+description = "P12 — training-justification gate: a deterministic, machine-checkable decision that blocks weight training unless a clean, recurring model failure survives cleanup of fixture/schema/prompt/tooling/context/verifier defects"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# reading-train-gate decides whether weight training is justified. It consumes
+# the P11 eval result and per-failure diagnoses, and outputs a machine-checkable
+# TrainingDecision. Doctrine: no failed cases → no training; any false-accept →
+# safety/verifier fix, never training; any fixture/schema/prompt/tooling/context/
+# verifier defect → no training; only a clean, recurring model failure that
+# survives cleanup can justify weights. It trains nothing and pulls no ML crate.
+[dependencies]
+reading-eval = { path = "../reading-eval" }
