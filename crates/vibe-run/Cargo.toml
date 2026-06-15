@@ -1,0 +1,17 @@
+[package]
+name = "vibe-run"
+version = "0.1.0"
+edition = "2021"
+description = "ADR-002 layer-L2 deterministic record/replay (RunScript + RunRecorder + ReplayRunner) for Cognitive OS"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# Orchestrates the L0/L1 layers to record a deterministic run and replay it from
+# recorded evidence. It DRIVES the one engine (vibe-core); it does not reimplement
+# it. No backend/network/async crates; release_check asserts the dependency tree
+# is exactly the workspace crates.
+[dependencies]
+vibe-core = { path = "../vibe-core" }
+vibe-ingress = { path = "../vibe-ingress" }
+vibe-scheduler = { path = "../vibe-scheduler" }
+vibe-frame = { path = "../vibe-frame" }

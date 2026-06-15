@@ -125,6 +125,18 @@ grep -q 'pub use vibe_core::{[^}]*ObservationFrame' crates/vibe-frame/src/lib.rs
 grep -q 'pub struct StateTransition' crates/vibe-core/src/kernel.rs
 grep -q 'fn output_hash' crates/vibe-core/src/kernel.rs
 grep -q 'fn evaluate_tick(' crates/vibe-core/src/kernel.rs
+# P6 — vibe-run: ADR-002 L2 deterministic record/replay (RunScript + RunRecorder + ReplayRunner).
+cargo test --offline --quiet --manifest-path crates/vibe-run/Cargo.toml >/dev/null 2>&1
+cargo fmt --manifest-path crates/vibe-run/Cargo.toml --check >/dev/null 2>&1
+cargo clippy --offline --manifest-path crates/vibe-run/Cargo.toml --all-targets -- -D warnings >/dev/null 2>&1
+# "neither becomes a second engine": vibe-run DRIVES the engine (calls evaluate_tick) but defines
+# no evaluate_tick and reimplements no engine internals (split_mix64) — sabotage-detectable.
+test "$(grep -c 'fn evaluate_tick' crates/vibe-run/src/runner.rs)" -eq 0
+test "$(grep -c 'split_mix64' crates/vibe-run/src/runner.rs)" -eq 0
+grep -q 'evaluate_tick' crates/vibe-run/src/runner.rs
+# vibe-run depends only on workspace crates: no foreign/backend crate, root present (fails closed).
+test "$(cargo tree --offline --manifest-path crates/vibe-run/Cargo.toml --edges normal 2>/dev/null | grep -vcE 'vibe-core|vibe-ingress|vibe-scheduler|vibe-frame|vibe-run')" -eq 0
+test "$(cargo tree --offline --manifest-path crates/vibe-run/Cargo.toml --edges normal 2>/dev/null | grep -c 'vibe-run v')" -eq 1
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json

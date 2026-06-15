@@ -80,7 +80,7 @@ Prototype-First Track (ADR-002 deterministic engine, then replaceable LLM codec)
 - [x] P3 — TickScheduler + ScheduledObservation. _Delivered 2026-06-14; `crates/vibe-scheduler`, 7 cargo tests green, scheduling-only (deterministic target ticks, bounded horizon, overload→receipt, idempotent), release_check gates the L1 boundary._
 - [x] P4 — FrameCollector + ObservationFrame. _Delivered 2026-06-14; `crates/vibe-frame`, 8 cargo tests green, canonical hash-stable frame (frame-only), release_check gates the L1 boundary; passed a fresh-context adversarial panel (0 confirmed rubric defects; 2 surfaced coverage gaps closed)._
 - [x] P5 — Minimal VibeEngine evaluation loop. _Delivered 2026-06-14; canonical `ObservationFrame` promoted into vibe-core (L0), P1 stub retired, `evaluate_tick` folds the frame + emits `EngineOutput` with explicit `StateTransition` + `output_hash`. One frame definition. 12 vibe-core + 9 vibe-frame tests green; passed a fresh-context adversarial panel (0 confirmed defects)._
-- [ ] P6 — RunScript + RunRecorder + deterministic replay.
+- [x] P6 — RunScript + RunRecorder + deterministic replay. _Delivered 2026-06-15; `crates/vibe-run` (L2) records the full pipeline + replays from recorded frames alone, detecting tampering. 8 cargo tests green; passed a fresh-context adversarial panel (0 confirmed defects; closed a surfaced tick-label internal-consistency gap)._
 - [ ] P7 — Local CLI prototype (`vibe run` / `vibe replay` / `vibe verify`).
 - [ ] P8 — Prototype release gate (Rust tests + replay determinism + governance checks + no-secrets).
 - [ ] P9 — Language-codec boundary (LLM proposes typed packets; cannot mutate state).
@@ -1318,7 +1318,7 @@ the deterministic engine actually runs.
 
 ### P6 — RunScript, RunRecorder, and deterministic replay (L2)
 
-Status: Not started. Correct if a `RunScript` drives the whole pipeline, `RunRecorder` records accepted
+Status: delivered (2026-06-15). `crates/vibe-run` (depends on all four lower crates) records and replays a deterministic run. `RunRecorder::record(script)` drives the full pipeline (ingress admits → scheduler orders → collector canonicalizes frames → engine evaluates), recording accepted/scheduled observations, per-tick frames + outputs (with transitions + hashes), and a `run_hash`. `ReplayRunner::replay(recorded)` re-runs ONLY the engine over the RECORDED frames (no re-admission, no re-scheduling, no live input) and reports `verified = run_hash_matches && no output_mismatches && no tick_mismatches`. Tampering is detected three ways (output, run_hash, frame) plus an internal-consistency check (a relabelled tick whose label disagrees with its frame/output). Both DRIVE the one engine — gated so the source defines no `evaluate_tick` and reimplements no `split_mix64`. 8 cargo tests green; sabotage (defeat tamper-detection; make replay re-collect from live scheduled) both caught; a fresh-context adversarial panel confirmed 0 rubric defects (authenticity-under-active-forger stays the L3/S30 signing concern). Correct if a `RunScript` drives the whole pipeline, `RunRecorder` records accepted
 observations/frames/outputs/hashes, and replay reproduces the same result hash-for-hash. Wrong if replay
 depends on live input, a recorded run cannot reconstruct frames, or replay output differs without
 explanation. Build: `RunScript`, `RecordedRun`, `RunRecorder`, `ReplayRunner`, `run_hash`,

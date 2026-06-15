@@ -23,6 +23,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "vibe-run"
+version = "0.1.0"
+dependencies = [
+ "vibe-core",
+ "vibe-frame",
+ "vibe-ingress",
+ "vibe-scheduler",
+]
+
+[[package]]
 name = "vibe-scheduler"
 version = "0.1.0"
 dependencies = [
