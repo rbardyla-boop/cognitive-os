@@ -1,0 +1,13 @@
+[package]
+name = "reading-substrate"
+version = "0.1.0"
+edition = "2021"
+description = "READ-0 reading substrate (corpus / memory / trace / verify) for Cognitive OS — a separate track from the vibe engine"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# READ-0 is a SEPARATE track from the deterministic vibe engine. It deliberately
+# depends on NOTHING (not even the vibe crates) — release_check asserts the
+# dependency tree is exactly this crate, so the reading substrate cannot
+# contaminate (or be contaminated by) the engine crates.
+[dependencies]

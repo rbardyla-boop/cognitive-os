@@ -93,7 +93,7 @@ Prototype-First Track (ADR-002 deterministic engine, then replaceable LLM codec)
 
 Reading Substrate Track (separate track; runnable after P7/P8 — needs run/replay, not trained weights — bridges to the P9–P15 LLM track):
 
-- [ ] READ-0 — External Text Reading Trace (verified, replayable answer from source-linked structured memory; no training).
+- [x] READ-0 — External Text Reading Trace (verified, replayable answer from source-linked structured memory; no training). _Delivered 2026-06-15; `crates/reading-substrate` (zero-dep, no vibe deps), scripted deterministic reader, 9 tests incl. 3 sabotage probes; release_check gates it; P8 still green._
 
 ## Sprint 20R — Signed Replay Identity Review Pass
 
@@ -1422,7 +1422,7 @@ in the Appendix below). The probabilistic hypothesis layer ([P16](#)) sits ABOVE
 
 ### READ-0 — External Text Reading Trace
 
-Status: Not started (separate track; begins after P7/P8). Goal: given a folder of documents and one
+Status: delivered (2026-06-15). `crates/reading-substrate` — a SEPARATE track from the vibe engine (zero-dependency; depends on no vibe crate; gated). Modules `corpus` (documents → addressable spans, metadata-first, read-by-id), `memory` (claims/entities/proof — a claim cannot exist without ≥1 source span), `trace` (the inspect→read→extract→compare→synthesize action log + a deterministic executor that enforces metadata-first and grounded extraction, with content hashes), `verify` (grounding + answer-support + trace-replay, the authority boundary). A scripted deterministic reader (the `fixture`) answers a fixed question over a fixed corpus, producing a source-linked answer; `verify` passes only if every claim is grounded, the answer text is exactly its cited claims' statements, and re-executing the trace reproduces the same memory + answer hashes. **9 cargo tests** including the 3 required sabotage probes — remove a claim's source span → grounding fails; reorder the trace → replay fails; add an unsupported answer sentence → support fails. No model weights trained; the scripted reader stands in for the eventual LLM controller (P9–P15). release_check gates it (test + fmt + clippy + separation); the P8 engine gate still passes. Goal: given a folder of documents and one
 question, produce a **verified, replayable answer from source-linked structured memory**.
 
 DONE means all of: (1) documents loaded as external addressable spans; (2) the controller receives

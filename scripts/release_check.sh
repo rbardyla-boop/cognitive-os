@@ -174,6 +174,18 @@ rm -rf "$_p8_dir"
 # material in the Rust tree. A planted .env/key/credential fixture fails the gate.
 test "$(find . -type f \( -name '.env' -o -name '*.pem' -o -name '*.key' -o -name '*.p8' -o -name 'id_rsa' -o -name 'id_ed25519' \) -not -path './target/*' -not -path './.git/*' 2>/dev/null | wc -l)" -eq 0
 test "$(grep -rlIE 'BEGIN [A-Z ]*PRIVATE KEY|AKIA[0-9A-Z]{16}|aws_secret_access_key' crates --include='*.rs' --include='*.toml' 2>/dev/null | wc -l)" -eq 0
+# ---------------------------------------------------------------------------------------------------
+# READ-0 — reading substrate (a SEPARATE track from the vibe engine; it must not contaminate the
+# engine crates). A deterministic scripted reader treats external text as an addressable environment
+# and builds source-linked structured memory; the verifier gates grounding, answer support, and trace
+# replay. No trained weights. (Runs alongside the P8 gate; P8's engine checks are unaffected.)
+# ---------------------------------------------------------------------------------------------------
+cargo test --offline --quiet --manifest-path crates/reading-substrate/Cargo.toml >/dev/null 2>&1
+cargo fmt --manifest-path crates/reading-substrate/Cargo.toml --check >/dev/null 2>&1
+cargo clippy --offline --manifest-path crates/reading-substrate/Cargo.toml --all-targets -- -D warnings >/dev/null 2>&1
+# Separation: reading-substrate depends on NO vibe engine crate, and is zero-dependency.
+test "$(cargo tree --offline --manifest-path crates/reading-substrate/Cargo.toml --edges normal 2>/dev/null | grep -cE 'vibe-')" -eq 0
+test "$(cargo tree --offline --manifest-path crates/reading-substrate/Cargo.toml --edges normal 2>/dev/null | wc -l)" -eq 1
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json
