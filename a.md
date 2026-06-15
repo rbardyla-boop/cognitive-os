@@ -91,6 +91,10 @@ Prototype-First Track (ADR-002 deterministic engine, then replaceable LLM codec)
 - [ ] P14 — Shadow-mode insertion.
 - [ ] P15 — Promotion / rejection gate.
 
+Reading Substrate Track (separate track; runnable after P7/P8 — needs run/replay, not trained weights — bridges to the P9–P15 LLM track):
+
+- [ ] READ-0 — External Text Reading Trace (verified, replayable answer from source-linked structured memory; no training).
+
 ## Sprint 20R — Signed Replay Identity Review Pass
 
 Status: Complete.
@@ -1389,6 +1393,47 @@ replayable state. The constraint-engineering discipline for any training decisio
 - **P15 — Promotion / rejection gate.** Promote only if it beats baseline on held-out eval, has zero
   critical authority-bypass failures, stays replaceable, and changes engine behavior only through valid
   typed packets. On failure: reject, keep baseline, record failure cases, do not tune weights blindly.
+
+## Reading Substrate Track (READ-0): the model reads external text as an environment
+
+A separate prototype track, placed **after P7/P8** (it needs the deterministic run/replay + verify
+discipline, but NOT trained weights) and serving as the **bridge between the deterministic substrate
+and the P9–P15 LLM track**. It gives a small/medium model the ability to read, inspect, decompose,
+remember, compare, and verify external text without swallowing it into context.
+
+Load-bearing invariant: **answer authority comes from verified source-linked memory, not from model
+confidence.**
+
+The substrate boundary (mirrors ADR-002's layering doctrine):
+
+```text
+Model          = reasoning / controller (a planner over the reading environment, NOT the memory store)
+External Text  = addressable environment (documents → sections → spans, exposed metadata-first by handle)
+Memory         = structured evidence state (notes, claims, entities, evidence links, contradictions, proof objects)
+Reader Loop    = inspect → chunk → recurse → extract → compare → synthesize
+Verifier       = grounding / citation / completeness / contradiction / trace-replay / no-free-prior judge
+Training       = DOWNSTREAM of the verifier: imitate verified successful traces first, RL on verified tasks only
+```
+
+Hard rules: no claim enters durable memory without ≥1 source span; the controller may not answer from
+prior knowledge when the task requires reading; the verifier gates every final answer; **no weights are
+trained until the harness exposes clean, reproducible failures** (the constraint-engineering discipline
+in the Appendix below). The probabilistic hypothesis layer ([P16](#)) sits ABOVE this, never inside it.
+
+### READ-0 — External Text Reading Trace
+
+Status: Not started (separate track; begins after P7/P8). Goal: given a folder of documents and one
+question, produce a **verified, replayable answer from source-linked structured memory**.
+
+DONE means all of: (1) documents loaded as external addressable spans; (2) the controller receives
+metadata first, not full text; (3) it selects spans to inspect; (4) claims/entities/evidence-links/proof
+object extracted with source spans; (5) claims are source-linked; (6) claims compared across spans;
+(7) an answer synthesized from verified claims; (8) the verifier checks grounding + completeness;
+(9) the full trace is saved; (10) replay of the trace reproduces the same memory and answer.
+
+Non-goals: no fine-tuning, no RL, no autonomous permanent belief updates, no giant-context dump, no
+"it seems smarter" evaluation. (Full module breakdown — corpus/controller/memory/verifier/traces/training
+— is the operator's "Reading Substrate v0" spec; recorded in project memory.)
 
 ## Appendix — LLM Training as Constraint Engineering (supporting methodology)
 
