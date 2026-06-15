@@ -6,6 +6,10 @@
 //! notion of time is a logical [`Tick`]; any seed-derived value is a pure
 //! function of a seed carried in [`EngineState`], so a recorded run replays
 //! bit-for-bit. See `ADR-002-runtime-engine-replay-contract.md`.
+//!
+//! P5 promoted the canonical [`ObservationFrame`] into this L0 kernel (it was
+//! prototyped in the L1 `vibe-frame` crate in P4) and retired the P1 stub frame,
+//! so there is exactly one frame definition and the engine consumes it.
 
 /// Fixed-point scalar in micro-units (scale 1e6) backed by `i64`: deterministic
 /// integer arithmetic with exact equality, never floating-point. (ADR-002 L0.)
@@ -73,18 +77,65 @@ impl EngineState {
     }
 }
 
-/// The canonical input for one tick. In P1 this is a stub carrying a single
-/// signal; ingress, scheduling, and frame collection arrive in P2–P4.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ObservationFrame {
-    pub tick: Tick,
+/// One observation within a frame: a plain `u64` identity (kept in L0 so the
+/// kernel stays dependency-free) and its payload.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FrameObservation {
+    pub id: u64,
     pub signal: Scalar,
 }
 
+/// The canonical, hash-stable input the engine evaluates — the SINGLE frame
+/// definition in the system. Build it with [`ObservationFrame::new`], which
+/// canonicalizes (sorts) and hashes, so the frame and its hash depend only on
+/// the SET of observations for a tick, not on the order they were supplied.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ObservationFrame {
+    tick: Tick,
+    observations: Vec<FrameObservation>,
+    frame_hash: u64,
+}
+
 impl ObservationFrame {
-    pub const fn new(tick: Tick, signal: Scalar) -> Self {
-        ObservationFrame { tick, signal }
+    /// Build a canonical frame for `tick` from its observations.
+    pub fn new(tick: Tick, mut observations: Vec<FrameObservation>) -> Self {
+        observations.sort_by_key(|o| (o.id, o.signal.micros()));
+        let frame_hash = hash_frame(tick, &observations);
+        ObservationFrame {
+            tick,
+            observations,
+            frame_hash,
+        }
     }
+
+    pub fn tick(&self) -> Tick {
+        self.tick
+    }
+
+    /// Observations in canonical order (sorted by `(id, signal)`).
+    pub fn observations(&self) -> &[FrameObservation] {
+        &self.observations
+    }
+
+    /// Deterministic content hash — equal iff two frames have the same tick and
+    /// the same set of observations, regardless of supply order.
+    pub fn frame_hash(&self) -> u64 {
+        self.frame_hash
+    }
+
+    /// An empty tick is represented by an explicit empty frame, not a skip.
+    pub fn is_empty(&self) -> bool {
+        self.observations.is_empty()
+    }
+}
+
+/// An explicit, inspectable description of how one tick advanced the state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StateTransition {
+    pub from_tick: Tick,
+    pub to_tick: Tick,
+    /// The folded signal applied to the vibe this tick.
+    pub applied_signal: Scalar,
 }
 
 /// The deterministic output of evaluating one tick.
@@ -94,6 +145,53 @@ pub struct EngineOutput {
     pub vibe: Scalar,
     /// Seed-derived pseudo-noise — a pure function of the state seed.
     pub noise: u64,
+    /// The hash of the frame that produced this output.
+    pub frame_hash: u64,
+    /// The explicit state transition this tick performed.
+    pub transition: StateTransition,
+    output_hash: u64,
+}
+
+impl EngineOutput {
+    /// Deterministic fingerprint of this output (tick, vibe, noise, frame hash).
+    /// Two runs with the same state and frame produce the same `output_hash`;
+    /// any change to the frame changes it.
+    pub fn output_hash(&self) -> u64 {
+        self.output_hash
+    }
+}
+
+/// FNV-1a 64-bit mixing of one value. Pure and deterministic on every platform.
+/// Shared by the frame and output content hashes.
+fn mix(mut h: u64, value: u64) -> u64 {
+    for byte in value.to_le_bytes() {
+        h ^= byte as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
+}
+
+/// Hash a frame's canonical content: tick, count, then each observation's
+/// identity and payload in canonical order.
+fn hash_frame(tick: Tick, observations: &[FrameObservation]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    h = mix(h, tick.0);
+    h = mix(h, observations.len() as u64);
+    for obs in observations {
+        h = mix(h, obs.id);
+        h = mix(h, obs.signal.micros() as u64);
+    }
+    h
+}
+
+/// Hash an output's content: tick, vibe, noise, and the producing frame's hash.
+fn hash_output(tick: Tick, vibe: Scalar, noise: u64, frame_hash: u64) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    h = mix(h, tick.0);
+    h = mix(h, vibe.micros() as u64);
+    h = mix(h, noise);
+    h = mix(h, frame_hash);
+    h
 }
 
 /// splitmix64: a deterministic seed-mixing step. The kernel's only producer of
@@ -118,23 +216,38 @@ impl VibeEngine {
 
     /// The replay contract — `(state, frame) -> (output, next_state)`. Pure,
     /// total, and deterministic: identical inputs always yield identical
-    /// outputs. The input `state` is borrowed and never mutated.
+    /// outputs. The input `state` is borrowed and never mutated. The canonical
+    /// frame's observation signals are folded into the vibe.
     pub fn evaluate_tick(
         &self,
         state: &EngineState,
         frame: &ObservationFrame,
     ) -> (EngineOutput, EngineState) {
-        let next_vibe = state.vibe.add(frame.signal);
+        let applied_signal = frame
+            .observations()
+            .iter()
+            .fold(Scalar::ZERO, |acc, obs| acc.add(obs.signal));
+        let next_vibe = state.vibe.add(applied_signal);
         let noise = split_mix64(state.seed);
         let next_state = EngineState {
             tick: state.tick.next(),
             vibe: next_vibe,
             seed: noise,
         };
+        let transition = StateTransition {
+            from_tick: state.tick,
+            to_tick: next_state.tick,
+            applied_signal,
+        };
+        let frame_hash = frame.frame_hash();
+        let output_hash = hash_output(next_state.tick, next_vibe, noise, frame_hash);
         let output = EngineOutput {
             tick: next_state.tick,
             vibe: next_vibe,
             noise,
+            frame_hash,
+            transition,
+            output_hash,
         };
         (output, next_state)
     }

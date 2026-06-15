@@ -1,20 +1,23 @@
 //! vibe-frame — ADR-002 layer-L1 frame collection for Cognitive OS.
 //!
-//! Folds the observations scheduled for one logical tick into a single
-//! canonical, hash-stable `ObservationFrame`. Depends only on workspace value
-//! types. It never evaluates a tick and never touches the engine's state;
-//! evaluation is P5. See `ADR-002-runtime-engine-replay-contract.md`.
+//! Folds the observations scheduled for one logical tick into the canonical,
+//! hash-stable `vibe_core::ObservationFrame` (the single frame definition,
+//! promoted into L0 in P5). It never evaluates a tick and never touches the
+//! engine's state; evaluation is the engine's job. See
+//! `ADR-002-runtime-engine-replay-contract.md`.
 
 #![forbid(unsafe_code)]
 
 mod collector;
 
-pub use collector::{FrameCollector, FrameObservation, ObservationFrame};
+pub use collector::FrameCollector;
+// Re-exported for convenience — these are the single L0 definitions, not copies.
+pub use vibe_core::{FrameObservation, ObservationFrame};
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vibe_core::{EngineState, Scalar, Tick};
+    use vibe_core::{EngineState, Scalar, Tick, VibeEngine};
     use vibe_ingress::EventId;
     use vibe_scheduler::ScheduledObservation;
 
@@ -60,7 +63,7 @@ mod tests {
             fb.frame_hash(),
             "frame hash must not depend on order"
         );
-        let ids: Vec<u64> = fa.observations().iter().map(|o| o.event_id.0).collect();
+        let ids: Vec<u64> = fa.observations().iter().map(|o| o.id).collect();
         assert_eq!(
             ids,
             vec![1, 2, 3],
@@ -70,9 +73,6 @@ mod tests {
 
     #[test]
     fn different_content_different_frame_hash() {
-        // Hash discrimination: two DIFFERENT non-empty sets for the same tick must
-        // not collide. (A degenerate constant hash would pass the order/equality
-        // tests; only this test rules that out.)
         let c = FrameCollector::new();
         let base = c.collect(Tick(5), &[sched(1, 5, 10), sched(2, 5, 20)]);
         let diff_signal = c.collect(Tick(5), &[sched(1, 5, 10), sched(2, 5, 21)]);
@@ -91,9 +91,6 @@ mod tests {
 
     #[test]
     fn repeated_identity_canonicalized_deterministically() {
-        // Defensive: even a pathological input with a repeated event_id (which the
-        // scheduler's dedup normally prevents) canonicalizes deterministically via
-        // the (event_id, signal) tiebreaker — input order cannot change the frame.
         let c = FrameCollector::new();
         let forward = c.collect(Tick(5), &[sched(1, 5, 10), sched(1, 5, 20)]);
         let reverse = c.collect(Tick(5), &[sched(1, 5, 20), sched(1, 5, 10)]);
@@ -123,9 +120,7 @@ mod tests {
         );
         assert_eq!(empty.tick(), Tick(9));
         assert_eq!(empty.observations().len(), 0);
-        // explicit + deterministic: two empty frames for the same tick match.
         assert_eq!(empty.frame_hash(), c.collect(Tick(9), &[]).frame_hash());
-        // an empty frame is distinct from a populated one.
         assert_ne!(
             empty.frame_hash(),
             c.collect(Tick(9), &[sched(1, 9, 1)]).frame_hash()
@@ -135,7 +130,6 @@ mod tests {
     #[test]
     fn frame_contains_only_scheduled_observations() {
         let c = FrameCollector::new();
-        // observations targeting ticks 3, 5, 3, 7 — collecting tick 3 must yield only the tick-3 set.
         let mixed = [
             sched(1, 3, 10),
             sched(2, 5, 20),
@@ -143,11 +137,39 @@ mod tests {
             sched(4, 7, 40),
         ];
         let frame = c.collect(Tick(3), &mixed);
-        let ids: Vec<u64> = frame.observations().iter().map(|o| o.event_id.0).collect();
+        let ids: Vec<u64> = frame.observations().iter().map(|o| o.id).collect();
         assert_eq!(
             ids,
             vec![1, 3],
             "no observations from other ticks leak into the frame"
+        );
+    }
+
+    #[test]
+    fn collected_frame_is_consumable_by_engine() {
+        // End-to-end through the real layers: collect a canonical frame and feed
+        // it to the L0 engine. The engine folds the frame's observation signals.
+        let c = FrameCollector::new();
+        let frame = c.collect(
+            Tick(5),
+            &[sched(1, 5, 10), sched(2, 5, 20), sched(3, 5, 30)],
+        );
+        let engine = VibeEngine::new();
+        let (out, next) = engine.evaluate_tick(&EngineState::genesis(1), &frame);
+        assert_eq!(
+            out.frame_hash,
+            frame.frame_hash(),
+            "the output carries the collected frame's hash"
+        );
+        assert_eq!(
+            next.vibe,
+            Scalar::from_int(60),
+            "the engine folds the collected observations"
+        );
+        // and it is reproducible.
+        assert_eq!(
+            engine.evaluate_tick(&EngineState::genesis(1), &frame),
+            engine.evaluate_tick(&EngineState::genesis(1), &frame)
         );
     }
 

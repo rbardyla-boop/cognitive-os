@@ -110,6 +110,21 @@ test "$(grep -cE 'evaluate_tick|EngineState|VibeEngine|std::fs|std::net|tokio|as
 # vibe-frame depends only on workspace crates: no foreign/backend crate, root present (fails closed).
 test "$(cargo tree --offline --manifest-path crates/vibe-frame/Cargo.toml --edges normal 2>/dev/null | grep -vcE 'vibe-core|vibe-ingress|vibe-scheduler|vibe-frame')" -eq 0
 test "$(cargo tree --offline --manifest-path crates/vibe-frame/Cargo.toml --edges normal 2>/dev/null | grep -c 'vibe-frame')" -eq 1
+# P5 — VibeEngine evaluation loop: the canonical ObservationFrame is promoted into vibe-core (L0)
+# and the engine consumes it. The P1/P4 cargo-test gates above already run the P5 evaluation +
+# boundary tests (engine_consumes_canonical_frame, output_hash_changes_when_frame_changes, ...).
+# Lock the reconciliation: EXACTLY ONE ObservationFrame definition (the L0 kernel); the L1 frame
+# crate defines none (it re-exports the L0 type), so no two competing frame definitions remain.
+test "$(grep -c '^pub struct ObservationFrame' crates/vibe-core/src/kernel.rs)" -eq 1
+test "$(grep -rh 'struct ObservationFrame' crates/vibe-frame/src/ | wc -l)" -eq 0
+# Positive single-definition signal: the L1 frame crate RE-EXPORTS the one L0 frame type (it uses
+# the canonical definition rather than declaring its own). The behavioral cargo tests above
+# (engine_consumes_canonical_frame, collected_frame_is_consumable_by_engine) are the authoritative
+# proof that the engine consumes this exact type.
+grep -q 'pub use vibe_core::{[^}]*ObservationFrame' crates/vibe-frame/src/lib.rs
+grep -q 'pub struct StateTransition' crates/vibe-core/src/kernel.rs
+grep -q 'fn output_hash' crates/vibe-core/src/kernel.rs
+grep -q 'fn evaluate_tick(' crates/vibe-core/src/kernel.rs
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json

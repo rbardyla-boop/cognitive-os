@@ -79,7 +79,7 @@ Prototype-First Track (ADR-002 deterministic engine, then replaceable LLM codec)
 - [x] P2 — ObservationEnvelope + IngressGate. _Delivered 2026-06-14; `crates/vibe-ingress`, 6 cargo tests green, admission-only (no tick eval, no EngineState), release_check gates the L1 boundary._
 - [x] P3 — TickScheduler + ScheduledObservation. _Delivered 2026-06-14; `crates/vibe-scheduler`, 7 cargo tests green, scheduling-only (deterministic target ticks, bounded horizon, overload→receipt, idempotent), release_check gates the L1 boundary._
 - [x] P4 — FrameCollector + ObservationFrame. _Delivered 2026-06-14; `crates/vibe-frame`, 8 cargo tests green, canonical hash-stable frame (frame-only), release_check gates the L1 boundary; passed a fresh-context adversarial panel (0 confirmed rubric defects; 2 surfaced coverage gaps closed)._
-- [ ] P5 — Minimal VibeEngine evaluation loop.
+- [x] P5 — Minimal VibeEngine evaluation loop. _Delivered 2026-06-14; canonical `ObservationFrame` promoted into vibe-core (L0), P1 stub retired, `evaluate_tick` folds the frame + emits `EngineOutput` with explicit `StateTransition` + `output_hash`. One frame definition. 12 vibe-core + 9 vibe-frame tests green; passed a fresh-context adversarial panel (0 confirmed defects)._
 - [ ] P6 — RunScript + RunRecorder + deterministic replay.
 - [ ] P7 — Local CLI prototype (`vibe run` / `vibe replay` / `vibe verify`).
 - [ ] P8 — Prototype release gate (Rust tests + replay determinism + governance checks + no-secrets).
@@ -1308,7 +1308,7 @@ input.
 
 ### P5 — Minimal VibeEngine evaluation loop (L0)
 
-Status: Not started. Correct if `VibeEngine` consumes an `ObservationFrame` and emits a deterministic
+Status: delivered (2026-06-14). The canonical `ObservationFrame` (prototyped in L1 in P4) was promoted into `vibe-core` (L0) as the SINGLE frame definition — `FrameObservation { id: u64, signal }` keeps the kernel dependency-free, and `ObservationFrame::new` owns the canonical sort + FNV hash. The P1 stub frame was retired; `vibe-frame::FrameCollector` now produces the L0 type (re-exporting it, defining none). `VibeEngine::evaluate_tick(&state, &frame)` folds the frame's observation signals, returns a new `EngineState` + `EngineOutput { tick, vibe, noise, frame_hash, transition, output_hash }`, with an explicit deterministic `StateTransition` and an order-independent `output_hash`. 12 vibe-core + 9 vibe-frame cargo tests green (incl. `engine_consumes_canonical_frame`, `state_transition_explicit`, `input_state_not_mutated`, `output_hash_changes_when_frame_changes`, `core_still_has_no_backend_dependencies`, and end-to-end `collected_frame_is_consumable_by_engine`). release_check gates a single ObservationFrame definition; a competing-definition and a broken-fold sabotage were both probed; a fresh-context adversarial panel confirmed 0 rubric defects. Correct if `VibeEngine` consumes an `ObservationFrame` and emits a deterministic
 `EngineOutput`, the state transition is explicit, the output hash is reproducible, and one scenario
 proves state evolves across ticks. Wrong if there is hidden mutable global state, output depends on the
 environment, or state updates happen outside `evaluate_tick`. Build: `VibeEngine`, `evaluate_tick()`,
