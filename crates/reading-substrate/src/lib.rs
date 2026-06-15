@@ -251,4 +251,45 @@ mod tests {
         );
         assert!(!report.passed);
     }
+
+    // --- sentence fidelity (READ-2): a claim must be a complete sentence-level
+    //     unit of a cited span, not an arbitrary verbatim fragment ---
+
+    #[test]
+    fn full_sentence_claim_is_grounded() {
+        let (corpus, question, trace) = fixture();
+        // The canonical claims are full span sentences; they stay grounded.
+        let run = execute(&corpus, &question, &trace).unwrap();
+        assert!(verify(&corpus, &run).grounded);
+    }
+
+    #[test]
+    fn sabotage_verbatim_fragment_fails_sentence_fidelity() {
+        let (corpus, question, trace) = fixture();
+        let mut run = execute(&corpus, &question, &trace).unwrap();
+        // "Bridge A" is a verbatim substring of span 0 but not a full sentence.
+        run.memory.claims[1].statement = "Bridge A".to_string();
+        let report = verify(&corpus, &run);
+        assert!(
+            !report.grounded,
+            "a sub-sentence fragment must fail sentence fidelity even though it is a substring"
+        );
+        assert!(!report.passed);
+    }
+
+    #[test]
+    fn sabotage_negation_adjacent_fragment_fails_sentence_fidelity() {
+        let (corpus, question, trace) = fixture();
+        let mut run = execute(&corpus, &question, &trace).unwrap();
+        // claims[1] cites [0,2]; span 2 is "Inspectors advised against using
+        // Bridge A until repairs are complete." The fragment drops the negation
+        // and is a mid-sentence substring — it must fail sentence fidelity.
+        run.memory.claims[1].statement = "using Bridge A until repairs are complete.".to_string();
+        let report = verify(&corpus, &run);
+        assert!(
+            !report.grounded,
+            "a negation-adjacent mid-sentence fragment must fail sentence fidelity"
+        );
+        assert!(!report.passed);
+    }
 }

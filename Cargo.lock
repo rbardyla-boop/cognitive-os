@@ -50,6 +50,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "reading-eval"
+version = "0.1.0"
+dependencies = [
+ "reading-adapter",
+ "reading-codec",
+ "reading-substrate",
+]
+
+[[package]]
 name = "reading-substrate"
 version = "0.1.0"
 

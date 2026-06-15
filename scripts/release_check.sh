@@ -192,6 +192,11 @@ test "$(cargo tree --offline --manifest-path crates/reading-substrate/Cargo.toml
 # verifier actually consults span text, so it cannot silently degrade to a structural id-only check.
 grep -q 'read_span' crates/reading-substrate/src/verify.rs
 grep -q 'fn normalize' crates/reading-substrate/src/verify.rs
+# READ-2 sentence fidelity: a claim must be a complete sentence-level unit of a cited span, not an
+# arbitrary verbatim fragment (kills fragment + cross-fragment-composition false-accepts). The cargo
+# test above runs the fragment/negation probes; this positive signal asserts the sentence-boundary
+# check exists so it cannot silently degrade back to a plain substring match.
+grep -q 'fn sentence_aligned' crates/reading-substrate/src/verify.rs
 # ---------------------------------------------------------------------------------------------------
 # P9 — reading-codec: the untrained LLM codec boundary + eval harness. A strict, deterministic codec
 # parses UNTRUSTED model output into typed reading actions, validates them, executes accepted actions
@@ -249,6 +254,27 @@ test "$(grep -riE 'torch|tensorflow|candle|onnx|tract|\bburn\b|llama|inference' 
 # engine crate. (fails closed if cargo tree cannot run.)
 test "$(cargo tree --offline --manifest-path crates/reading-adapter/Cargo.toml --edges normal 2>/dev/null | grep -cE 'vibe-')" -eq 0
 test "$(cargo tree --offline --manifest-path crates/reading-adapter/Cargo.toml --edges normal 2>/dev/null | grep -c 'reading-codec')" -ge 1
+# ---------------------------------------------------------------------------------------------------
+# P11 — reading-eval: the codec eval harness. 30+ committed fixtures (raw untrusted proposal text + a
+# COMMITTED expected outcome) scored through the P10 adapter; the model never self-grades. The unsafe
+# class — false-accepts (a should-reject output that got accepted/finalized) — is surfaced explicitly
+# and MUST be zero; false-rejects are allowed but classified by cause. Deterministic; no model, no
+# training.
+# ---------------------------------------------------------------------------------------------------
+cargo test --offline --quiet --manifest-path crates/reading-eval/Cargo.toml >/dev/null 2>&1
+cargo fmt --manifest-path crates/reading-eval/Cargo.toml --check >/dev/null 2>&1
+cargo clippy --offline --manifest-path crates/reading-eval/Cargo.toml --all-targets -- -D warnings >/dev/null 2>&1
+# The runnable harness enforces the acceptance targets: >= 30 fixtures and 0 false-accepts (else exit 1).
+cargo run --offline --quiet --example eval_report -p reading-eval >/dev/null 2>&1
+# >= 30 committed fixtures (source-level floor, independent of the cargo test).
+test "$(grep -c 'EvalCase {' crates/reading-eval/src/fixtures.rs)" -ge 30
+# Determinism/purity: the scorer is pure — no clock, entropy, network, or process spawning in the eval.
+test "$(grep -rlE 'SystemTime|Instant|std::time|thread_rng|getrandom|rand::|use rand|std::net|std::process|tokio|\.await|reqwest' crates/reading-eval/src/ | wc -l)" -eq 0
+# No training/ML/inference dependency in the eval manifest.
+test "$(grep -riE 'torch|tensorflow|candle|onnx|tract|\bburn\b|llama|inference' crates/reading-eval/Cargo.toml | wc -l)" -eq 0
+# Separation: reading-eval depends on the reading track (adapter→codec→substrate) and NO vibe engine crate.
+test "$(cargo tree --offline --manifest-path crates/reading-eval/Cargo.toml --edges normal 2>/dev/null | grep -cE 'vibe-')" -eq 0
+test "$(cargo tree --offline --manifest-path crates/reading-eval/Cargo.toml --edges normal 2>/dev/null | grep -c 'reading-adapter')" -ge 1
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json

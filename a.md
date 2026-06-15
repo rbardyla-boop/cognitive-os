@@ -85,7 +85,7 @@ Prototype-First Track (ADR-002 deterministic engine, then replaceable LLM codec)
 - [x] P8 — Prototype release gate (Rust tests + replay determinism + governance checks + no-secrets). _Delivered 2026-06-15; `release_check.sh` consolidates P1–P7 + Python governance + an end-to-end `vibe` binary smoke (replay determinism through the recorded-run path) + a no-secrets scan; green+silent; 3 sabotage probes (broken verify / serde-in-core / secret fixture) each fail it. No engine behavior added._
 - [x] P9 — Language-codec boundary (LLM proposes typed packets; cannot mutate state). _Delivered 2026-06-15; `crates/reading-codec` — an untrained, deterministic codec on top of READ-0: untrusted model text → typed reading actions; prose/malformed/unknown/under-specified output rejected (never repaired); accepted actions execute ONLY through `reading_substrate::execute`; an answer finalizes ONLY if `reading_substrate::verify` approves it. 11-fixture eval harness (runnable `eval_report` example) scores valid/invalid/injection outputs; 14 codec + 11 substrate cargo tests incl. 3 codec sabotage probes (disable unknown-action rejection / source-span requirement / verify-finalize gate → eval fails). No trained weights, no live model. Depends on reading-substrate, no vibe-* dep; serde stays out of engine/substrate cores. **Folds in READ-1 claim-fidelity hardening** (an ultracode panel found READ-0 grounding was structural-only): a claim is grounded only if its statement is a literal substring of its cited span TEXT (deterministic floor, no paraphrase/LLM) — so a fabricated claim citing a real read span no longer finalizes. release_check gates it; P8 still green; vibe engine + CLI 0-diff._
 - [x] P10 — Baseline off-the-shelf local LLM adapter (zero training). _Delivered 2026-06-15; `crates/reading-adapter` — a REPLACEABLE `ModelBackend` boundary: a backend produces untrusted reading-action text routed ONLY through `reading_codec::decode` (validate → substrate execute → READ-1 verifier finalize); the adapter holds no authority, mutates no memory, cannot finalize without verification. Default `ScriptedBackend` is deterministic; optional `local-model` feature adds a real local model via subprocess (`std::process`), OFF by default, never run by the gate (only compiled+linted). Baseline failure-profile eval (`baseline_report` + runnable example): 1 finalized / 7, 5 rejected across all classes incl. a fabricated-but-cited claim → Unverified. 7 cargo tests. release_check gates it (test+fmt+clippy ×2 features + runnable eval + no-executor-call scan + purity + feature-gate + no-ML-dep + separation); live bypass sabotage (adapter calls substrate executor directly) → gate fails, restored. P8/P9/READ-0/READ-1 still green; vibe + codec + substrate 0-diff. Hard rule honored: a model backend, not a smarter authority._
-- [ ] P11 — LLM codec eval harness (30–100 cases; model cannot self-grade).
+- [x] P11 — LLM codec eval harness (30–100 cases; model cannot self-grade). _Delivered 2026-06-15; `crates/reading-eval` — 37 committed fixtures (raw untrusted proposal text + a COMMITTED expected outcome) across all 10 categories (valid action, correct finalization, malformed JSON, unknown action, missing fields, bad span, ungrounded claim, fabricated cited claim, premature synthesize, prompt injection), scored through the P10 adapter → codec → READ-1/READ-2 verifier. The scorer compares the codec's actual decision to the committed label (never the model's prose); false-accepts (should-reject-but-accepted — the unsafe class) are surfaced as an explicit list and the report carries score + false-accepts + classified false-rejects + failure-category histogram + a deterministic `next_change`. **Folds in READ-2 sentence-fidelity** (a panel found the prior literal-substring floor finalized false answers built from verbatim sub-fragments): a claim must now be a complete sentence-level unit of a cited span, killing the fragment/composition false-accept class. Battery: **37/37 correct, 0 false-accepts, 0 false-rejects** (incl. the new fragment/composition cases). 9 tests incl. controls proving the scorer uses committed labels. release_check gates it (test+fmt+clippy + runnable example enforcing ≥30 + 0-false-accepts + source-count + purity + separation); live sabotage (disable the sentence-boundary check) reintroduces 2 false-accepts → gate exit 101. No model, no training. P8/P9/P10/READ-0/READ-1 green; vibe engine + CLI 0-diff._
 - [ ] P12 — Training-justification gate.
 - [ ] P13 — Local LoRA/adapter candidate (only if justified).
 - [ ] P14 — Shadow-mode insertion.
@@ -1446,6 +1446,52 @@ replayable state. The constraint-engineering discipline for any training decisio
   claim, explanation-from-audit, explanation-without-evidence, bad JSON/schema, wrong target tick, correct
   refusal. The scorer compares to committed ground truth; the model cannot self-grade. Acceptance: a
   reproducible baseline score with false-accepts visible and failures classified.
+
+  Status: delivered (2026-06-15). `crates/reading-eval` is the scorer for the model-codec boundary. Each
+  of **34 committed fixtures** (`src/fixtures.rs`) is raw untrusted proposal text plus a COMMITTED
+  expected `Disposition` (Finalized / AcceptedPartial / Rejected(kind)) — the ground-truth label lives in
+  source, never inferred from the model's prose. The scorer (`src/scorer.rs`) runs each fixture through
+  the P10 adapter (→ `reading_codec::decode` → substrate → READ-1 verifier) and classifies the codec's
+  actual decision against the committed label into **Correct / FalseAccept / FalseReject**. A
+  **false-accept** (a should-reject output that was accepted or finalized) is the unsafe class: it is
+  surfaced as an explicit list, never folded into the aggregate score, and the acceptance target is **0
+  false-accepts**. False-rejects are allowed but classified by cause (the actual rejection reason). The
+  battery covers all ten categories — valid action, correct finalization, malformed JSON, unknown action,
+  missing fields, bad span, ungrounded claim, fabricated cited claim, premature synthesize, prompt
+  injection — and the report carries the score, the false-accept / false-reject lists, the per-category
+  tallies, the failure-category histogram, and a single deterministic **`next_change`** recommendation
+  (which never recommends training: it stays forbidden until a recurring real failure survives the
+  schema/prompt/tooling/fixture/verifier classification). Current result: **34/34 correct, 0
+  false-accepts, 0 false-rejects.** 9 cargo tests including controls that prove the scorer grades against
+  the committed label, not the model text (a deliberately-mislabelled fixture is reported as a
+  false-reject; a valid output labelled "must reject" is reported as a false-accept). `release_check`
+  gates it (test + fmt + clippy + a runnable `eval_report` example that exits non-zero unless ≥ 30
+  fixtures and 0 false-accepts + a source-level ≥ 30 floor + purity + no-ML-dep + separation); a live
+  sabotage that hides false-accepts (mis-classifying them as correct) fails the gate (exit 101). No
+  model, no training, deterministic. P8/P9/P10/READ-0/READ-1 stay green; every prior crate is 0-diff.
+  Hard rule honored: **training stays forbidden until P11 + P12 prove clean recurring failures not caused
+  by schema, prompt, tooling, fixtures, or verifier defects** — and on this battery there are none.
+
+  **READ-2 sentence-fidelity (folded into this milestone).** A P11 adversarial panel found — and the
+  build reproduced first-hand — that the prior literal-substring floor admitted a real false-accept
+  class the original 34 fixtures did not probe: a finalized answer assembled from verbatim
+  **sub-fragments**. Each claim was individually a literal substring of one cited span (so per-claim
+  grounding passed), but nothing required the claim to be a complete unit, so juxtaposing fragments
+  finalized false answers — e.g. claim `"Bridge A"` (span 0) + claim `"remained passable"` (span 1) →
+  `"Bridge A remained passable"` (Bridge A is in fact *damaged*); a lone fragment `"using Bridge A"`
+  also finalized. This was *not* the deferred paraphrase/entailment limitation (zero paraphrase — all
+  tokens verbatim), so it was hardened before commit, exactly as in P9/P10. Fix (`reading_substrate`'s
+  verifier, still deterministic — no LLM, no semantics): a claim is grounded only if its normalized
+  statement equals a **contiguous run of one or more of a single cited span's complete sentence units**
+  (sentence-boundary-aligned literal support), which rejects arbitrary fragments and cross-fragment
+  compositions while accepting every legitimate full-sentence claim. Three fixtures were added —
+  `fc_compound_fragments` (the two-fragment composition), `fc_single_fragment` (a lone fragment), and
+  `cf_full_sentence_span2` (a valid full-sentence control) — and the substrate carries fragment +
+  negation-adjacent-fragment probes. The eval now reports **37/37 correct, 0 false-accepts** *after*
+  adding the previously-missed class; disabling the sentence-boundary check reintroduces the
+  false-accepts and fails `release_check` (the P11 example exits 1; gate exit 101). Grounding contract:
+  **READ-1** = claim text must be found in cited span text; **READ-2** = claim text must be a complete
+  sentence-level support unit. Paraphrase / semantic entailment remains a later sprint.
 - **P12 — Training-justification gate.** Training is allowed only if: the task was specified, examples were
   representative, context was present, prompt/schema/tooling were stable, the eval caught the failure, and
   the baseline still repeatedly failed the same pattern. Not justified if failures trace to bad

@@ -1,0 +1,19 @@
+[package]
+name = "reading-eval"
+version = "0.1.0"
+edition = "2021"
+description = "P11 — codec eval harness: 30+ committed fixtures scored against committed expected outcomes through the P10 adapter; the model never self-grades; 0 false-accepts required"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# reading-eval is the SCORER for the model-codec boundary. Each fixture is raw
+# untrusted proposal text with a COMMITTED expected outcome (the ground-truth
+# label lives in this crate's source, never inferred from model prose). The
+# scorer runs each fixture through the P10 adapter and compares the codec's
+# actual decision to the committed label, separating false-accepts (a should-
+# reject output that got through — must be 0) from false-rejects (classified by
+# cause). Deterministic; no model, no training. Depends on the reading track only.
+[dependencies]
+reading-adapter = { path = "../reading-adapter" }
+reading-codec = { path = "../reading-codec" }
+reading-substrate = { path = "../reading-substrate" }
