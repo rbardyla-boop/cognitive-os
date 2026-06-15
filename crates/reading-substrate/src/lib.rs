@@ -233,4 +233,22 @@ mod tests {
         );
         assert!(!report.passed);
     }
+
+    #[test]
+    fn sabotage_cross_span_join_straddle_fails_fidelity() {
+        let (corpus, question, trace) = fixture();
+        let mut run = execute(&corpus, &question, &trace).unwrap();
+        // claims[1] cites [0,2]. Replace its statement with text that straddles
+        // the boundary between span 0 and span 2 — a substring of the two spans
+        // CONCATENATED, but present in NO single cited span. Grounding must fail:
+        // a claim must be supported by an actual span, not an artifact of joining.
+        run.memory.claims[1].statement =
+            "after the June storm. Inspectors advised against using Bridge A".to_string();
+        let report = verify(&corpus, &run);
+        assert!(
+            !report.grounded,
+            "a statement straddling the span join is in no single span and must fail fidelity"
+        );
+        assert!(!report.passed);
+    }
 }

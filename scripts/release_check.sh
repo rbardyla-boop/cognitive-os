@@ -218,6 +218,37 @@ test "$(grep -riE 'torch|tensorflow|candle|onnx|tract|\bburn\b|llama|inference' 
 # crate. (serde/serde_json are allowed boundary deps; fails closed if cargo tree cannot run.)
 test "$(cargo tree --offline --manifest-path crates/reading-codec/Cargo.toml --edges normal 2>/dev/null | grep -cE 'vibe-')" -eq 0
 test "$(cargo tree --offline --manifest-path crates/reading-codec/Cargo.toml --edges normal 2>/dev/null | grep -c 'reading-substrate')" -ge 1
+# ---------------------------------------------------------------------------------------------------
+# P10 — reading-adapter: the baseline local LLM adapter. A REPLACEABLE model backend proposes untrusted
+# reading-action text routed ONLY through reading_codec::decode (validate -> substrate execute -> READ-1
+# verifier finalize). The default scripted backend is deterministic; the optional `local-model` feature
+# (a real local model via std::process) is OFF by default and never RUN by the gate (only compiled +
+# linted), so release_check stays offline + deterministic. No training.
+# ---------------------------------------------------------------------------------------------------
+cargo test --offline --quiet --manifest-path crates/reading-adapter/Cargo.toml >/dev/null 2>&1
+cargo fmt --manifest-path crates/reading-adapter/Cargo.toml --check >/dev/null 2>&1
+cargo clippy --offline --manifest-path crates/reading-adapter/Cargo.toml --all-targets -- -D warnings >/dev/null 2>&1
+# The optional real-model backend must still compile + lint clean (it is never executed by the gate).
+cargo clippy --offline --manifest-path crates/reading-adapter/Cargo.toml --features local-model -- -D warnings >/dev/null 2>&1
+# The runnable baseline eval records the failure profile AND fails if the safety boundary breaks (a
+# verbatim grounded sequence must finalize; a fabricated-but-cited claim must be rejected Unverified).
+cargo run --offline --quiet --example baseline_report -p reading-adapter >/dev/null 2>&1
+# The adapter routes untrusted model text ONLY through reading_codec::decode; it calls no substrate
+# executor / verifier / finalizer directly (sabotage-detectable).
+grep -q 'reading_codec::decode' crates/reading-adapter/src/adapter.rs
+grep -q 'decode(' crates/reading-adapter/src/adapter.rs
+test "$(grep -rlE 'execute\(|verify\(|finalize\(' crates/reading-adapter/src/ | wc -l)" -eq 0
+# Determinism/purity of the DEFAULT (baseline) adapter path: no clock, entropy, network, or process
+# spawning. The real-model backend's std::process is isolated to the feature-gated local_backend.rs.
+test "$(grep -rlE 'SystemTime|Instant|std::time|thread_rng|getrandom|rand::|use rand|std::net|std::process|tokio|\.await|reqwest' crates/reading-adapter/src/ --include='*.rs' --exclude='local_backend.rs' | wc -l)" -eq 0
+# The real-model backend is feature-gated OFF by default, so the default build/gate never spawns it.
+grep -q 'cfg(feature = "local-model")' crates/reading-adapter/src/lib.rs
+# No model is trained or loaded: the adapter manifest pulls no ML/inference/training framework.
+test "$(grep -riE 'torch|tensorflow|candle|onnx|tract|\bburn\b|llama|inference' crates/reading-adapter/Cargo.toml | wc -l)" -eq 0
+# Separation: reading-adapter depends on reading-codec (its only path to the substrate) and on NO vibe
+# engine crate. (fails closed if cargo tree cannot run.)
+test "$(cargo tree --offline --manifest-path crates/reading-adapter/Cargo.toml --edges normal 2>/dev/null | grep -cE 'vibe-')" -eq 0
+test "$(cargo tree --offline --manifest-path crates/reading-adapter/Cargo.toml --edges normal 2>/dev/null | grep -c 'reading-codec')" -ge 1
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json

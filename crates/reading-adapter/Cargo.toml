@@ -1,0 +1,24 @@
+[package]
+name = "reading-adapter"
+version = "0.1.0"
+edition = "2021"
+description = "P10 — baseline local LLM adapter: a replaceable model backend that proposes untrusted reading-action text routed ONLY through the P9 reading-codec; zero training"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# reading-adapter is the model-backend boundary for the reading track. A backend
+# PRODUCES untrusted candidate text and nothing else; the adapter routes that text
+# only through `reading_codec::decode` (which validates, executes via the substrate,
+# and finalizes only on READ-1 verification). It holds no authority and no memory
+# mutator. The default build is dependency-light and deterministic (a scripted,
+# recorded-model baseline). The optional `local-model` feature adds a real
+# off-the-shelf local model backend via std::process — it is OFF by default and is
+# never run by release_check (only compiled/linted), so the gate stays offline and
+# deterministic. No training, ever.
+[features]
+default = []
+local-model = []
+
+[dependencies]
+reading-codec = { path = "../reading-codec" }
+reading-substrate = { path = "../reading-substrate" }

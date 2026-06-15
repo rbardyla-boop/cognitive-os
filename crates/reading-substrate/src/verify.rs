@@ -29,11 +29,15 @@ pub fn verify(corpus: &Corpus, run: &ReadingRun) -> VerifyReport {
     let mut problems = Vec::new();
 
     // 1. Grounding: every claim cites ≥1 existing source span, AND its statement
-    //    is literally supported by the cited span TEXT. A claim is NOT grounded
-    //    merely because it points at a span that was read — a fabricated
-    //    statement citing a real span must fail. Deterministic floor: minimal
-    //    whitespace/case normalization + literal substring. No semantic
-    //    entailment, no paraphrase acceptance, no model judge (those are later).
+    //    is literally supported by a SINGLE cited span's TEXT. A claim is NOT
+    //    grounded merely because it points at a span that was read — a fabricated
+    //    statement citing a real span must fail. The statement must be a literal
+    //    substring of at least one cited span on its own; spans are checked
+    //    individually (never concatenated), so a statement cannot be "grounded"
+    //    by text that straddles the join of two spans and exists in neither.
+    //    Deterministic floor: minimal whitespace/case normalization + literal
+    //    substring. No semantic entailment, no paraphrase acceptance, no model
+    //    judge (those are later).
     let mut grounded = true;
     for c in &run.memory.claims {
         if c.source_spans.is_empty() {
@@ -41,13 +45,15 @@ pub fn verify(corpus: &Corpus, run: &ReadingRun) -> VerifyReport {
             problems.push(format!("claim {} has no source span", c.id));
             continue;
         }
-        let mut cited_text = String::new();
+        let needle = normalize(&c.statement);
+        let mut supported_by_a_span = false;
         let mut all_spans_exist = true;
         for s in &c.source_spans {
             match corpus.read_span(*s) {
                 Some(span) => {
-                    cited_text.push_str(span.text());
-                    cited_text.push(' ');
+                    if normalize(span.text()).contains(&needle) {
+                        supported_by_a_span = true;
+                    }
                 }
                 None => {
                     grounded = false;
@@ -56,10 +62,10 @@ pub fn verify(corpus: &Corpus, run: &ReadingRun) -> VerifyReport {
                 }
             }
         }
-        if all_spans_exist && !normalize(&cited_text).contains(&normalize(&c.statement)) {
+        if all_spans_exist && !supported_by_a_span {
             grounded = false;
             problems.push(format!(
-                "claim {} is not supported by its cited span text",
+                "claim {} is not supported by any single cited span's text",
                 c.id
             ));
         }

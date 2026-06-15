@@ -13,4 +13,5 @@ members = [
     "crates/vibe-cli",
     "crates/reading-substrate",
     "crates/reading-codec",
+    "crates/reading-adapter",
 ]

@@ -84,7 +84,7 @@ Prototype-First Track (ADR-002 deterministic engine, then replaceable LLM codec)
 - [x] P7 — Local CLI prototype (`vibe run` / `vibe replay` / `vibe verify`). _Delivered 2026-06-15; `crates/vibe-cli` (the `vibe` binary), serde confined to the CLI, 5 cargo tests + end-to-end binary smoke (run→replay MATCH→verify OK→tamper exit 1)._
 - [x] P8 — Prototype release gate (Rust tests + replay determinism + governance checks + no-secrets). _Delivered 2026-06-15; `release_check.sh` consolidates P1–P7 + Python governance + an end-to-end `vibe` binary smoke (replay determinism through the recorded-run path) + a no-secrets scan; green+silent; 3 sabotage probes (broken verify / serde-in-core / secret fixture) each fail it. No engine behavior added._
 - [x] P9 — Language-codec boundary (LLM proposes typed packets; cannot mutate state). _Delivered 2026-06-15; `crates/reading-codec` — an untrained, deterministic codec on top of READ-0: untrusted model text → typed reading actions; prose/malformed/unknown/under-specified output rejected (never repaired); accepted actions execute ONLY through `reading_substrate::execute`; an answer finalizes ONLY if `reading_substrate::verify` approves it. 11-fixture eval harness (runnable `eval_report` example) scores valid/invalid/injection outputs; 14 codec + 11 substrate cargo tests incl. 3 codec sabotage probes (disable unknown-action rejection / source-span requirement / verify-finalize gate → eval fails). No trained weights, no live model. Depends on reading-substrate, no vibe-* dep; serde stays out of engine/substrate cores. **Folds in READ-1 claim-fidelity hardening** (an ultracode panel found READ-0 grounding was structural-only): a claim is grounded only if its statement is a literal substring of its cited span TEXT (deterministic floor, no paraphrase/LLM) — so a fabricated claim citing a real read span no longer finalizes. release_check gates it; P8 still green; vibe engine + CLI 0-diff._
-- [ ] P10 — Baseline off-the-shelf local LLM adapter (zero training).
+- [x] P10 — Baseline off-the-shelf local LLM adapter (zero training). _Delivered 2026-06-15; `crates/reading-adapter` — a REPLACEABLE `ModelBackend` boundary: a backend produces untrusted reading-action text routed ONLY through `reading_codec::decode` (validate → substrate execute → READ-1 verifier finalize); the adapter holds no authority, mutates no memory, cannot finalize without verification. Default `ScriptedBackend` is deterministic; optional `local-model` feature adds a real local model via subprocess (`std::process`), OFF by default, never run by the gate (only compiled+linted). Baseline failure-profile eval (`baseline_report` + runnable example): 1 finalized / 7, 5 rejected across all classes incl. a fabricated-but-cited claim → Unverified. 7 cargo tests. release_check gates it (test+fmt+clippy ×2 features + runnable eval + no-executor-call scan + purity + feature-gate + no-ML-dep + separation); live bypass sabotage (adapter calls substrate executor directly) → gate fails, restored. P8/P9/READ-0/READ-1 still green; vibe + codec + substrate 0-diff. Hard rule honored: a model backend, not a smarter authority._
 - [ ] P11 — LLM codec eval harness (30–100 cases; model cannot self-grade).
 - [ ] P12 — Training-justification gate.
 - [ ] P13 — Local LoRA/adapter candidate (only if justified).
@@ -1402,17 +1402,45 @@ replayable state. The constraint-engineering discipline for any training decisio
   that accepts untrusted, model-shaped text, shipping a codec that faithfully routes such claims through
   a structurally weak verifier would be a known-unsafe milestone, so the fix was folded in here rather
   than deferred. Fix (deterministic floor, no semantic entailment / no LLM judge): `reading_substrate`'s
-  verifier now reads the cited span **text**, concatenates the cited spans, minimally normalizes
-  (collapse whitespace, lowercase), and requires each claim's statement to be a **literal substring** of
-  that text; the canonical READ-0 claims were rewritten as verbatim span excerpts, and the codec's
-  accepted fixture uses verbatim support. An exploit-regression fixture (`grounded_injection_fabricated_claim`)
-  and a substrate fidelity probe pin it; disabling the fidelity check fails `release_check` (gate exit
-  101). Boundary rule: **P9 may accept untrusted language only because READ-1 verifies cited-text
-  support.** Paraphrase / semantic entailment is explicitly a later sprint.
+  verifier now reads the cited span **text** and requires each claim's statement to be a **literal
+  substring of a single cited span** — spans are checked individually, never concatenated, so a
+  statement cannot be "grounded" by text that straddles the join of two spans and exists in neither —
+  with minimal normalization (collapse whitespace, lowercase); the canonical READ-0 claims were
+  rewritten as verbatim span excerpts, and the codec's accepted fixture uses verbatim support.
+  Exploit-regression probes pin it: a fabricated claim citing a real span (`grounded_injection_fabricated_claim`)
+  and a cross-span-join straddle (`sabotage_cross_span_join_straddle_fails_fidelity`) both fail
+  grounding; disabling the fidelity check fails `release_check`. Boundary rule: **P9 may accept untrusted
+  language only because READ-1 verifies cited-text support.** Paraphrase / semantic entailment is
+  explicitly a later sprint. (The per-span tightening was surfaced by the P10 adversarial panel, which
+  found the original concatenation check admitted boundary-straddling statements.)
 - **P10 — Baseline local LLM adapter (zero training).** A local model parses requests into candidate
   typed packets at `temperature = 0`, structured/schema output, no autonomous tool calls, no write
   authority; bad output is rejected cleanly. Acceptance: the baseline works as a *proposed* translator,
   the deterministic engine still decides everything, `release_check` stays green.
+
+  Status: delivered (2026-06-15). `crates/reading-adapter` inserts the model backend as a REPLACEABLE
+  boundary in front of the P9 codec — "a model backend, not a smarter authority." A `ModelBackend` trait
+  has one job: `propose(task) -> String` (untrusted candidate reading-action text). The `Adapter` routes
+  that text through one and only one path — `reading_codec::decode` (which validates it into typed
+  actions, executes them via the substrate, and finalizes an answer only if the READ-1 verifier
+  approves) — and does nothing else with it; it holds no executor/verifier/finalizer handle, assigns no
+  authority, and mutates no memory (gate-enforced by a source scan: zero `execute(`/`verify(`/`finalize(`
+  calls in the adapter, and it routes through `decode`). The default `ScriptedBackend` replays a recorded
+  model response verbatim (temperature-0-equivalent → deterministic, offline, reproducible eval). The
+  optional `local-model` feature provides a real off-the-shelf local model as a subprocess (an explicit
+  argv — no shell, no injection — with the corpus *metadata* + question as the prompt and the model's
+  stdout returned as untrusted text); it is OFF by default and is **never executed by `release_check`**
+  (only compiled + linted under `--features local-model`), so the gate stays offline and deterministic.
+  The **baseline failure-profile eval** (`baseline_report` + the runnable `baseline_report` example)
+  scores a battery of recorded model outputs against the hardened codec/verifier and records the score +
+  failure categories — baseline today: **1 finalized / 7**, 1 accepted-partial, **5 rejected** (one each
+  of Malformed, UnknownAction, UnknownSpan, Ungrounded, and — critically — a fabricated-but-cited claim →
+  **Unverified** via READ-1). **No training, no RL, no live-model dependency in the verified build.** 7
+  cargo tests (the operator's first-test list); `release_check` gates everything and a live bypass
+  sabotage (adapter reaching the substrate executor directly) fails it. P8/P9/READ-0/READ-1 stay green;
+  the vibe engine, the codec, and the substrate are 0-diff. Boundary rule: **a model may only ever
+  propose; the codec + READ-1 verifier decide.** Training is deferred to P12+ (only if P11's harness
+  exposes clean reproducible failures).
 - **P11 — LLM codec eval harness.** Build the 30–100 case harness before any training: cover valid
   observation creation, ambiguous request, unsafe authority request, memory-mutation attempt, unsupported
   claim, explanation-from-audit, explanation-without-evidence, bad JSON/schema, wrong target tick, correct
