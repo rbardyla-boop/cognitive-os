@@ -148,6 +148,32 @@ test -f crates/vibe-cli/src/main.rs
 test "$(grep -lE '^serde' crates/vibe-core/Cargo.toml crates/vibe-ingress/Cargo.toml crates/vibe-scheduler/Cargo.toml crates/vibe-frame/Cargo.toml crates/vibe-run/Cargo.toml 2>/dev/null | wc -l)" -eq 0
 # the CLI re-derives runs through vibe-run; it reimplements no engine internals.
 test "$(grep -cE 'fn evaluate_tick|split_mix64' crates/vibe-cli/src/lib.rs)" -eq 0
+# ---------------------------------------------------------------------------------------------------
+# P8 — Prototype Release Gate. The checks above already run the P1-P7 Rust suite, the Python
+# governance gates, serde confinement, and the dependency boundaries. P8 consolidates the proof
+# surface by adding (a) an end-to-end CLI binary smoke that exercises replay determinism through the
+# recorded-run path and proves tamper is rejected, and (b) a no-secrets scan. No engine behavior is
+# added here.
+# ---------------------------------------------------------------------------------------------------
+# (a) CLI binary smoke: vibe run -> replay (MATCH) -> verify (authentic) -> a tampered run MUST fail.
+cargo build --offline --quiet --manifest-path crates/vibe-cli/Cargo.toml >/dev/null 2>&1
+_p8_dir="$(mktemp -d)"
+cat > "$_p8_dir/scenario.json" <<'P8_SCENARIO'
+{ "schema":"vibe-scenario-v1","seed":7,"scheduler":{"horizon":10,"max_per_tick":8},"now":0,"run_ticks":3,
+  "observations":[
+    {"event_id":1,"source":"s","session":1,"source_sequence":0,"target_tick":1,"signal_micros":10000000},
+    {"event_id":2,"source":"s","session":1,"source_sequence":1,"target_tick":2,"signal_micros":20000000} ] }
+P8_SCENARIO
+./target/debug/vibe run "$_p8_dir/scenario.json" "$_p8_dir/run.json" >/dev/null 2>&1
+./target/debug/vibe replay "$_p8_dir/run.json" >/dev/null 2>&1
+./target/debug/vibe verify "$_p8_dir/run.json" >/dev/null 2>&1
+sed -i 's/10000000/11111111/' "$_p8_dir/run.json"
+if ./target/debug/vibe verify "$_p8_dir/run.json" >/dev/null 2>&1; then rm -rf "$_p8_dir"; exit 1; fi
+rm -rf "$_p8_dir"
+# (b) No-secrets scan: no committed secret files anywhere (excl. build/.git), and no key/credential
+# material in the Rust tree. A planted .env/key/credential fixture fails the gate.
+test "$(find . -type f \( -name '.env' -o -name '*.pem' -o -name '*.key' -o -name '*.p8' -o -name 'id_rsa' -o -name 'id_ed25519' \) -not -path './target/*' -not -path './.git/*' 2>/dev/null | wc -l)" -eq 0
+test "$(grep -rlIE 'BEGIN [A-Z ]*PRIVATE KEY|AKIA[0-9A-Z]{16}|aws_secret_access_key' crates --include='*.rs' --include='*.toml' 2>/dev/null | wc -l)" -eq 0
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json

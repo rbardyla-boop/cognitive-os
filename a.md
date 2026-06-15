@@ -82,7 +82,7 @@ Prototype-First Track (ADR-002 deterministic engine, then replaceable LLM codec)
 - [x] P5 — Minimal VibeEngine evaluation loop. _Delivered 2026-06-14; canonical `ObservationFrame` promoted into vibe-core (L0), P1 stub retired, `evaluate_tick` folds the frame + emits `EngineOutput` with explicit `StateTransition` + `output_hash`. One frame definition. 12 vibe-core + 9 vibe-frame tests green; passed a fresh-context adversarial panel (0 confirmed defects)._
 - [x] P6 — RunScript + RunRecorder + deterministic replay. _Delivered 2026-06-15; `crates/vibe-run` (L2) records the full pipeline + replays from recorded frames alone, detecting tampering. 8 cargo tests green; passed a fresh-context adversarial panel (0 confirmed defects; closed a surfaced tick-label internal-consistency gap)._
 - [x] P7 — Local CLI prototype (`vibe run` / `vibe replay` / `vibe verify`). _Delivered 2026-06-15; `crates/vibe-cli` (the `vibe` binary), serde confined to the CLI, 5 cargo tests + end-to-end binary smoke (run→replay MATCH→verify OK→tamper exit 1)._
-- [ ] P8 — Prototype release gate (Rust tests + replay determinism + governance checks + no-secrets).
+- [x] P8 — Prototype release gate (Rust tests + replay determinism + governance checks + no-secrets). _Delivered 2026-06-15; `release_check.sh` consolidates P1–P7 + Python governance + an end-to-end `vibe` binary smoke (replay determinism through the recorded-run path) + a no-secrets scan; green+silent; 3 sabotage probes (broken verify / serde-in-core / secret fixture) each fail it. No engine behavior added._
 - [ ] P9 — Language-codec boundary (LLM proposes typed packets; cannot mutate state).
 - [ ] P10 — Baseline off-the-shelf local LLM adapter (zero training).
 - [ ] P11 — LLM codec eval harness (30–100 cases; model cannot self-grade).
@@ -1342,7 +1342,7 @@ view.
 
 ### P8 — Prototype release gate
 
-Status: Not started. Correct if one release command runs Rust tests, the Python governance checks,
+Status: delivered (2026-06-15). `scripts/release_check.sh` is the single prototype release gate: it runs lint + the Python suite + governance/doc gates (P1-era through S32) AND the P1–P7 Rust suite (cargo test + fmt + clippy + dependency boundaries + serde confinement), then P8 consolidates the proof surface with (a) an end-to-end `vibe` binary smoke — `run` → `replay` (MATCH) → `verify` (authentic) → a tampered run MUST be rejected, exercising replay determinism through the recorded-run path — and (b) a no-secrets scan (no committed `.env`/`*.pem`/`*.key`/`id_*` files; no `BEGIN PRIVATE KEY`/`AKIA…`/`aws_secret_access_key` in the Rust tree). Green + silent on the clean tree (exit 0, 0 stdout, 0 stderr). Three sabotage probes each fail the gate: a broken `verify` (always-match) → exit 101; serde added to `vibe-core` → exit 101; a planted secret `.env` → exit 1. No engine math, replay semantics, observation semantics, or CLI behavior changed — P8 only wired checks. Correct if one release command runs Rust tests, the Python governance checks,
 replay determinism, a no-secrets scan, docs checks, and the scenario proof — green and silent — and
 failure is non-decorative (sabotage probes fail it). Wrong if verification is manual, the gate ignores
 the Rust engine or replay, or it passes after sabotaging deterministic replay. Build: `release_check.sh`
