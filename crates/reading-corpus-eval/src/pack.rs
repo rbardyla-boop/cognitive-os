@@ -3,13 +3,12 @@
 //! Each fixture is a real (small) document set + a question + an untrusted
 //! reading plan + a COMMITTED expected verifier result (Verified or Rejected).
 //! The expected label is authored here in source, never inferred from any model
-//! output. 14 fixtures (≥ 10 required) across varied corpora: weather, medical,
+//! output. 15 fixtures (≥ 10 required) across varied corpora: weather, medical,
 //! infrastructure, finance, safety — exercising valid single/multi-span/multi-doc
 //! grounding and every rejection class (fabricated, fragment, malformed,
 //! metadata-first, unknown action, bad span, negation fragment, ungrounded), plus
-//! one that measures the deterministic period-splitter's known limitation on
-//! abbreviations (a sentence containing "U.S." cannot be grounded as a whole — it
-//! is correctly rejected; abbreviation-aware segmentation is deferred).
+//! the READ-5 abbreviation pair: a "U.S."-bearing sentence now grounds as a whole
+//! (deterministic splitter hardening), while a fragment of it is still rejected.
 
 /// The committed expected verifier result for a fixture.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -190,25 +189,33 @@ pub fn fixtures() -> Vec<CorpusFixture> {
             ]"#,
             expected: Expected::Rejected,
         },
-        // Measures a KNOWN limitation of the deterministic period-splitter: it
-        // treats every '.' as a sentence boundary, so an abbreviation like "U.S."
-        // splits the document into spans ["The U.", "S.", "economy is strong this
-        // year."]. Grounding stays honest (a claim must be a whole unit of a
-        // single cited span), so a sentence CONTAINING an abbreviation cannot be
-        // grounded as a whole sentence — it is correctly rejected. (Abbreviation-
-        // aware segmentation is semantic and deferred; this fixture documents the
-        // safe, deterministic behavior rather than pretending it is handled.)
+        // READ-5: the deterministic splitter now keeps abbreviations together, so
+        // "The U.S. economy is strong this year." is ONE span and the whole
+        // sentence grounds correctly.
         CorpusFixture {
-            name: "abbreviation_whole_sentence_reject",
+            name: "abbreviation_whole_sentence_valid",
             documents: &[("econ.txt", "The U.S. economy is strong this year.")],
             question: "How is the economy?",
             plan: r#"[
                 {"action":"inspect_corpus"},
                 {"action":"read_span","span_id":0},
-                {"action":"read_span","span_id":1},
-                {"action":"read_span","span_id":2},
-                {"action":"extract_claim","statement":"The U.S. economy is strong this year.","source_span_ids":[0,1,2]},
+                {"action":"extract_claim","statement":"The U.S. economy is strong this year.","source_span_ids":[0]},
                 {"action":"synthesize","answer_text":"The U.S. economy is strong this year.","supporting_claims":[0]}
+            ]"#,
+            expected: Expected::Verified,
+        },
+        // READ-5: keeping the abbreviation sentence whole does NOT open a
+        // false-grounded hole — a fragment of that single span is still not a
+        // complete sentence-level unit and is rejected.
+        CorpusFixture {
+            name: "abbreviation_sentence_fragment_reject",
+            documents: &[("econ.txt", "The U.S. economy is strong this year.")],
+            question: "How is the economy?",
+            plan: r#"[
+                {"action":"inspect_corpus"},
+                {"action":"read_span","span_id":0},
+                {"action":"extract_claim","statement":"The U.S. economy","source_span_ids":[0]},
+                {"action":"synthesize","answer_text":"The U.S. economy","supporting_claims":[0]}
             ]"#,
             expected: Expected::Rejected,
         },

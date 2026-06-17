@@ -97,7 +97,8 @@ Reading Substrate Track (separate track; runnable after P7/P8 — needs run/repl
 - [x] READ-1 — Claim fidelity (literal cited-span support). _Folded into P9 (`e4ccb6e`); a claim is grounded only if its statement is found in its cited span text._
 - [x] READ-2 — Sentence-level fidelity floor. _Folded into P11 (`4b4aef5`); a claim must be a complete sentence-level unit of a single cited span (kills fragment/composition false-accepts)._
 - [x] READ-3 — Real Corpus Reading CLI. _Delivered 2026-06-15; `crates/reading-cli` binary `read0`: load a real folder of `.txt` documents → corpus of one sentence per span (shared splitter), run an untrusted reading plan ONLY through `reading_codec::decode` → replayable run + proof + verifier receipt; `verify`/`replay` re-derive and reject tamper. Reads confined to the folder; plan never reaches memory except via the codec; no training. 9 + 3 substrate-shared tests; release_check gates it (build + run/verify/replay smoke + fabricated-rejected + tamper-fails + codec-only + separation); all prior crates 0-diff (substrate gained only the shared `split_sentences`)._
-- [x] READ-4 — Real Corpus Eval Pack. _Delivered 2026-06-15; `crates/reading-corpus-eval` — 13 committed real-corpus fixtures (docs + question + plan + COMMITTED expected verifier result) across weather/medical/infrastructure/finance/safety, each driven through the REAL read0 run → verify → replay path. A false-grounded answer (an expected-rejected fixture that finalizes a verified answer) is the unsafe class, surfaced explicitly, 0 required. Report carries per-fixture pass/fail + rejection reason + trace hash. Result: 13/13 correct, 0 false-grounded, 0 false-rejects (5 verified, 8 rejected). 7 tests incl. a control proving labels are committed (a valid plan labelled reject → flagged false-grounded). release_check gates it (test + fmt + clippy + runnable pack [≥10 + 0-false-grounded] + source-count + separation); live sabotage (hide false-grounded) → gate exit 101. No model, no training (anecdotes never justify weights — P12 decides that). All prior crates 0-diff._
+- [x] READ-4 — Real Corpus Eval Pack. _Delivered 2026-06-15; `crates/reading-corpus-eval` — committed real-corpus fixtures (docs + question + plan + COMMITTED expected verifier result) across weather/medical/infrastructure/finance/safety, each driven through the REAL read0 run → verify → replay path. A false-grounded answer (an expected-rejected fixture that finalizes a verified answer) is the unsafe class, surfaced explicitly, 0 required. Report carries per-fixture pass/fail + rejection reason + trace hash. 15/15 correct, 0 false-grounded, 0 false-rejects. 7 tests incl. a control proving labels are committed (a valid plan labelled reject → flagged false-grounded). release_check gates it (test + fmt + clippy + runnable pack [≥10 + 0-false-grounded] + source-count + separation); live sabotage (hide false-grounded) → gate exit 101. No model, no training (anecdotes never justify weights — P12 decides that). All prior crates 0-diff at delivery._
+- [x] READ-5 — Deterministic Sentence Splitter Hardening. _Delivered 2026-06-15; hardened the shared `split_sentences` in `reading-substrate` so abbreviations (Dr./Mr./U.S./e.g./i.e.), decimals (3.14), versions (v1.2.3) and single-letter acronyms no longer mis-split — using ONLY deterministic lexical signals (digit.digit, a small fixed abbreviation list, single-letter-then-letter, lowercase-continuation); NO semantics/entailment/model. The corpus builder and the READ-2 verifier use the SAME function (no drift by construction); one sentence per span holds; normal sentences still split; a single-letter sentence-end before a capital still splits. 7 new splitter tests (22 substrate total); the READ-4 abbreviation fixture flipped to Verified + a fragment-of-it stays Rejected (false-grounded still 0); release_check gates it (substrate tests + `fn is_period_boundary` signal); live sabotage (naive period-splitting) → gate exit 101. vibe/codec/adapter/eval/train-gate/cli all 0-diff._
 
 ## Sprint 20R — Signed Replay Identity Review Pass
 
@@ -1642,19 +1643,34 @@ workdir paths excluded), self-cleaning temp dirs, **no model, no training** — 
 never justify weights; the P12 training-justification gate (still "not justified") owns that decision.
 All prior crates are 0-diff.
 
-Known limitation, measured (surfaced by the READ-4 read-only panel, verified first-hand): the shared
-`split_sentences` is a deterministic **period-splitter** — it treats every `.`/`!`/`?` as a sentence
-boundary, with no abbreviation/decimal awareness. So a document containing `U.S.` splits into spans
-`["The U.", "S.", "economy is strong this year."]`. This is **not** a verifier bypass: grounding stays
-honest (a claim must be a complete unit of a single cited span, and the run file records the actual
-spans), and a sentence *containing* an abbreviation therefore **cannot be grounded as a whole** — it is
-correctly rejected (the `abbreviation_whole_sentence_reject` fixture pins this). The cost is quality: a
-mis-split fragment like `"The U."` is itself a whole span and grounds as such, and a legitimate
-abbreviation-bearing sentence is un-groundable. Abbreviation-aware (semantic) sentence segmentation is
-deliberately deferred — it needs an abbreviation model/NLP, which is outside the deterministic
-no-semantics floor — so the pack **measures and documents** the behavior rather than pretending it is
-handled. A future READ-5 could add a deterministic heuristic (e.g. do not split on a single-letter token
-before a period) if the operator wants it.
+### READ-5 — Deterministic Sentence Splitter Hardening
+
+Status: delivered (2026-06-15). The READ-4 panel surfaced (and the build verified) that the shared
+`split_sentences` was a naive **period-splitter** — every `.` was a boundary, so `U.S.` split a document
+into `["The U.", "S.", "economy is strong this year."]`. That was never a verifier bypass (grounding
+stayed honest and the abbreviation sentence was correctly *rejected* as un-groundable-whole), but it was
+a real quality/coverage gap for real corpora. READ-5 hardens the splitter using **only deterministic,
+lexical signals — no semantics, no entailment, no model**. A `.` is a boundary unless: (a) it is inside a
+decimal/version (digit before and after — `3.14`, `v1.2.3`); (b) the word before it is a known
+abbreviation from a small fixed list (`Dr.`, `Mr.`, `Mrs.`, `Ms.`, `Prof.`, `St.`, `etc.`, `vs.`, `Inc.`,
+… — deliberately excluding ambiguous words like "no"); or (c)/(d) it is a **single-letter token** (an
+acronym letter / initial) immediately followed by a letter (`U.S`, `e.g`, `i.e`) or by a lowercase
+continuation (`U.S. economy`). `!`/`?` are always boundaries. Rule (d) is **scoped to single-letter
+tokens on purpose** (a READ-5 panel finding): a genuine multi-letter word always ends the sentence, so a
+real boundary before a lowercase word — `Do not attempt. and try again.` — still splits into two, and a
+period before a capitalized new sentence (`Cross Bridge A. Avoid Bridge B.`) still splits. Only known
+abbreviations and single-letter acronym tails are held back. Because the splitter is a **single shared
+function**, the corpus builder (one sentence per span)
+and the READ-2 verifier (`sentence_units`) move together by construction — they can never drift. 7 new
+substrate tests pin the behavior (22 total); in the READ-4 pack the abbreviation sentence now grounds as
+a whole (`abbreviation_whole_sentence_valid`) while a fragment of it is still rejected
+(`abbreviation_sentence_fragment_reject`), so **false-grounded stays 0**. `release_check` gates it
+(substrate tests + a `fn is_period_boundary` source signal); a live sabotage reverting to naive
+period-splitting fails it (exit 101). Boundary held: READ-5 improves deterministic text segmentation only
+— no entailment, paraphrase, world truth, or model judgment. (A heavier abbreviation case — an
+abbreviation NOT on the fixed list, or a decimal/initials pattern outside these rules — would still
+mis-split; that is the residual of a finite lexical floor, fixable only by broadening the deterministic
+rules, never by semantics.) vibe/codec/adapter/eval/train-gate/cli all 0-diff.
 
 ## Appendix — LLM Training as Constraint Engineering (supporting methodology)
 

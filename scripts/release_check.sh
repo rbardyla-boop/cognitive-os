@@ -197,6 +197,12 @@ grep -q 'fn normalize' crates/reading-substrate/src/verify.rs
 # test above runs the fragment/negation probes; this positive signal asserts the sentence-boundary
 # check exists so it cannot silently degrade back to a plain substring match.
 grep -q 'fn sentence_aligned' crates/reading-substrate/src/verify.rs
+# READ-5 — deterministic sentence-splitter hardening: the shared splitter recognises abbreviations /
+# decimals / versions / initials so they do not mis-split, WITHOUT any semantics or model. The substrate
+# corpus tests (abbreviation_us_does_not_split, decimals_and_versions_do_not_split, ...) above are the
+# load-bearing checks; this positive signal asserts the deterministic boundary logic exists so the
+# splitter cannot silently revert to naive period-splitting.
+grep -q 'fn is_period_boundary' crates/reading-substrate/src/corpus.rs
 # ---------------------------------------------------------------------------------------------------
 # P9 — reading-codec: the untrained LLM codec boundary + eval harness. A strict, deterministic codec
 # parses UNTRUSTED model output into typed reading actions, validates them, executes accepted actions
