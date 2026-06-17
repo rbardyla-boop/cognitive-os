@@ -100,6 +100,7 @@ Reading Substrate Track (separate track; runnable after P7/P8 — needs run/repl
 - [x] READ-4 — Real Corpus Eval Pack. _Delivered 2026-06-15; `crates/reading-corpus-eval` — committed real-corpus fixtures (docs + question + plan + COMMITTED expected verifier result) across weather/medical/infrastructure/finance/safety, each driven through the REAL read0 run → verify → replay path. A false-grounded answer (an expected-rejected fixture that finalizes a verified answer) is the unsafe class, surfaced explicitly, 0 required. Report carries per-fixture pass/fail + rejection reason + trace hash. 15/15 correct, 0 false-grounded, 0 false-rejects. 7 tests incl. a control proving labels are committed (a valid plan labelled reject → flagged false-grounded). release_check gates it (test + fmt + clippy + runnable pack [≥10 + 0-false-grounded] + source-count + separation); live sabotage (hide false-grounded) → gate exit 101. No model, no training (anecdotes never justify weights — P12 decides that). All prior crates 0-diff at delivery._
 - [x] READ-5 — Deterministic Sentence Splitter Hardening. _Delivered 2026-06-15; hardened the shared `split_sentences` in `reading-substrate` so abbreviations (Dr./Mr./U.S./e.g./i.e.), decimals (3.14), versions (v1.2.3) and single-letter acronyms no longer mis-split — using ONLY deterministic lexical signals (digit.digit, a small fixed abbreviation list, single-letter-then-letter, lowercase-continuation scoped to single-letter tails); NO semantics/entailment/model. The corpus builder and the READ-2 verifier use the SAME function (no drift by construction); one sentence per span holds; normal sentences still split; a single-letter sentence-end before a capital still splits. 9 splitter tests (24 substrate total); the READ-4 abbreviation fixture flipped to Verified + a fragment-of-it stays Rejected (false-grounded still 0); release_check gates it (substrate tests + `fn is_period_boundary` signal); live sabotage (naive period-splitting) → gate exit 101. A panel found rule (d) over-reached on lowercase-start sentences; folded a fix scoping it to single-letter acronym tails. vibe/codec/adapter/eval/train-gate/cli all 0-diff._
 - [x] READ-6 — Reader Autonomy v0. _Delivered 2026-06-15; `crates/reading-autonomy` — a DETERMINISTIC, BOUNDED reader (no model, no training) that generates a reading plan from corpus METADATA (titles + span ids, not all text) and routes every proposed action ONLY through `reading_codec::decode`. v0 strategy: inspect metadata → read up to `max_spans` spans by id → claim each span's sentence verbatim (READ-2 grounded) → one bounded finalize. `ReaderBounds{max_steps,max_spans,max_finalize_attempts}` enforced; the reader holds no executor/verifier handle and cannot finalize on its own — a fabricated claim is rejected by the codec/verifier. 8 tests (metadata-first, bounds, sentence-grounded, fabricated-rejected, replay/determinism) + runnable `autonomous_read` example (must finalize a verifier-authorized answer). release_check gates it (test+fmt+clippy + runnable example + codec-only [0 `execute(`/`verify(`] + bounds-struct + no-ML + separation); live sabotage (reader fabricates) → codec rejects, example exit 1, gate exit 101. Hard boundary held: autonomy proposes, codec validates, substrate executes, verifier authorizes, replay records, weights untouched. All prior crates 0-diff; READ-4/READ-5 packs green._
+- [x] READ-7 — Autonomous Corpus Eval Pack. _Delivered 2026-06-15; `crates/reading-autonomous-eval` — drives the deterministic READ-6 reader across the READ-4 corpus fixtures with NO hand-written plans (each corpus rebuilt via `corpus_from_documents`, the reader proposes its own plan), INDEPENDENTLY re-verifies every finalized answer with `reading_substrate::verify` (false-grounded is measured, not assumed), and compares the manual-plan score to the autonomous-reader score. Result: autonomous 15/15 verified, **0 false-grounded**, 0 false-reject; manual baseline 6 verified / 9 rejected. The 9 reject-fixtures become "safe divergences" (the non-adversarial reader honestly grounds where the adversarial hand-plan was rejected) — notably the negation fixture keeps "Do not" intact (verbatim whole-sentence claim). 9 tests (every-fixture, no-hand-plan, 0-false-grounded, independent re-verify, manual-vs-autonomous partition, negation-preserved, tight-bounds classified false-rejects, determinism) + runnable `autonomous_pack_report` example. release_check gates it (test+fmt+clippy + runnable example + no-`fixture.plan` + `verify(` re-check + no-ML + separation); live sabotage (use hand-plan in audit) → test + gate exit 101. Hard rule honored: autonomy underperformance is an engineering signal, NOT a training justification — P12 still owns weights. All prior crates 0-diff._
 
 ## Sprint 20R — Signed Replay Identity Review Pass
 
@@ -1698,6 +1699,44 @@ live sabotage that makes the reader fabricate is rejected by the codec, the exam
 the gate fails (exit 101). Hard boundary held: **autonomy proposes, the codec validates, the substrate
 executes, the verifier authorizes, replay records — and weights remain untouched.** All prior crates are
 0-diff; the READ-4/READ-5 packs stay green.
+
+### READ-7 — Autonomous Corpus Eval Pack
+
+Status: delivered (2026-06-15). `crates/reading-autonomous-eval` is the first **measurement of the
+autonomous reader as a system**, not a single demo. It reuses the committed READ-4 corpus fixtures —
+their documents, question, and **committed manual label** — but throws away their hand-written plans.
+For each fixture it rebuilds the corpus exactly as `read0` does (`corpus_from_documents`, one sentence per
+span) and runs the deterministic READ-6 reader against the question; the reader proposes its own plan and
+routes it through the hardened codec. Every finalized answer is then **cross-validated**: a fresh
+`reading_substrate::verify` pass AND a separate `independently_grounded` check (with *different* logic —
+exact whole-cited-span equality, never calling `verify`/`sentence_aligned`) must BOTH agree it is
+grounded, else it is flagged false-grounded. (A READ-7 panel correctly noted that re-running the *same*
+`verify` couldn't catch a bug *in* `verify`; the independent cross-check closes that — a `verify` that
+wrongly accepted a fragment would disagree with the exact-span check and be flagged.) So a false-grounded
+answer is **measured, not assumed**. Each autonomous outcome is compared to the fixture's manual label and
+classified: both-verified, both-rejected, **autonomous-verified-where-manual-rejected** (a safe
+divergence), or **autonomous-rejected-where-manual-verified** (a classified false-reject).
+
+The measured result (default bounds): the autonomous reader **verifies 15/15 with 0 false-grounded and 0
+false-rejects**, against a manual baseline of 6 verified / 9 rejected. The 9 reject-fixtures all become
+*safe divergences*: the reader is non-adversarial, so it never reproduces the malformed / fabricated /
+fragment / negation-dropping hand-plans those fixtures were built to reject — it just reads the documents
+honestly and grounds a verbatim answer. The sharpest case is the negation fixture: where the adversarial
+hand-plan claimed `"cross the river during the flood."` (dropping the "Do not") and was correctly
+rejected, the autonomous reader claims the **whole sentence verbatim** — `"Do not cross the river during
+the flood."` — so the negation survives and the answer is honestly grounded, never false-grounded. A
+tight-bounds run (`max_spans = 0`) finalizes nothing and turns every manual-verified fixture into a
+**classified** false-reject (still 0 false-grounded), exercising the false-reject path. 9 tests pin all of
+this (every-fixture coverage, no-hand-plan, 0 false-grounded, independent re-verification, the
+manual-vs-autonomous partition, negation preservation, tight-bounds classified false-rejects,
+determinism); a runnable `autonomous_pack_report` example prints the manual-vs-autonomous comparison and
+exits non-zero on any false-grounded. `release_check` gates it (test + fmt + clippy + the runnable example
++ a `fixture.plan`-is-never-read source check + a `verify(` independent-recheck signal + no-ML +
+separation); a live sabotage that records the hand-written plan instead of the reader's own fails the gate
+(exit 101). The honest read of the numbers: the v0 reader is **safe but blunt** — it reads everything and
+can't be selective without a model. That underperformance is an **engineering signal** (it motivates a
+smarter, still-gated reader), explicitly **not** a training justification — the P12 gate still owns weights
+and remains "not justified". All prior crates are 0-diff.
 
 ## Appendix — LLM Training as Constraint Engineering (supporting methodology)
 

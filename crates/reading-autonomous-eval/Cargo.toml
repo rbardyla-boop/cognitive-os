@@ -1,0 +1,19 @@
+[package]
+name = "reading-autonomous-eval"
+version = "0.1.0"
+edition = "2021"
+description = "READ-7 — autonomous corpus eval pack: run the deterministic READ-6 reader across the READ-4 corpus fixtures (no hand-written plans) and measure verified / rejected / false-grounded outcomes, compared to the manual-plan score"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# READ-7 measures the AUTONOMOUS reader, not hand-written plans. It reuses the
+# READ-4 corpus fixtures (documents + question + committed manual label), builds
+# each corpus exactly as read0 does (corpus_from_documents — one sentence per
+# span), drives reading_autonomy::read (which routes through the hardened codec),
+# and INDEPENDENTLY re-verifies every finalized answer with reading_substrate::
+# verify so a false-grounded answer is measured, not assumed. No model, no training.
+[dependencies]
+reading-autonomy = { path = "../reading-autonomy" }
+reading-corpus-eval = { path = "../reading-corpus-eval" }
+reading-cli = { path = "../reading-cli" }
+reading-substrate = { path = "../reading-substrate" }

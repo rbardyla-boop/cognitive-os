@@ -383,6 +383,28 @@ test "$(grep -riE 'torch|tensorflow|candle|onnx|tract|\bburn\b|llama|inference' 
 # Separation: reading-autonomy depends on reading-codec (its only path to the substrate) and NO vibe crate.
 test "$(cargo tree --offline --manifest-path crates/reading-autonomy/Cargo.toml --edges normal 2>/dev/null | grep -cE 'vibe-')" -eq 0
 test "$(cargo tree --offline --manifest-path crates/reading-autonomy/Cargo.toml --edges normal 2>/dev/null | grep -c 'reading-codec')" -ge 1
+# ---------------------------------------------------------------------------------------------------
+# READ-7 — reading-autonomous-eval: autonomous corpus eval pack. Drives the deterministic READ-6 reader
+# across the READ-4 corpus fixtures (NO hand-written plans), INDEPENDENTLY re-verifies every finalized
+# answer, and compares the manual-plan score to the autonomous-reader score. 0 false-grounded REQUIRED;
+# false-rejects allowed but classified. Autonomy underperformance is an engineering signal, NOT a training
+# justification (P12 still owns weights). No model, no training.
+# ---------------------------------------------------------------------------------------------------
+cargo test --offline --quiet --manifest-path crates/reading-autonomous-eval/Cargo.toml >/dev/null 2>&1
+cargo fmt --manifest-path crates/reading-autonomous-eval/Cargo.toml --check >/dev/null 2>&1
+cargo clippy --offline --manifest-path crates/reading-autonomous-eval/Cargo.toml --all-targets -- -D warnings >/dev/null 2>&1
+# Runnable: the autonomous pack must report 0 false-grounded (exits non-zero otherwise).
+cargo run --offline --quiet --example autonomous_pack_report -p reading-autonomous-eval >/dev/null 2>&1
+# The scorer drives the AUTONOMOUS reader and NEVER the fixture's hand-written plan.
+grep -q 'use reading_autonomy' crates/reading-autonomous-eval/src/scorer.rs
+test "$(grep -c 'fixture\.plan' crates/reading-autonomous-eval/src/scorer.rs)" -eq 0
+# Independent re-verification of every finalized answer (false-grounded is MEASURED, not assumed).
+grep -q 'verify(' crates/reading-autonomous-eval/src/scorer.rs
+# No model/training dependency in the manifest.
+test "$(grep -riE 'torch|tensorflow|candle|onnx|tract|\bburn\b|llama|inference' crates/reading-autonomous-eval/Cargo.toml | wc -l)" -eq 0
+# Separation: depends on reading-autonomy (the measured reader) and NO vibe engine crate.
+test "$(cargo tree --offline --manifest-path crates/reading-autonomous-eval/Cargo.toml --edges normal 2>/dev/null | grep -cE 'vibe-')" -eq 0
+test "$(cargo tree --offline --manifest-path crates/reading-autonomous-eval/Cargo.toml --edges normal 2>/dev/null | grep -c 'reading-autonomy')" -ge 1
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json

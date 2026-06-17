@@ -41,6 +41,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "reading-autonomous-eval"
+version = "0.1.0"
+dependencies = [
+ "reading-autonomy",
+ "reading-cli",
+ "reading-corpus-eval",
+ "reading-substrate",
+]
+
+[[package]]
 name = "reading-autonomy"
 version = "0.1.0"
 dependencies = [
