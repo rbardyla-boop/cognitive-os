@@ -1,0 +1,19 @@
+[package]
+name = "reading-autonomy"
+version = "0.1.0"
+edition = "2021"
+description = "READ-6 — reader autonomy v0: a deterministic, BOUNDED reader that proposes a reading plan from corpus metadata and routes every action through the hardened P9 codec; no model, no training"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# reading-autonomy PROPOSES; it never authorizes. A deterministic, bounded reader
+# sees corpus METADATA (titles + span ids) — not all text — and emits a reading
+# plan as UNTRUSTED text that is routed ONLY through reading_codec::decode (which
+# validates, executes via the substrate, and finalizes only on the READ-1/READ-2
+# verifier). It holds no executor/verifier handle, cannot finalize on its own, and
+# is bounded by max steps / spans / finalize attempts. No model, no training.
+# serde_json is the IO layer (it serializes the proposed untrusted plan).
+[dependencies]
+reading-codec = { path = "../reading-codec" }
+reading-substrate = { path = "../reading-substrate" }
+serde_json = "1"

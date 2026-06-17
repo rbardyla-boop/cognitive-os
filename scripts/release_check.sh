@@ -360,6 +360,29 @@ test "$(grep -riE 'torch|tensorflow|candle|onnx|tract|\bburn\b|llama|inference' 
 # Separation: depends on reading-cli (the read0 pipeline it measures) and NO vibe engine crate.
 test "$(cargo tree --offline --manifest-path crates/reading-corpus-eval/Cargo.toml --edges normal 2>/dev/null | grep -cE 'vibe-')" -eq 0
 test "$(cargo tree --offline --manifest-path crates/reading-corpus-eval/Cargo.toml --edges normal 2>/dev/null | grep -c 'reading-cli')" -ge 1
+# ---------------------------------------------------------------------------------------------------
+# READ-6 — reading-autonomy: reader autonomy v0. A DETERMINISTIC, BOUNDED reader proposes a reading plan
+# from corpus METADATA (not all text) and routes every action ONLY through reading_codec::decode (validate
+# -> substrate execute -> READ-1/READ-2 verifier finalize). It holds no executor/verifier handle, cannot
+# finalize on its own, and is bounded by max steps / spans / finalize attempts. Autonomy proposes; the
+# codec validates; the verifier authorizes. No model, no training.
+# ---------------------------------------------------------------------------------------------------
+cargo test --offline --quiet --manifest-path crates/reading-autonomy/Cargo.toml >/dev/null 2>&1
+cargo fmt --manifest-path crates/reading-autonomy/Cargo.toml --check >/dev/null 2>&1
+cargo clippy --offline --manifest-path crates/reading-autonomy/Cargo.toml --all-targets -- -D warnings >/dev/null 2>&1
+# Runnable: the bounded autonomous read must finalize a verifier-authorized answer (else exit non-zero).
+cargo run --offline --quiet --example autonomous_read -p reading-autonomy >/dev/null 2>&1
+# Autonomy proposes ONLY through the codec: the reader routes the plan through reading_codec::decode and
+# calls no substrate executor / verifier directly (sabotage-detectable).
+grep -q 'decode(' crates/reading-autonomy/src/reader.rs
+test "$(grep -rlE 'execute\(|verify\(' crates/reading-autonomy/src/ | wc -l)" -eq 0
+# Bounded by construction: the bounds struct exists (the reader can never run unbounded).
+grep -q 'struct ReaderBounds' crates/reading-autonomy/src/reader.rs
+# No model/training dependency in the manifest.
+test "$(grep -riE 'torch|tensorflow|candle|onnx|tract|\bburn\b|llama|inference' crates/reading-autonomy/Cargo.toml | wc -l)" -eq 0
+# Separation: reading-autonomy depends on reading-codec (its only path to the substrate) and NO vibe crate.
+test "$(cargo tree --offline --manifest-path crates/reading-autonomy/Cargo.toml --edges normal 2>/dev/null | grep -cE 'vibe-')" -eq 0
+test "$(cargo tree --offline --manifest-path crates/reading-autonomy/Cargo.toml --edges normal 2>/dev/null | grep -c 'reading-codec')" -ge 1
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json

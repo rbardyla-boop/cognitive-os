@@ -41,6 +41,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "reading-autonomy"
+version = "0.1.0"
+dependencies = [
+ "reading-codec",
+ "reading-substrate",
+ "serde_json",
+]
+
+[[package]]
 name = "reading-cli"
 version = "0.1.0"
 dependencies = [

@@ -98,7 +98,8 @@ Reading Substrate Track (separate track; runnable after P7/P8 — needs run/repl
 - [x] READ-2 — Sentence-level fidelity floor. _Folded into P11 (`4b4aef5`); a claim must be a complete sentence-level unit of a single cited span (kills fragment/composition false-accepts)._
 - [x] READ-3 — Real Corpus Reading CLI. _Delivered 2026-06-15; `crates/reading-cli` binary `read0`: load a real folder of `.txt` documents → corpus of one sentence per span (shared splitter), run an untrusted reading plan ONLY through `reading_codec::decode` → replayable run + proof + verifier receipt; `verify`/`replay` re-derive and reject tamper. Reads confined to the folder; plan never reaches memory except via the codec; no training. 9 + 3 substrate-shared tests; release_check gates it (build + run/verify/replay smoke + fabricated-rejected + tamper-fails + codec-only + separation); all prior crates 0-diff (substrate gained only the shared `split_sentences`)._
 - [x] READ-4 — Real Corpus Eval Pack. _Delivered 2026-06-15; `crates/reading-corpus-eval` — committed real-corpus fixtures (docs + question + plan + COMMITTED expected verifier result) across weather/medical/infrastructure/finance/safety, each driven through the REAL read0 run → verify → replay path. A false-grounded answer (an expected-rejected fixture that finalizes a verified answer) is the unsafe class, surfaced explicitly, 0 required. Report carries per-fixture pass/fail + rejection reason + trace hash. 15/15 correct, 0 false-grounded, 0 false-rejects. 7 tests incl. a control proving labels are committed (a valid plan labelled reject → flagged false-grounded). release_check gates it (test + fmt + clippy + runnable pack [≥10 + 0-false-grounded] + source-count + separation); live sabotage (hide false-grounded) → gate exit 101. No model, no training (anecdotes never justify weights — P12 decides that). All prior crates 0-diff at delivery._
-- [x] READ-5 — Deterministic Sentence Splitter Hardening. _Delivered 2026-06-15; hardened the shared `split_sentences` in `reading-substrate` so abbreviations (Dr./Mr./U.S./e.g./i.e.), decimals (3.14), versions (v1.2.3) and single-letter acronyms no longer mis-split — using ONLY deterministic lexical signals (digit.digit, a small fixed abbreviation list, single-letter-then-letter, lowercase-continuation); NO semantics/entailment/model. The corpus builder and the READ-2 verifier use the SAME function (no drift by construction); one sentence per span holds; normal sentences still split; a single-letter sentence-end before a capital still splits. 7 new splitter tests (22 substrate total); the READ-4 abbreviation fixture flipped to Verified + a fragment-of-it stays Rejected (false-grounded still 0); release_check gates it (substrate tests + `fn is_period_boundary` signal); live sabotage (naive period-splitting) → gate exit 101. vibe/codec/adapter/eval/train-gate/cli all 0-diff._
+- [x] READ-5 — Deterministic Sentence Splitter Hardening. _Delivered 2026-06-15; hardened the shared `split_sentences` in `reading-substrate` so abbreviations (Dr./Mr./U.S./e.g./i.e.), decimals (3.14), versions (v1.2.3) and single-letter acronyms no longer mis-split — using ONLY deterministic lexical signals (digit.digit, a small fixed abbreviation list, single-letter-then-letter, lowercase-continuation scoped to single-letter tails); NO semantics/entailment/model. The corpus builder and the READ-2 verifier use the SAME function (no drift by construction); one sentence per span holds; normal sentences still split; a single-letter sentence-end before a capital still splits. 9 splitter tests (24 substrate total); the READ-4 abbreviation fixture flipped to Verified + a fragment-of-it stays Rejected (false-grounded still 0); release_check gates it (substrate tests + `fn is_period_boundary` signal); live sabotage (naive period-splitting) → gate exit 101. A panel found rule (d) over-reached on lowercase-start sentences; folded a fix scoping it to single-letter acronym tails. vibe/codec/adapter/eval/train-gate/cli all 0-diff._
+- [x] READ-6 — Reader Autonomy v0. _Delivered 2026-06-15; `crates/reading-autonomy` — a DETERMINISTIC, BOUNDED reader (no model, no training) that generates a reading plan from corpus METADATA (titles + span ids, not all text) and routes every proposed action ONLY through `reading_codec::decode`. v0 strategy: inspect metadata → read up to `max_spans` spans by id → claim each span's sentence verbatim (READ-2 grounded) → one bounded finalize. `ReaderBounds{max_steps,max_spans,max_finalize_attempts}` enforced; the reader holds no executor/verifier handle and cannot finalize on its own — a fabricated claim is rejected by the codec/verifier. 8 tests (metadata-first, bounds, sentence-grounded, fabricated-rejected, replay/determinism) + runnable `autonomous_read` example (must finalize a verifier-authorized answer). release_check gates it (test+fmt+clippy + runnable example + codec-only [0 `execute(`/`verify(`] + bounds-struct + no-ML + separation); live sabotage (reader fabricates) → codec rejects, example exit 1, gate exit 101. Hard boundary held: autonomy proposes, codec validates, substrate executes, verifier authorizes, replay records, weights untouched. All prior crates 0-diff; READ-4/READ-5 packs green._
 
 ## Sprint 20R — Signed Replay Identity Review Pass
 
@@ -1671,6 +1672,32 @@ period-splitting fails it (exit 101). Boundary held: READ-5 improves determinist
 abbreviation NOT on the fixed list, or a decimal/initials pattern outside these rules — would still
 mis-split; that is the residual of a finite lexical floor, fixable only by broadening the deterministic
 rules, never by semantics.) vibe/codec/adapter/eval/train-gate/cli all 0-diff.
+
+### READ-6 — Reader Autonomy v0
+
+Status: delivered (2026-06-15). `crates/reading-autonomy` gives the system a first, **bounded** ability
+to read on its own — **deterministically, with no model and no training**. The reader sees corpus
+**metadata** (document titles + span ids) — never the full text — and proposes a reading plan as
+**untrusted text** routed through one and only one path: `reading_codec::decode`. The codec validates the
+plan into typed actions, executes them through the substrate, and finalizes an answer only if the
+READ-1/READ-2 verifier approves. The reader holds no executor or verifier handle and **cannot finalize on
+its own**; a fabricated or ungrounded claim it proposes is rejected by the same codec/verifier path
+(pinned by `fabricated_autonomous_claim_is_rejected`). It is bounded by `ReaderBounds { max_steps,
+max_spans, max_finalize_attempts }` — it can never read all text at once (it reads at most `max_spans`
+spans, one `read_span` action at a time) nor run unbounded. The v0 strategy is intentionally simple:
+inspect metadata, read up to `max_spans` spans by id, claim each span's sentence **verbatim** (one
+sentence per span ⇒ READ-2 grounded), and make one bounded finalize attempt synthesizing the read
+sentences — proving the **propose → codec → verifier → replay loop within bounds**, not intelligence
+(a smarter reader is a later, gated step; weights stay untouched). 8 cargo tests cover metadata-first,
+each bound (`max_spans=0` ⇒ no finalize; a tight `max_steps` ⇒ exactly one span; `max_finalize_attempts=0`
+⇒ no answer), sentence-grounding, fabrication-rejection, and determinism/replay (same inputs → same plan
+and same verified-run hashes). The runnable `autonomous_read` example must finalize a verifier-authorized
+answer. `release_check` gates it (test + fmt + clippy + the runnable example + a codec-only source scan
+[zero `execute(`/`verify(`, routes through `decode`] + the `ReaderBounds` struct + no-ML + separation); a
+live sabotage that makes the reader fabricate is rejected by the codec, the example exits non-zero, and
+the gate fails (exit 101). Hard boundary held: **autonomy proposes, the codec validates, the substrate
+executes, the verifier authorizes, replay records — and weights remain untouched.** All prior crates are
+0-diff; the READ-4/READ-5 packs stay green.
 
 ## Appendix — LLM Training as Constraint Engineering (supporting methodology)
 
