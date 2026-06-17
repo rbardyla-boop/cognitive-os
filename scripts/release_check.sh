@@ -405,6 +405,30 @@ test "$(grep -riE 'torch|tensorflow|candle|onnx|tract|\bburn\b|llama|inference' 
 # Separation: depends on reading-autonomy (the measured reader) and NO vibe engine crate.
 test "$(cargo tree --offline --manifest-path crates/reading-autonomous-eval/Cargo.toml --edges normal 2>/dev/null | grep -cE 'vibe-')" -eq 0
 test "$(cargo tree --offline --manifest-path crates/reading-autonomous-eval/Cargo.toml --edges normal 2>/dev/null | grep -c 'reading-autonomy')" -ge 1
+# ---------------------------------------------------------------------------------------------------
+# READ-8 — budgeted autonomous span selection. reading_autonomy::read_budgeted makes the reader SELECTIVE
+# (claims only spans LEXICALLY relevant to the question — deterministic word-prefix overlap + a fixed
+# stopword list, NO model / semantics / entailment / paraphrase) while still metadata-first, budget-bounded,
+# and routed ONLY through the codec (the codec-only scan over reading-autonomy/src above covers budgeted.rs).
+# reading-budgeted-eval measures it vs the blunt reader, classifies coverage misses, and keeps 0
+# false-grounded (cross-validated). The blunt read() is unchanged, so READ-7 stays green. No training.
+# ---------------------------------------------------------------------------------------------------
+cargo test --offline --quiet --manifest-path crates/reading-budgeted-eval/Cargo.toml >/dev/null 2>&1
+cargo fmt --manifest-path crates/reading-budgeted-eval/Cargo.toml --check >/dev/null 2>&1
+cargo clippy --offline --manifest-path crates/reading-budgeted-eval/Cargo.toml --all-targets -- -D warnings >/dev/null 2>&1
+# Runnable: the budgeted pack must report 0 false-grounded (exits non-zero otherwise).
+cargo run --offline --quiet --example budgeted_pack_report -p reading-budgeted-eval >/dev/null 2>&1
+# The budgeted reader exists and routes its proposed plan through the codec.
+grep -q 'pub fn read_budgeted' crates/reading-autonomy/src/budgeted.rs
+grep -q 'decode(' crates/reading-autonomy/src/budgeted.rs
+# Deterministic LEXICAL selection (positive signals — word-prefix overlap + content-term tokenizer).
+grep -q 'fn prefix_overlap' crates/reading-autonomy/src/budgeted.rs
+grep -q 'fn content_terms' crates/reading-autonomy/src/budgeted.rs
+# No model/training dependency in the eval manifest.
+test "$(grep -riE 'torch|tensorflow|candle|onnx|tract|\bburn\b|llama|inference' crates/reading-budgeted-eval/Cargo.toml | wc -l)" -eq 0
+# Separation: depends on reading-autonomy (the readers it compares) and NO vibe engine crate.
+test "$(cargo tree --offline --manifest-path crates/reading-budgeted-eval/Cargo.toml --edges normal 2>/dev/null | grep -cE 'vibe-')" -eq 0
+test "$(cargo tree --offline --manifest-path crates/reading-budgeted-eval/Cargo.toml --edges normal 2>/dev/null | grep -c 'reading-autonomy')" -ge 1
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json

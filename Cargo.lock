@@ -60,6 +60,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "reading-budgeted-eval"
+version = "0.1.0"
+dependencies = [
+ "reading-autonomous-eval",
+ "reading-autonomy",
+ "reading-cli",
+ "reading-corpus-eval",
+ "reading-substrate",
+]
+
+[[package]]
 name = "reading-cli"
 version = "0.1.0"
 dependencies = [

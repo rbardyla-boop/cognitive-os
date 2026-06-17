@@ -7,8 +7,10 @@
 
 #![forbid(unsafe_code)]
 
+mod budgeted;
 mod reader;
 
+pub use budgeted::read_budgeted;
 pub use reader::{read, ReaderBounds, ReaderOutcome};
 
 #[cfg(test)]
@@ -150,6 +152,88 @@ mod tests {
         ]"#;
         let err = decode(&corpus, &question, fabricated, CodecPolicy::strict()).unwrap_err();
         assert_eq!(err.kind(), RejectKind::Unverified);
+    }
+
+    // --- READ-8: the budgeted, selective reader (read_budgeted) ---
+
+    fn weather_corpus() -> (reading_substrate::Corpus, &'static str) {
+        let mut corpus = reading_substrate::Corpus::new();
+        corpus.add_document(
+            "forecast",
+            &[
+                "Heavy rain is expected tonight.",
+                "Winds will reach forty miles per hour.",
+            ],
+        );
+        (corpus, "What is the wind forecast?")
+    }
+
+    #[test]
+    fn budgeted_reader_is_selective_and_drops_irrelevant_spans() {
+        let (corpus, question) = weather_corpus();
+        let blunt = read(&corpus, question, ReaderBounds::default());
+        let budgeted = read_budgeted(&corpus, question, ReaderBounds::default());
+        // Blunt claims both sentences; budgeted claims only the wind-relevant one.
+        assert_eq!(
+            blunt.answer(),
+            Some("Heavy rain is expected tonight. Winds will reach forty miles per hour.")
+        );
+        assert_eq!(
+            budgeted.answer(),
+            Some("Winds will reach forty miles per hour.")
+        );
+    }
+
+    #[test]
+    fn budgeted_reader_finalizes_through_the_codec() {
+        let (corpus, question) = weather_corpus();
+        let budgeted = read_budgeted(&corpus, question, ReaderBounds::default());
+        assert!(
+            budgeted.finalized(),
+            "a relevant span grounds a verified answer"
+        );
+    }
+
+    #[test]
+    fn budgeted_read_budget_is_enforced() {
+        let (corpus, question) = weather_corpus();
+        // max_spans = 1: only the first span (irrelevant "Heavy rain ...") is read,
+        // so nothing relevant is claimed → a coverage miss, never a false answer.
+        let tight = read_budgeted(
+            &corpus,
+            question,
+            ReaderBounds {
+                max_spans: 1,
+                ..Default::default()
+            },
+        );
+        assert_eq!(tight.spans_read, 1, "the budget bounds reads");
+        assert!(
+            !tight.finalized(),
+            "relevant span beyond budget ⇒ coverage miss"
+        );
+    }
+
+    #[test]
+    fn budgeted_reader_is_deterministic() {
+        let (corpus, question) = weather_corpus();
+        let a = read_budgeted(&corpus, question, ReaderBounds::default());
+        let b = read_budgeted(&corpus, question, ReaderBounds::default());
+        assert_eq!(a.plan, b.plan, "selection is deterministic ⇒ replayable");
+        assert_eq!(a.answer(), b.answer());
+    }
+
+    #[test]
+    fn budgeted_reader_preserves_negation_in_a_relevant_claim() {
+        // The selective reader still claims WHOLE sentences verbatim, so a relevant
+        // negated sentence keeps its "Do not" — selection never paraphrases.
+        let mut corpus = reading_substrate::Corpus::new();
+        corpus.add_document("advice", &["Do not cross the river during the flood."]);
+        let budgeted = read_budgeted(&corpus, "Can I cross the river?", ReaderBounds::default());
+        assert_eq!(
+            budgeted.answer(),
+            Some("Do not cross the river during the flood.")
+        );
     }
 
     #[test]

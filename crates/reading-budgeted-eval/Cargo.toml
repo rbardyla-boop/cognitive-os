@@ -1,0 +1,20 @@
+[package]
+name = "reading-budgeted-eval"
+version = "0.1.0"
+edition = "2021"
+description = "READ-8 — budgeted autonomous span-selection eval: run the deterministic selective reader (read_budgeted) across the READ-4 corpus fixtures, compare its focus to the blunt READ-6 reader, classify coverage misses, and keep 0 false-grounded"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# READ-8 measures the SELECTIVE reader against the blunt one over the same READ-4
+# corpora. It builds each corpus exactly as read0 does, runs both reading_autonomy
+# readers, and CROSS-VALIDATES every finalized answer (a fresh verify + the
+# reading_autonomous_eval::independently_grounded check) so false-grounded is
+# measured. A budgeted run that finalizes nothing is a CLASSIFIED coverage miss,
+# never a false-grounded. Deterministic; no model, no training.
+[dependencies]
+reading-autonomy = { path = "../reading-autonomy" }
+reading-autonomous-eval = { path = "../reading-autonomous-eval" }
+reading-corpus-eval = { path = "../reading-corpus-eval" }
+reading-cli = { path = "../reading-cli" }
+reading-substrate = { path = "../reading-substrate" }

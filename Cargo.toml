@@ -20,4 +20,5 @@ members = [
     "crates/reading-corpus-eval",
     "crates/reading-autonomy",
     "crates/reading-autonomous-eval",
+    "crates/reading-budgeted-eval",
 ]
