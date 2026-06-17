@@ -294,6 +294,46 @@ test "$(grep -riE 'torch|tensorflow|candle|onnx|tract|\bburn\b|llama|inference' 
 # Separation: reading-train-gate depends on reading-eval (the harness it gates on) and NO vibe engine crate.
 test "$(cargo tree --offline --manifest-path crates/reading-train-gate/Cargo.toml --edges normal 2>/dev/null | grep -cE 'vibe-')" -eq 0
 test "$(cargo tree --offline --manifest-path crates/reading-train-gate/Cargo.toml --edges normal 2>/dev/null | grep -c 'reading-eval')" -ge 1
+# ---------------------------------------------------------------------------------------------------
+# READ-3 — reading-cli (read0): the real-corpus reading CLI. Loads a folder of documents into a corpus of
+# one sentence per span (shared splitter), runs an UNTRUSTED reading plan ONLY through reading_codec::decode
+# (validate -> substrate execute -> READ-1/READ-2 verifier finalize), and emits a replayable run + proof +
+# verifier receipt; verify/replay re-derive from the run file and reject tamper. The plan never reaches
+# memory except via the codec; read0 calls no substrate executor directly. (serde is the IO layer here.)
+# ---------------------------------------------------------------------------------------------------
+cargo test --offline --quiet --manifest-path crates/reading-cli/Cargo.toml >/dev/null 2>&1
+cargo fmt --manifest-path crates/reading-cli/Cargo.toml --check >/dev/null 2>&1
+cargo clippy --offline --manifest-path crates/reading-cli/Cargo.toml --all-targets -- -D warnings >/dev/null 2>&1
+cargo build --offline --quiet --manifest-path crates/reading-cli/Cargo.toml >/dev/null 2>&1
+test -f crates/reading-cli/src/main.rs
+# read0_uses_codec_only: the untrusted plan is routed through reading_codec::decode; read0 calls no
+# substrate executor directly (sabotage-detectable). It MAY call the verifier for the receipt.
+grep -q 'decode(' crates/reading-cli/src/lib.rs
+test "$(grep -rlE 'execute\(' crates/reading-cli/src/ | wc -l)" -eq 0
+# No model/training dependency in the CLI manifest.
+test "$(grep -riE 'torch|tensorflow|candle|onnx|tract|\bburn\b|llama|inference' crates/reading-cli/Cargo.toml | wc -l)" -eq 0
+# Separation: read0 depends on reading-codec + reading-substrate and NO vibe engine crate.
+test "$(cargo tree --offline --manifest-path crates/reading-cli/Cargo.toml --edges normal 2>/dev/null | grep -cE 'vibe-')" -eq 0
+test "$(cargo tree --offline --manifest-path crates/reading-cli/Cargo.toml --edges normal 2>/dev/null | grep -c 'reading-codec')" -ge 1
+# End-to-end read0 binary smoke (deterministic, offline): build a corpus from a temp folder, run a
+# sentence-grounded plan -> verify (pass) -> replay (match); a fragment/fabricated plan MUST be rejected;
+# a tampered run MUST fail verify.
+_read3_dir="$(mktemp -d)"
+mkdir -p "$_read3_dir/docs"
+printf 'Bridge A was structurally damaged. Bridge B stayed open during the storm.' > "$_read3_dir/docs/report.txt"
+cat > "$_read3_dir/plan.json" <<'READ3_PLAN'
+[{"action":"inspect_corpus"},{"action":"read_span","span_id":1},{"action":"extract_claim","statement":"Bridge B stayed open during the storm.","source_span_ids":[1]},{"action":"synthesize","answer_text":"Bridge B stayed open during the storm.","supporting_claims":[0]}]
+READ3_PLAN
+./target/debug/read0 run "$_read3_dir/docs" "Which bridge is open?" "$_read3_dir/plan.json" "$_read3_dir/out.json" >/dev/null 2>&1
+./target/debug/read0 verify "$_read3_dir/out.json" >/dev/null 2>&1
+./target/debug/read0 replay "$_read3_dir/out.json" >/dev/null 2>&1
+cat > "$_read3_dir/bad.json" <<'READ3_BAD'
+[{"action":"inspect_corpus"},{"action":"read_span","span_id":0},{"action":"extract_claim","statement":"Bridge A","source_span_ids":[0]},{"action":"synthesize","answer_text":"Bridge A","supporting_claims":[0]}]
+READ3_BAD
+if ./target/debug/read0 run "$_read3_dir/docs" "Which bridge is open?" "$_read3_dir/bad.json" "$_read3_dir/bad_out.json" >/dev/null 2>&1; then rm -rf "$_read3_dir"; exit 1; fi
+sed -i 's/"answer_hash": [0-9]*/"answer_hash": 0/' "$_read3_dir/out.json"
+if ./target/debug/read0 verify "$_read3_dir/out.json" >/dev/null 2>&1; then rm -rf "$_read3_dir"; exit 1; fi
+rm -rf "$_read3_dir"
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json

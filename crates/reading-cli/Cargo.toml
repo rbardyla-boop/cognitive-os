@@ -1,0 +1,22 @@
+[package]
+name = "reading-cli"
+version = "0.1.0"
+edition = "2021"
+description = "READ-3 — the read0 CLI: load a real folder of documents, build a sentence-span corpus, run an untrusted reading plan through the hardened codec, and emit a replayable trace + proof + verifier receipt"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# read0 is the operator/IO surface for the reading track (like vibe-cli for the
+# engine). serde/serde_json live here for run-file serialization. The untrusted
+# reading PLAN reaches memory only through reading_codec::decode (never a direct
+# substrate execute); the verifier receipt comes from reading_substrate::verify.
+# It loads files (path-confined) and treats their content + the plan as untrusted.
+[[bin]]
+name = "read0"
+path = "src/main.rs"
+
+[dependencies]
+reading-codec = { path = "../reading-codec" }
+reading-substrate = { path = "../reading-substrate" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

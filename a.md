@@ -94,6 +94,9 @@ Prototype-First Track (ADR-002 deterministic engine, then replaceable LLM codec)
 Reading Substrate Track (separate track; runnable after P7/P8 — needs run/replay, not trained weights — bridges to the P9–P15 LLM track):
 
 - [x] READ-0 — External Text Reading Trace (verified, replayable answer from source-linked structured memory; no training). _Delivered 2026-06-15; `crates/reading-substrate` (zero-dep, no vibe deps), scripted deterministic reader, 9 tests incl. 3 sabotage probes; release_check gates it; P8 still green._
+- [x] READ-1 — Claim fidelity (literal cited-span support). _Folded into P9 (`e4ccb6e`); a claim is grounded only if its statement is found in its cited span text._
+- [x] READ-2 — Sentence-level fidelity floor. _Folded into P11 (`4b4aef5`); a claim must be a complete sentence-level unit of a single cited span (kills fragment/composition false-accepts)._
+- [x] READ-3 — Real Corpus Reading CLI. _Delivered 2026-06-15; `crates/reading-cli` binary `read0`: load a real folder of `.txt` documents → corpus of one sentence per span (shared splitter), run an untrusted reading plan ONLY through `reading_codec::decode` → replayable run + proof + verifier receipt; `verify`/`replay` re-derive and reject tamper. Reads confined to the folder; plan never reaches memory except via the codec; no training. 9 + 3 substrate-shared tests; release_check gates it (build + run/verify/replay smoke + fabricated-rejected + tamper-fails + codec-only + separation); all prior crates 0-diff (substrate gained only the shared `split_sentences`)._
 
 ## Sprint 20R — Signed Replay Identity Review Pass
 
@@ -1583,6 +1586,33 @@ object extracted with source spans; (5) claims are source-linked; (6) claims com
 Non-goals: no fine-tuning, no RL, no autonomous permanent belief updates, no giant-context dump, no
 "it seems smarter" evaluation. (Full module breakdown — corpus/controller/memory/verifier/traces/training
 — is the operator's "Reading Substrate v0" spec; recorded in project memory.)
+
+### READ-3 — Real Corpus Reading CLI
+
+Status: delivered (2026-06-15). `crates/reading-cli` (binary `read0`, serde as the IO layer like vibe-cli)
+runs the reading substrate on a **real folder of documents** through a local command. `read0 run
+<docs_dir> <question> <plan.json> <out.json>` loads every `.txt` file in the folder (path-confined:
+canonicalize + the resolved path must stay under the folder + regular files only — no traversal/symlink
+escape), builds a corpus of **one sentence per span** using the substrate's **shared `split_sentences`**
+(the single source of sentence boundaries now used by BOTH the corpus builder and the READ-2 verifier, so
+spans and grounding can never drift), then routes the **untrusted reading plan ONLY through
+`reading_codec::decode`** — which validates it, executes it through the substrate, and finalizes an answer
+only if the READ-1/READ-2 verifier approves. It writes a replayable run: documents (title + sentence
+spans), the plan, the answer, memory/answer hashes, and a **verifier receipt** (grounded / answer-supported
+/ replay-matches / passed). `read0 verify` and `read0 replay` rebuild the corpus from the stored spans,
+**re-decode the stored plan through the codec**, and reject any tamper (an edited answer/hash → mismatch;
+an edited span or a fabricated plan → grounding fails on re-decode). The plan never reaches memory except
+through the codec, and `read0` calls no substrate executor directly (gate-asserted: zero `execute(` in the
+CLI source). **9 cargo tests** (real-folder→verified-answer, metadata-before-read, one-sentence-per-span,
+fabricated-claim-rejected, fragment-claim-rejected [READ-2], replay-and-tamper-caught, span-tamper-fails)
+plus the substrate's 15. `release_check` gates it with a deterministic end-to-end binary smoke (build a
+temp corpus, run→verify→replay, a fragment plan MUST be rejected, a tampered run MUST fail verify) +
+codec-only + no-ML + separation; a live sabotage that neuters the tamper check fails the gate. No model,
+no training, no paraphrase/entailment, no autonomous memory. All prior crates are 0-diff except
+`reading-substrate`, which gained only the shared `split_sentences` (behavior-identical; its 15 tests stay
+green). Boundary held: `read0` may load files, split sentences, build metadata, call codec/substrate, and
+emit a trace/proof/receipt — it may NOT bypass the codec, weaken READ-1/READ-2, invent claims, or finalize
+without a verifier pass.
 
 ## Appendix — LLM Training as Constraint Engineering (supporting methodology)
 

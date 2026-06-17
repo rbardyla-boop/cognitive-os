@@ -16,4 +16,5 @@ members = [
     "crates/reading-adapter",
     "crates/reading-eval",
     "crates/reading-train-gate",
+    "crates/reading-cli",
 ]

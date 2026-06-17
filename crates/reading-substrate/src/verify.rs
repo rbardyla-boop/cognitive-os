@@ -135,28 +135,11 @@ fn normalize(text: &str) -> String {
         .to_lowercase()
 }
 
-/// Split normalized `text` into complete sentence units — each ending at a
-/// sentence terminator (`.`/`!`/`?`), plus a trailing unit if the text does not
-/// end on one. Purely lexical; no semantics.
+/// Normalized sentence units of `text`: the shared sentence splitter applied to
+/// the normalized text. The split boundaries are identical to those the corpus
+/// builder uses for one-sentence-per-span, so spans and grounding never drift.
 fn sentence_units(text: &str) -> Vec<String> {
-    let normalized = normalize(text);
-    let mut units = Vec::new();
-    let mut current = String::new();
-    for ch in normalized.chars() {
-        current.push(ch);
-        if matches!(ch, '.' | '!' | '?') {
-            let unit = current.trim();
-            if !unit.is_empty() {
-                units.push(unit.to_string());
-            }
-            current.clear();
-        }
-    }
-    let tail = current.trim();
-    if !tail.is_empty() {
-        units.push(tail.to_string());
-    }
-    units
+    crate::corpus::split_sentences(&normalize(text))
 }
 
 /// READ-2 sentence-fidelity: a claim is grounded by a span iff its normalized

@@ -98,3 +98,30 @@ impl Corpus {
         self.spans.contains_key(&id)
     }
 }
+
+/// Split `text` into sentence-like units, each ending at a sentence terminator
+/// (`.`/`!`/`?`), plus a trailing unit if the text does not end on one. Each unit
+/// is trimmed; empty units are dropped. Purely lexical (no normalization, no
+/// semantics). This is the SINGLE source of sentence boundaries shared by the
+/// corpus builder (one sentence per span) and the verifier (sentence-fidelity
+/// grounding), so the spans a reader cites and the units the verifier checks can
+/// never drift apart.
+pub fn split_sentences(text: &str) -> Vec<String> {
+    let mut units = Vec::new();
+    let mut current = String::new();
+    for ch in text.chars() {
+        current.push(ch);
+        if matches!(ch, '.' | '!' | '?') {
+            let unit = current.trim();
+            if !unit.is_empty() {
+                units.push(unit.to_string());
+            }
+            current.clear();
+        }
+    }
+    let tail = current.trim();
+    if !tail.is_empty() {
+        units.push(tail.to_string());
+    }
+    units
+}

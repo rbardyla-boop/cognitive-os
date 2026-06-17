@@ -18,7 +18,7 @@ mod memory;
 mod trace;
 mod verify;
 
-pub use corpus::{Corpus, DocumentMeta, Span, SpanId};
+pub use corpus::{split_sentences, Corpus, DocumentMeta, Span, SpanId};
 pub use memory::{Claim, Entity, Memory, ProofObject};
 pub use trace::{execute, ReadingAction, ReadingError, ReadingRun, ReadingTrace};
 pub use verify::{verify, VerifyReport};
