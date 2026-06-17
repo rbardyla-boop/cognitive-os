@@ -334,6 +334,26 @@ if ./target/debug/read0 run "$_read3_dir/docs" "Which bridge is open?" "$_read3_
 sed -i 's/"answer_hash": [0-9]*/"answer_hash": 0/' "$_read3_dir/out.json"
 if ./target/debug/read0 verify "$_read3_dir/out.json" >/dev/null 2>&1; then rm -rf "$_read3_dir"; exit 1; fi
 rm -rf "$_read3_dir"
+# ---------------------------------------------------------------------------------------------------
+# READ-4 — reading-corpus-eval: the real-corpus eval pack. >= 10 committed fixtures (docs folder +
+# question + plan + expected verifier result) each driven through the REAL read0 run -> verify -> replay
+# path. A false-grounded answer (an expected-rejected fixture that finalized a verified answer) is the
+# unsafe class and MUST be zero. Expected labels are committed in source, never inferred from a model.
+# No training: anecdotal failures here never justify weights (the P12 gate decides that).
+# ---------------------------------------------------------------------------------------------------
+cargo test --offline --quiet --manifest-path crates/reading-corpus-eval/Cargo.toml >/dev/null 2>&1
+cargo fmt --manifest-path crates/reading-corpus-eval/Cargo.toml --check >/dev/null 2>&1
+cargo clippy --offline --manifest-path crates/reading-corpus-eval/Cargo.toml --all-targets -- -D warnings >/dev/null 2>&1
+# Runnable pack: drives every fixture through run/verify/replay; exits non-zero on < 10 fixtures or any
+# false-grounded answer.
+cargo run --offline --quiet --example pack_report -p reading-corpus-eval >/dev/null 2>&1
+# >= 10 committed fixtures (source-level floor, independent of the cargo test).
+test "$(grep -c 'CorpusFixture {' crates/reading-corpus-eval/src/pack.rs)" -ge 10
+# No model/training dependency in the manifest.
+test "$(grep -riE 'torch|tensorflow|candle|onnx|tract|\bburn\b|llama|inference' crates/reading-corpus-eval/Cargo.toml | wc -l)" -eq 0
+# Separation: depends on reading-cli (the read0 pipeline it measures) and NO vibe engine crate.
+test "$(cargo tree --offline --manifest-path crates/reading-corpus-eval/Cargo.toml --edges normal 2>/dev/null | grep -cE 'vibe-')" -eq 0
+test "$(cargo tree --offline --manifest-path crates/reading-corpus-eval/Cargo.toml --edges normal 2>/dev/null | grep -c 'reading-cli')" -ge 1
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json

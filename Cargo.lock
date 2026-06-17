@@ -60,6 +60,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "reading-corpus-eval"
+version = "0.1.0"
+dependencies = [
+ "reading-cli",
+ "reading-substrate",
+]
+
+[[package]]
 name = "reading-eval"
 version = "0.1.0"
 dependencies = [

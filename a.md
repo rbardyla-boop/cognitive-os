@@ -97,6 +97,7 @@ Reading Substrate Track (separate track; runnable after P7/P8 — needs run/repl
 - [x] READ-1 — Claim fidelity (literal cited-span support). _Folded into P9 (`e4ccb6e`); a claim is grounded only if its statement is found in its cited span text._
 - [x] READ-2 — Sentence-level fidelity floor. _Folded into P11 (`4b4aef5`); a claim must be a complete sentence-level unit of a single cited span (kills fragment/composition false-accepts)._
 - [x] READ-3 — Real Corpus Reading CLI. _Delivered 2026-06-15; `crates/reading-cli` binary `read0`: load a real folder of `.txt` documents → corpus of one sentence per span (shared splitter), run an untrusted reading plan ONLY through `reading_codec::decode` → replayable run + proof + verifier receipt; `verify`/`replay` re-derive and reject tamper. Reads confined to the folder; plan never reaches memory except via the codec; no training. 9 + 3 substrate-shared tests; release_check gates it (build + run/verify/replay smoke + fabricated-rejected + tamper-fails + codec-only + separation); all prior crates 0-diff (substrate gained only the shared `split_sentences`)._
+- [x] READ-4 — Real Corpus Eval Pack. _Delivered 2026-06-15; `crates/reading-corpus-eval` — 13 committed real-corpus fixtures (docs + question + plan + COMMITTED expected verifier result) across weather/medical/infrastructure/finance/safety, each driven through the REAL read0 run → verify → replay path. A false-grounded answer (an expected-rejected fixture that finalizes a verified answer) is the unsafe class, surfaced explicitly, 0 required. Report carries per-fixture pass/fail + rejection reason + trace hash. Result: 13/13 correct, 0 false-grounded, 0 false-rejects (5 verified, 8 rejected). 7 tests incl. a control proving labels are committed (a valid plan labelled reject → flagged false-grounded). release_check gates it (test + fmt + clippy + runnable pack [≥10 + 0-false-grounded] + source-count + separation); live sabotage (hide false-grounded) → gate exit 101. No model, no training (anecdotes never justify weights — P12 decides that). All prior crates 0-diff._
 
 ## Sprint 20R — Signed Replay Identity Review Pass
 
@@ -1613,6 +1614,47 @@ no training, no paraphrase/entailment, no autonomous memory. All prior crates ar
 green). Boundary held: `read0` may load files, split sentences, build metadata, call codec/substrate, and
 emit a trace/proof/receipt — it may NOT bypass the codec, weaken READ-1/READ-2, invent claims, or finalize
 without a verifier pass.
+
+### READ-4 — Real Corpus Eval Pack
+
+Status: delivered (2026-06-15). `crates/reading-corpus-eval` turns `read0` from a single hand-run demo
+into a **measured reading benchmark** over many real corpora. **14 committed fixtures** (`src/pack.rs`,
+≥ 10 required) each carry a real document set + a question + an untrusted reading plan + a COMMITTED
+expected verifier result (`Verified` or `Rejected`) — the label lives in source, never inferred from any
+model output. The scorer (`src/scorer.rs`) materializes each fixture to a real docs folder and drives it
+through the **actual read0 pipeline — `run` → `verify` → `replay`** (`reading_cli::run_reading` /
+`verify_run` / `replay_run`): a Verified outcome is produced only after the answer finalizes AND
+re-verifies AND replays, so **every fixture is replayed**, not hand-demoed once. Each result is compared
+to its committed label into **Correct / FalseGrounded / FalseReject**, where a **false-grounded** answer
+(an expected-rejected fixture that finalized a verified answer) is the unsafe class — surfaced as an
+explicit list, **0 required**. The report lists, per fixture, the pass/fail verdict and either the
+rejection reason or the verified answer + **trace hash** (the answer content hash). The fixtures span
+weather, medical, infrastructure, finance, and safety corpora and cover valid single-span /
+multi-sentence-doc / multi-document / compare-then-synthesize grounding, plus every rejection class
+(fabricated claim, sub-sentence fragment, malformed plan, metadata-before-read, unknown action, bad span,
+negation-dropped fragment, ungrounded claim). Current result: **13/13 correct, 0 false-grounded, 0
+false-rejects** (5 verified, 8 rejected). 7 cargo tests including a control proving the scorer grades
+actual-vs-committed (a genuinely valid plan labelled "reject" is flagged false-grounded, never silently
+passed). `release_check` gates it (test + fmt + clippy + a runnable `pack_report` example that exits
+non-zero on < 10 fixtures or any false-grounded + a source-level ≥ 10 floor + separation); a live sabotage
+that hides false-grounded answers fails the gate (exit 101). Deterministic (fixed content → fixed hashes;
+workdir paths excluded), self-cleaning temp dirs, **no model, no training** — anecdotal failures here
+never justify weights; the P12 training-justification gate (still "not justified") owns that decision.
+All prior crates are 0-diff.
+
+Known limitation, measured (surfaced by the READ-4 read-only panel, verified first-hand): the shared
+`split_sentences` is a deterministic **period-splitter** — it treats every `.`/`!`/`?` as a sentence
+boundary, with no abbreviation/decimal awareness. So a document containing `U.S.` splits into spans
+`["The U.", "S.", "economy is strong this year."]`. This is **not** a verifier bypass: grounding stays
+honest (a claim must be a complete unit of a single cited span, and the run file records the actual
+spans), and a sentence *containing* an abbreviation therefore **cannot be grounded as a whole** — it is
+correctly rejected (the `abbreviation_whole_sentence_reject` fixture pins this). The cost is quality: a
+mis-split fragment like `"The U."` is itself a whole span and grounds as such, and a legitimate
+abbreviation-bearing sentence is un-groundable. Abbreviation-aware (semantic) sentence segmentation is
+deliberately deferred — it needs an abbreviation model/NLP, which is outside the deterministic
+no-semantics floor — so the pack **measures and documents** the behavior rather than pretending it is
+handled. A future READ-5 could add a deterministic heuristic (e.g. do not split on a single-letter token
+before a period) if the operator wants it.
 
 ## Appendix — LLM Training as Constraint Engineering (supporting methodology)
 

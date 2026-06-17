@@ -1,0 +1,17 @@
+[package]
+name = "reading-corpus-eval"
+version = "0.1.0"
+edition = "2021"
+description = "READ-4 — real-corpus eval pack: ≥10 committed fixtures (docs folder + question + plan + expected verifier result) each driven through the real read0 run/verify/replay pipeline; false-grounded answers are explicit failures"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# reading-corpus-eval measures the read0 reading system over MANY real corpora.
+# Each fixture is materialized to a real docs folder and driven through the actual
+# read0 run -> verify -> replay path (reading-cli). Expected labels are COMMITTED
+# here in source, never inferred from any model output. A false-grounded answer
+# (an expected-rejected fixture that finalized a verified answer) is the unsafe
+# class and is surfaced explicitly. No model, no training.
+[dependencies]
+reading-cli = { path = "../reading-cli" }
+reading-substrate = { path = "../reading-substrate" }
