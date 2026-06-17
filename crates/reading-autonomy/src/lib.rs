@@ -10,10 +10,12 @@
 mod budgeted;
 mod ranked;
 mod reader;
+mod section;
 
 pub use budgeted::read_budgeted;
 pub use ranked::read_ranked;
 pub use reader::{read, ReaderBounds, ReaderOutcome};
+pub use section::read_section_ranked;
 
 #[cfg(test)]
 mod tests {
@@ -366,5 +368,186 @@ mod tests {
             "a loose budget ⇒ ranking only reorders, same claims as budgeted"
         );
         assert!(ranked.finalized());
+    }
+
+    // --- READ-10: section-aware, multi-term ranking (read_section_ranked) ---
+
+    #[test]
+    fn section_ranking_prioritizes_a_heading_relevant_section() {
+        // One document, two sections; the question-relevant section's HEADING
+        // matches but it is filed second. Under a 1-span budget the budgeted reader
+        // reads the first (irrelevant) section's span and misses; the section-aware
+        // reader reads the heading-relevant section first and answers.
+        let mut corpus = reading_substrate::Corpus::new();
+        corpus.add_document_with_sections(
+            "bulletin",
+            &[
+                ("general notes", &["The office opened at nine."]),
+                (
+                    "storm wind forecast",
+                    &["Winds will reach forty miles per hour."],
+                ),
+            ],
+        );
+        let question = "What is the storm wind forecast?";
+        let tight = ReaderBounds {
+            max_spans: 1,
+            ..Default::default()
+        };
+        let budgeted = read_budgeted(&corpus, question, tight);
+        let sectioned = read_section_ranked(&corpus, question, tight);
+        assert!(
+            !budgeted.finalized(),
+            "metadata order reads the irrelevant first section ⇒ coverage miss"
+        );
+        assert_eq!(
+            sectioned.answer(),
+            Some("Winds will reach forty miles per hour."),
+            "the heading-relevant section is reached first within the same budget"
+        );
+    }
+
+    #[test]
+    fn section_ranking_prefers_the_section_covering_more_query_terms() {
+        // Both sections' headings share the single token "wind", so single-token
+        // overlap cannot distinguish them. The multi-term score (distinct query
+        // terms covered by title+heading) ranks the "storm wind warning" section
+        // (3 terms) above "wind notes" (1 term), recovering an answer the blunt
+        // metadata order misses.
+        let mut corpus = reading_substrate::Corpus::new();
+        corpus.add_document_with_sections(
+            "alerts",
+            &[
+                ("wind notes", &["Breezes stayed calm all afternoon."]),
+                (
+                    "storm wind warning",
+                    &["A severe storm wind warning is in effect tonight."],
+                ),
+            ],
+        );
+        let question = "Is there a storm wind warning?";
+        let tight = ReaderBounds {
+            max_spans: 1,
+            ..Default::default()
+        };
+        let budgeted = read_budgeted(&corpus, question, tight);
+        let sectioned = read_section_ranked(&corpus, question, tight);
+        assert!(
+            !budgeted.finalized(),
+            "metadata order reads the single-term section ⇒ coverage miss"
+        );
+        assert_eq!(
+            sectioned.answer(),
+            Some("A severe storm wind warning is in effect tonight."),
+            "the section covering more query terms is read first"
+        );
+    }
+
+    #[test]
+    fn section_ranking_is_stable_across_section_order() {
+        // Distinct headings ⇒ the (score, title, heading) key is a total order
+        // independent of section insertion order, so permuting the sections yields
+        // the identical answer.
+        let question = "What is the storm wind forecast?";
+        let tight = ReaderBounds {
+            max_spans: 1,
+            ..Default::default()
+        };
+        let mut forward = reading_substrate::Corpus::new();
+        forward.add_document_with_sections(
+            "bulletin",
+            &[
+                ("general notes", &["The office opened at nine."]),
+                (
+                    "storm wind forecast",
+                    &["Winds will reach forty miles per hour."],
+                ),
+            ],
+        );
+        let mut reverse = reading_substrate::Corpus::new();
+        reverse.add_document_with_sections(
+            "bulletin",
+            &[
+                (
+                    "storm wind forecast",
+                    &["Winds will reach forty miles per hour."],
+                ),
+                ("general notes", &["The office opened at nine."]),
+            ],
+        );
+        let a = read_section_ranked(&forward, question, tight);
+        let b = read_section_ranked(&reverse, question, tight);
+        assert_eq!(
+            a.answer(),
+            Some("Winds will reach forty miles per hour."),
+            "the heading-relevant section is the answer"
+        );
+        assert_eq!(a.answer(), b.answer(), "stable across section order");
+    }
+
+    #[test]
+    fn section_heading_match_does_not_fabricate_a_claim() {
+        // The section HEADING matches the question ("wind"), so ranking reads its
+        // span first — but the span TEXT is irrelevant, so it is not claimed. A
+        // heading match only reorders reads; it never grounds a claim, so a ranking
+        // signal can never become evidence.
+        let mut corpus = reading_substrate::Corpus::new();
+        corpus.add_document_with_sections(
+            "log",
+            &[("wind report", &["The committee adjourned at noon."])],
+        );
+        let sectioned = read_section_ranked(
+            &corpus,
+            "What is the wind forecast?",
+            ReaderBounds::default(),
+        );
+        assert_eq!(sectioned.spans_read, 1, "the heading-ranked span was read");
+        assert!(
+            !sectioned.finalized(),
+            "an irrelevant span is not claimed even when the heading matches"
+        );
+        assert_eq!(sectioned.answer(), None);
+    }
+
+    #[test]
+    fn section_ranking_matches_budgeted_on_a_flat_corpus() {
+        // A flat corpus (one headingless section per document) gives the section
+        // score = title score, so the section reader degrades to title ranking and,
+        // under a loose budget, makes exactly the budgeted reader's claims.
+        let mut corpus = reading_substrate::Corpus::new();
+        corpus.add_document("bridge_report", &["The bridge inspection found cracks."]);
+        corpus.add_document("road_notice", &["The road was closed for repairs."]);
+        let question = "What happened to the bridge and road?";
+        let budgeted = read_budgeted(&corpus, question, ReaderBounds::default());
+        let sectioned = read_section_ranked(&corpus, question, ReaderBounds::default());
+        assert_eq!(
+            budgeted.answer(),
+            sectioned.answer(),
+            "flat corpus ⇒ section ranking reduces to the budgeted claims"
+        );
+        assert!(sectioned.finalized());
+    }
+
+    #[test]
+    fn section_reader_is_deterministic() {
+        let mut corpus = reading_substrate::Corpus::new();
+        corpus.add_document_with_sections(
+            "bulletin",
+            &[
+                ("general notes", &["The office opened at nine."]),
+                (
+                    "storm wind forecast",
+                    &["Winds will reach forty miles per hour."],
+                ),
+            ],
+        );
+        let question = "What is the storm wind forecast?";
+        let a = read_section_ranked(&corpus, question, ReaderBounds::default());
+        let b = read_section_ranked(&corpus, question, ReaderBounds::default());
+        assert_eq!(
+            a.plan, b.plan,
+            "section ranking is deterministic ⇒ replayable"
+        );
+        assert_eq!(a.answer(), b.answer());
     }
 }

@@ -462,6 +462,46 @@ test "$(grep -riE 'torch|tensorflow|candle|onnx|tract|\bburn\b|llama|inference' 
 # Separation: depends on reading-autonomy (the readers it compares) and NO vibe engine crate.
 test "$(cargo tree --offline --manifest-path crates/reading-ranked-eval/Cargo.toml --edges normal 2>/dev/null | grep -cE 'vibe-')" -eq 0
 test "$(cargo tree --offline --manifest-path crates/reading-ranked-eval/Cargo.toml --edges normal 2>/dev/null | grep -c 'reading-autonomy')" -ge 1
+# ---------------------------------------------------------------------------------------------------
+# READ-10 — section-aware / multi-term deterministic relevance ranking. The substrate gains
+# heading-labelled SECTIONS as METADATA (SectionMeta + add_document_with_sections; a heading is NEVER a
+# span, so no claim can cite one). reading_autonomy::read_section_ranked orders the budgeted reader's
+# span reads by combined TITLE + section-HEADING relevance, counting DISTINCT matched question terms
+# (multi-term), so under a tight budget the most relevant section is reached first. Metadata-only (no
+# span-text preview before read), no model/semantics/entailment/paraphrase, and the ranking score never
+# becomes evidence (section.rs builds no claim/answer). reading-section-eval proves no-regression vs
+# read_budgeted on the flat committed pack, classifies coverage misses, keeps 0 false-grounded
+# (cross-validated), and measures the section-heading + multi-term recovery on constructed corpora.
+# read/read_budgeted/read_ranked are behaviour-unchanged so READ-7/8/9 stay green. No training.
+# ---------------------------------------------------------------------------------------------------
+cargo test --offline --quiet --manifest-path crates/reading-section-eval/Cargo.toml >/dev/null 2>&1
+cargo fmt --manifest-path crates/reading-section-eval/Cargo.toml --check >/dev/null 2>&1
+cargo clippy --offline --manifest-path crates/reading-section-eval/Cargo.toml --all-targets -- -D warnings >/dev/null 2>&1
+# Runnable: the section pack must report 0 false-grounded AND 0 regressions, and the demo must show the
+# section-heading + multi-term win (exits non-zero otherwise).
+cargo run --offline --quiet --example section_pack_report -p reading-section-eval >/dev/null 2>&1
+# The substrate exposes section/heading METADATA (positive signals); the headings-are-never-spans test
+# (sectioned_document_exposes_headings_as_metadata_never_as_spans) in the READ-0 substrate suite above
+# is the load-bearing proof that a heading cannot be cited or grounded.
+grep -q 'pub struct SectionMeta' crates/reading-substrate/src/corpus.rs
+grep -q 'fn add_document_with_sections' crates/reading-substrate/src/corpus.rs
+# The section reader exists and reuses the shared budgeted/codec core (no second executor/verifier — the
+# READ-6 codec-only scan over reading-autonomy/src above also covers section.rs).
+grep -q 'pub fn read_section_ranked' crates/reading-autonomy/src/section.rs
+grep -q 'read_selecting' crates/reading-autonomy/src/section.rs
+# Multi-term, section-aware ranking (positive signals): scores TITLE + HEADING by matched query terms.
+grep -q 'fn section_ranked_order' crates/reading-autonomy/src/section.rs
+grep -q 'fn combined_relevance' crates/reading-autonomy/src/section.rs
+# Metadata-only: the ranker never previews span text (no read_span / .text() in section.rs)...
+test "$(grep -cE 'read_span|\.text\(\)' crates/reading-autonomy/src/section.rs)" -eq 0
+# ...and the ranking score never becomes evidence — the ranker builds no claim/answer (those live only
+# in the shared budget loop). A "ranking confidence becomes evidence" regression trips this.
+test "$(grep -cE 'extract_claim|synthesize|answer_text' crates/reading-autonomy/src/section.rs)" -eq 0
+# No model/training dependency in the eval manifest.
+test "$(grep -riE 'torch|tensorflow|candle|onnx|tract|\bburn\b|llama|inference' crates/reading-section-eval/Cargo.toml | wc -l)" -eq 0
+# Separation: depends on reading-autonomy (the readers it compares) and NO vibe engine crate.
+test "$(cargo tree --offline --manifest-path crates/reading-section-eval/Cargo.toml --edges normal 2>/dev/null | grep -cE 'vibe-')" -eq 0
+test "$(cargo tree --offline --manifest-path crates/reading-section-eval/Cargo.toml --edges normal 2>/dev/null | grep -c 'reading-autonomy')" -ge 1
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json

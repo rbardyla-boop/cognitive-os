@@ -1,0 +1,24 @@
+[package]
+name = "reading-section-eval"
+version = "0.1.0"
+edition = "2021"
+description = "READ-10 — section-aware / multi-term ranked-selection eval: run the deterministic section-ranked reader (read_section_ranked) across the READ-4 corpus fixtures, prove no-regression vs read_budgeted, keep 0 false-grounded (cross-validated), classify coverage misses, and measure the section-heading + multi-term recovery on constructed sectioned corpora"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# READ-10 measures the SECTION-AWARE, MULTI-TERM reader against the budgeted one
+# over the same READ-4 corpora. The committed pack is flat (one headingless section
+# per document), so section ranking reduces to title ranking and only REORDERS:
+# the eval proves NO-REGRESSION (ranked answer == budgeted answer) and 0
+# false-grounded (cross-validated with a fresh verify + the independent
+# reading_autonomous_eval::independently_grounded check). The section + multi-term
+# WIN — reaching a heading-relevant or more-terms-covered section first under a
+# tight budget, deterministically and stably across order — is measured by
+# section_priority_demo on constructed sectioned corpora. Deterministic; no model,
+# no training.
+[dependencies]
+reading-autonomy = { path = "../reading-autonomy" }
+reading-autonomous-eval = { path = "../reading-autonomous-eval" }
+reading-corpus-eval = { path = "../reading-corpus-eval" }
+reading-cli = { path = "../reading-cli" }
+reading-substrate = { path = "../reading-substrate" }

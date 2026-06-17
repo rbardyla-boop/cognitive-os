@@ -27,12 +27,27 @@ impl Span {
     }
 }
 
+/// A heading-labelled section of a document. The heading is METADATA (exposed
+/// before any span text is read); it is NOT itself a span, so no claim can ever
+/// cite or ground against a heading — section structure can rank reads, never
+/// supply evidence.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SectionMeta {
+    pub heading: String,
+    pub span_ids: Vec<SpanId>,
+}
+
 /// Metadata about one document — exposed BEFORE any span text is read.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DocumentMeta {
     pub document_id: u64,
     pub title: String,
+    /// Every span of the document, in order (across all sections).
     pub span_ids: Vec<SpanId>,
+    /// The document's sections, each a heading (metadata) plus its spans, in
+    /// order. A document added without explicit sections has exactly one section
+    /// with an empty heading containing every span.
+    pub sections: Vec<SectionMeta>,
 }
 
 /// An external text corpus: documents made of addressable spans.
@@ -47,33 +62,53 @@ impl Corpus {
         Corpus::default()
     }
 
-    /// Add a document as a sequence of spans; returns the new document id. Span
-    /// ids are assigned sequentially across the whole corpus (stable + unique).
+    /// Add a document as a flat sequence of spans (one headingless section);
+    /// returns the new document id. Span ids are assigned sequentially across the
+    /// whole corpus (stable + unique).
     pub fn add_document(&mut self, title: &str, span_texts: &[&str]) -> u64 {
+        self.add_document_with_sections(title, &[("", span_texts)])
+    }
+
+    /// Add a document whose spans are grouped into heading-labelled SECTIONS;
+    /// returns the new document id. The headings are METADATA only — they are
+    /// never inserted as spans, so no claim can cite a heading. Span ids are
+    /// assigned sequentially across the whole corpus (stable + unique), in section
+    /// order then span order, so a single-section call is identical to a flat add.
+    pub fn add_document_with_sections(&mut self, title: &str, sections: &[(&str, &[&str])]) -> u64 {
         let document_id = self.documents.len() as u64;
         let mut span_ids = Vec::new();
+        let mut section_metas = Vec::new();
         let mut offset = 0usize;
-        for text in span_texts {
-            let id = SpanId(self.spans.len() as u64);
-            let byte_start = offset;
-            let byte_end = offset + text.len();
-            offset = byte_end + 1;
-            self.spans.insert(
-                id,
-                Span {
+        for (heading, span_texts) in sections {
+            let mut section_span_ids = Vec::new();
+            for text in *span_texts {
+                let id = SpanId(self.spans.len() as u64);
+                let byte_start = offset;
+                let byte_end = offset + text.len();
+                offset = byte_end + 1;
+                self.spans.insert(
                     id,
-                    document_id,
-                    byte_start,
-                    byte_end,
-                    text: (*text).to_string(),
-                },
-            );
-            span_ids.push(id);
+                    Span {
+                        id,
+                        document_id,
+                        byte_start,
+                        byte_end,
+                        text: (*text).to_string(),
+                    },
+                );
+                span_ids.push(id);
+                section_span_ids.push(id);
+            }
+            section_metas.push(SectionMeta {
+                heading: (*heading).to_string(),
+                span_ids: section_span_ids,
+            });
         }
         self.documents.push(DocumentMeta {
             document_id,
             title: title.to_string(),
             span_ids,
+            sections: section_metas,
         });
         document_id
     }
@@ -234,7 +269,68 @@ fn is_abbreviation(word_lower: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::split_sentences;
+    use super::{split_sentences, Corpus, SpanId};
+
+    #[test]
+    fn plain_document_has_one_headingless_section_with_all_spans() {
+        // A document added without sections still exposes a section view: exactly
+        // one section, an empty heading, containing every span — so a section-aware
+        // reader degrades cleanly to title-only ranking on flat corpora.
+        let mut corpus = Corpus::new();
+        corpus.add_document("notes", &["First sentence.", "Second sentence."]);
+        let doc = &corpus.metadata()[0];
+        assert_eq!(doc.sections.len(), 1);
+        assert_eq!(doc.sections[0].heading, "");
+        assert_eq!(doc.sections[0].span_ids, doc.span_ids);
+        assert_eq!(doc.span_ids, vec![SpanId(0), SpanId(1)]);
+    }
+
+    #[test]
+    fn sectioned_document_exposes_headings_as_metadata_never_as_spans() {
+        let mut corpus = Corpus::new();
+        let id = corpus.add_document_with_sections(
+            "report",
+            &[
+                ("overview", &["The bridge is open."]),
+                ("wind forecast", &["Winds will reach forty miles per hour."]),
+            ],
+        );
+        let doc = &corpus.metadata()[id as usize];
+        assert_eq!(doc.sections.len(), 2);
+        assert_eq!(doc.sections[0].heading, "overview");
+        assert_eq!(doc.sections[1].heading, "wind forecast");
+        // The flat span list is exactly the section spans, in order.
+        let flat: Vec<SpanId> = doc
+            .sections
+            .iter()
+            .flat_map(|s| s.span_ids.clone())
+            .collect();
+        assert_eq!(flat, doc.span_ids);
+        // Headings are NOT spans: no addressable span's text equals a heading.
+        for sid in &doc.span_ids {
+            let text = corpus.read_span(*sid).unwrap().text();
+            assert_ne!(text, "overview");
+            assert_ne!(text, "wind forecast");
+        }
+    }
+
+    #[test]
+    fn sectioned_spans_keep_sequential_ids_like_a_flat_add() {
+        // Two single-span sections produce the same span ids a two-span flat add
+        // would, so sectioning is purely a metadata grouping over the same spans.
+        let mut sectioned = Corpus::new();
+        sectioned.add_document_with_sections("d", &[("a", &["One."]), ("b", &["Two."])]);
+        let mut flat = Corpus::new();
+        flat.add_document("d", &["One.", "Two."]);
+        assert_eq!(
+            sectioned.metadata()[0].span_ids,
+            flat.metadata()[0].span_ids
+        );
+        assert_eq!(
+            sectioned.read_span(SpanId(1)).unwrap().text(),
+            flat.read_span(SpanId(1)).unwrap().text()
+        );
+    }
 
     #[test]
     fn normal_sentences_still_split() {
