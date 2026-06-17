@@ -502,6 +502,44 @@ test "$(grep -riE 'torch|tensorflow|candle|onnx|tract|\bburn\b|llama|inference' 
 # Separation: depends on reading-autonomy (the readers it compares) and NO vibe engine crate.
 test "$(cargo tree --offline --manifest-path crates/reading-section-eval/Cargo.toml --edges normal 2>/dev/null | grep -cE 'vibe-')" -eq 0
 test "$(cargo tree --offline --manifest-path crates/reading-section-eval/Cargo.toml --edges normal 2>/dev/null | grep -c 'reading-autonomy')" -ge 1
+# ---------------------------------------------------------------------------------------------------
+# READ-11 — real document section metadata ingestion. read0's corpus loader (reading-cli/corpus_load.rs)
+# detects Markdown ATX headings (`# `/`## `/`### ` … up to 6, strict: hashes then whitespace then text)
+# DETERMINISTICALLY and routes the body sentences through add_document_with_sections, so a heading becomes
+# SectionMeta (metadata) and is NEVER split into a span — it has no SpanId and can never be cited or
+# grounded. A headingless file is one default section, byte-identical to the flat build; produce_run stores
+# the corpus's actual spans (heading-free) so verify/replay stay consistent. The reading-cli suite
+# (markdown_heading_becomes_section_metadata, heading_is_not_a_span, sentence_under_heading_gets_section_id,
+# unheaded_file_gets_default_section, non_atx_hash_lines_are_body_not_headings, claim_citing_heading_is_rejected,
+# misleading_heading_without_body_support_cannot_finalize, headed_document_runs_verifies_and_replays) and the
+# reading-section-eval test (section_ranked_read0_recovers_heading_relevant_answer) above are the load-bearing
+# checks. No semantic heading inference, no all-caps guessing, no layout inference, no model, no training.
+# ---------------------------------------------------------------------------------------------------
+# The deterministic ATX heading detector + section parser exist (positive signals)...
+grep -q 'fn parse_atx_heading' crates/reading-cli/src/corpus_load.rs
+grep -q 'fn parse_sections' crates/reading-cli/src/corpus_load.rs
+# ...and headings route ONLY through the section metadata API (so they become metadata, never spans).
+grep -q 'add_document_with_sections' crates/reading-cli/src/corpus_load.rs
+# produce_run stores the corpus's BUILT spans (heading-free), not a re-split of raw content: it reads
+# them back from the corpus by span id (sabotage-detectable — reverting to split_sentences(content) would
+# restore headings as spans and drop this token).
+grep -q 'metadata span ids exist in the corpus' crates/reading-cli/src/lib.rs
+# End-to-end headed-document binary smoke (comment-immune, behavioral): a real Markdown file with an ATX
+# heading runs through the read0 BINARY; run -> verify -> replay must all pass, AND the heading text must
+# NOT appear anywhere in the run file (a heading is metadata, never a stored span). This gates the exact
+# regression a panel raised — reverting produce_run to re-split raw content would leak "# Wind Forecast"
+# into a stored span and this grep would catch it, independent of any source token.
+_read11_dir="$(mktemp -d)"
+mkdir -p "$_read11_dir/docs"
+printf '# Wind Forecast\nWinds will reach forty miles per hour.' > "$_read11_dir/docs/forecast.txt"
+cat > "$_read11_dir/plan.json" <<'READ11_PLAN'
+[{"action":"inspect_corpus"},{"action":"read_span","span_id":0},{"action":"extract_claim","statement":"Winds will reach forty miles per hour.","source_span_ids":[0]},{"action":"synthesize","answer_text":"Winds will reach forty miles per hour.","supporting_claims":[0]}]
+READ11_PLAN
+./target/debug/read0 run "$_read11_dir/docs" "What is the wind forecast?" "$_read11_dir/plan.json" "$_read11_dir/out.json" >/dev/null 2>&1
+./target/debug/read0 verify "$_read11_dir/out.json" >/dev/null 2>&1
+./target/debug/read0 replay "$_read11_dir/out.json" >/dev/null 2>&1
+if grep -q 'Wind Forecast' "$_read11_dir/out.json"; then rm -rf "$_read11_dir"; exit 1; fi
+rm -rf "$_read11_dir"
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json

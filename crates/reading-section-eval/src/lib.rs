@@ -163,4 +163,39 @@ mod tests {
         );
         assert_eq!(section_priority_demo(), section_priority_demo());
     }
+
+    #[test]
+    fn section_ranked_read0_recovers_heading_relevant_answer() {
+        // READ-11: a REAL Markdown document built by read0's loader. The
+        // wind-relevant content lives under a "## Wind Forecast" heading filed
+        // second; the heading becomes section metadata (not a span). Under a 1-span
+        // budget the budgeted reader (metadata order) reads the first section's
+        // sentence and misses, while the section-aware reader uses the PARSED
+        // heading to read the relevant section first and answers.
+        use reading_autonomy::{read_budgeted, read_section_ranked};
+        use reading_cli::corpus_from_documents;
+        let content = "# Daily Notes\nThe office opened at nine.\n## Wind Forecast\nWinds will reach forty miles per hour.".to_string();
+        let corpus = corpus_from_documents(&[("bulletin.txt".to_string(), content)]);
+        // The ATX headings became section metadata, not spans.
+        let headings: Vec<&str> = corpus.metadata()[0]
+            .sections
+            .iter()
+            .map(|s| s.heading.as_str())
+            .collect();
+        assert_eq!(headings, vec!["Daily Notes", "Wind Forecast"]);
+        let tight = ReaderBounds {
+            max_spans: 1,
+            ..Default::default()
+        };
+        let question = "What is the wind forecast?";
+        assert!(
+            !read_budgeted(&corpus, question, tight).finalized(),
+            "metadata order reads the first section's sentence ⇒ miss"
+        );
+        assert_eq!(
+            read_section_ranked(&corpus, question, tight).answer(),
+            Some("Winds will reach forty miles per hour."),
+            "the parsed heading lets section ranking reach the relevant section first"
+        );
+    }
 }

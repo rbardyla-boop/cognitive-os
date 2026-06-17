@@ -110,11 +110,26 @@ pub fn produce_run(
     if !report.passed {
         return Err(CliError::VerifyFailed(report.problems));
     }
-    let documents = documents
+    // Store the spans the corpus actually built — the body sentences in span-id
+    // order, with ATX heading lines excluded (READ-11). For headingless content
+    // this equals split_sentences(content); for headed content the headings are
+    // never stored as spans, so a heading can never be re-derived as evidence.
+    let documents = corpus
+        .metadata()
         .iter()
-        .map(|(title, content)| DocumentDto {
-            title: title.clone(),
-            spans: split_sentences(content),
+        .map(|doc| DocumentDto {
+            title: doc.title.clone(),
+            spans: doc
+                .span_ids
+                .iter()
+                .map(|id| {
+                    corpus
+                        .read_span(*id)
+                        .expect("metadata span ids exist in the corpus")
+                        .text()
+                        .to_string()
+                })
+                .collect(),
         })
         .collect();
     Ok(RunFile {
@@ -341,5 +356,80 @@ mod tests {
         file.documents[0].spans = vec!["Bridge A was damaged. Bridge B stayed open.".to_string()];
         assert!(matches!(verify_file(&file), Err(CliError::Tamper(_))));
         assert!(matches!(replay_file(&file), Err(CliError::Tamper(_))));
+    }
+
+    // --- READ-11: headed documents through the read0 run/verify/replay path ---
+
+    // A Markdown document: the heading "Wind Forecast" is metadata; only the body
+    // sentences (span ids 0,1) are addressable spans.
+    fn headed_docs() -> Vec<(String, String)> {
+        vec![(
+            "forecast.txt".to_string(),
+            "# Overview\nThe bridge is open.\n## Wind Forecast\nWinds will reach forty miles per hour."
+                .to_string(),
+        )]
+        // spans: 0 = "The bridge is open.", 1 = "Winds will reach forty miles per hour."
+    }
+
+    #[test]
+    fn headed_document_runs_verifies_and_replays() {
+        // A body sentence under a heading is a normal grounded span: the run
+        // finalizes, verifies, and replays. The stored spans are the body
+        // sentences only (the heading is never stored as a span).
+        let plan = r#"[
+            {"action":"inspect_corpus"},
+            {"action":"read_span","span_id":1},
+            {"action":"extract_claim","statement":"Winds will reach forty miles per hour.","source_span_ids":[1]},
+            {"action":"synthesize","answer_text":"Winds will reach forty miles per hour.","supporting_claims":[0]}
+        ]"#;
+        let file = produce_run(&headed_docs(), "What is the wind forecast?", plan)
+            .expect("a body sentence finalizes");
+        assert_eq!(file.answer, "Winds will reach forty miles per hour.");
+        assert!(file.receipt.passed);
+        // The heading is not stored as a span.
+        for span in &file.documents[0].spans {
+            assert!(
+                !span.starts_with('#'),
+                "no stored span is a heading: {span:?}"
+            );
+            assert_ne!(span, "Overview");
+            assert_ne!(span, "Wind Forecast");
+        }
+        assert!(verify_file(&file).unwrap().passed);
+        replay_file(&file).expect("a headed document replays");
+    }
+
+    #[test]
+    fn claim_citing_heading_is_rejected() {
+        // A plan that tries to launder the HEADING text ("Wind Forecast") into a
+        // grounded claim by citing a body span is rejected: the heading is not the
+        // span's text, so it does not ground.
+        let plan = r#"[
+            {"action":"inspect_corpus"},
+            {"action":"read_span","span_id":1},
+            {"action":"extract_claim","statement":"Wind Forecast","source_span_ids":[1]},
+            {"action":"synthesize","answer_text":"Wind Forecast","supporting_claims":[0]}
+        ]"#;
+        let err = produce_run(&headed_docs(), "What is the wind forecast?", plan).unwrap_err();
+        assert!(matches!(err, CliError::Rejected(_)));
+    }
+
+    #[test]
+    fn misleading_heading_without_body_support_cannot_finalize() {
+        // The heading claims the bridge is safe; the body says it is damaged. A plan
+        // asserting the heading's claim, citing the body span, cannot finalize — a
+        // heading promise is never grounded unless a body sentence supports it.
+        let docs = vec![(
+            "bridge.txt".to_string(),
+            "# Bridge A Is Safe\nBridge A was damaged in the storm.".to_string(),
+        )];
+        let plan = r#"[
+            {"action":"inspect_corpus"},
+            {"action":"read_span","span_id":0},
+            {"action":"extract_claim","statement":"Bridge A Is Safe.","source_span_ids":[0]},
+            {"action":"synthesize","answer_text":"Bridge A Is Safe.","supporting_claims":[0]}
+        ]"#;
+        let err = produce_run(&docs, "Is Bridge A safe?", plan).unwrap_err();
+        assert!(matches!(err, CliError::Rejected(_)));
     }
 }
