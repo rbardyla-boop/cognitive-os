@@ -102,6 +102,7 @@ Reading Substrate Track (separate track; runnable after P7/P8 — needs run/repl
 - [x] READ-6 — Reader Autonomy v0. _Delivered 2026-06-15; `crates/reading-autonomy` — a DETERMINISTIC, BOUNDED reader (no model, no training) that generates a reading plan from corpus METADATA (titles + span ids, not all text) and routes every proposed action ONLY through `reading_codec::decode`. v0 strategy: inspect metadata → read up to `max_spans` spans by id → claim each span's sentence verbatim (READ-2 grounded) → one bounded finalize. `ReaderBounds{max_steps,max_spans,max_finalize_attempts}` enforced; the reader holds no executor/verifier handle and cannot finalize on its own — a fabricated claim is rejected by the codec/verifier. 8 tests (metadata-first, bounds, sentence-grounded, fabricated-rejected, replay/determinism) + runnable `autonomous_read` example (must finalize a verifier-authorized answer). release_check gates it (test+fmt+clippy + runnable example + codec-only [0 `execute(`/`verify(`] + bounds-struct + no-ML + separation); live sabotage (reader fabricates) → codec rejects, example exit 1, gate exit 101. Hard boundary held: autonomy proposes, codec validates, substrate executes, verifier authorizes, replay records, weights untouched. All prior crates 0-diff; READ-4/READ-5 packs green._
 - [x] READ-7 — Autonomous Corpus Eval Pack. _Delivered 2026-06-15; `crates/reading-autonomous-eval` — drives the deterministic READ-6 reader across the READ-4 corpus fixtures with NO hand-written plans (each corpus rebuilt via `corpus_from_documents`, the reader proposes its own plan), INDEPENDENTLY re-verifies every finalized answer with `reading_substrate::verify` (false-grounded is measured, not assumed), and compares the manual-plan score to the autonomous-reader score. Result: autonomous 15/15 verified, **0 false-grounded**, 0 false-reject; manual baseline 6 verified / 9 rejected. The 9 reject-fixtures become "safe divergences" (the non-adversarial reader honestly grounds where the adversarial hand-plan was rejected) — notably the negation fixture keeps "Do not" intact (verbatim whole-sentence claim). 9 tests (every-fixture, no-hand-plan, 0-false-grounded, independent re-verify, manual-vs-autonomous partition, negation-preserved, tight-bounds classified false-rejects, determinism) + runnable `autonomous_pack_report` example. release_check gates it (test+fmt+clippy + runnable example + no-`fixture.plan` + `verify(` re-check + no-ML + separation); live sabotage (use hand-plan in audit) → test + gate exit 101. Hard rule honored: autonomy underperformance is an engineering signal, NOT a training justification — P12 still owns weights. All prior crates 0-diff._
 - [x] READ-8 — Budgeted Autonomous Span Selection. _Delivered 2026-06-15; `reading_autonomy::read_budgeted` (new `budgeted.rs`, additive — the blunt READ-6 `read` is byte-identical so READ-7 stays green) makes autonomy **less blunt**: still metadata-first and codec-only, it reads spans under the budget and CLAIMS only spans LEXICALLY relevant to the question — deterministic word-prefix overlap (the shorter term ≥3 chars is a prefix of the longer, so "wind" matches "winds") against a small fixed stopword list; NO model/semantics/entailment/paraphrase. `crates/reading-budgeted-eval` measures it vs the blunt reader over the READ-4 fixtures: **blunt 21 claims → budgeted 17, 3 fixtures more focused** (weather → just the wind sentence, medical → just the ECG order, multi-sentence → just "No injuries were reported."), **0 false-grounded** (cross-validated via verify + `independently_grounded`), negation preserved. A tight budget (`max_spans=1`) yields **classified coverage misses** (relevant span beyond budget) — never a false answer. 13 reading-autonomy tests (5 budgeted: selective, codec-finalize, budget-enforced, deterministic, negation-preserved) + 7 eval tests + runnable `budgeted_pack_report`. release_check gates it (test+fmt+clippy + runnable example + `read_budgeted`/`decode(`/`prefix_overlap`/`content_terms` signals + no-ML + separation); live sabotage (relevance always-true → blunt) → 4 tests + gate exit 101. Boundary held: deterministic selection only — no model judgment/entailment/paraphrase/training; coverage misses are an engineering signal, P12 still owns weights. read() 0-diff; all other prior crates 0-diff._
+- [x] READ-9 — Title-Aware Deterministic Relevance Ranking. _Delivered 2026-06-17; `reading_autonomy::read_ranked` (new `ranked.rs`, additive) orders the READ-8 budgeted reader's span reads by DETERMINISTIC title relevance (document TITLE vs question, the same lexical word-prefix overlap as READ-8 — NO model/semantics/entailment/paraphrase, and never a span-text preview before a span is read by id), so under a tight budget a title-relevant document is reached first instead of missed. The shared selective-read core (`read_selecting`, factored out of `read_budgeted` behavior-identically and parameterised only by read order) keeps budget + relevance filter + codec routing identical for both readers, so the claim FILTER is unchanged — a span is claimed only if its OWN text is relevant AND grounds verbatim, so a title match alone can never fabricate support (matching title + irrelevant span text → coverage miss, not a grounded answer). `crates/reading-ranked-eval` proves **no-regression** vs `read_budgeted` on the committed pack (15 answered, **0 regressions**, every fixture `==budgeted`, **0 false-grounded** cross-validated via verify + `independently_grounded`) and measures the **title-priority win** on a constructed scenario: relevant doc filed second + `max_spans=1` → budgeted **misses**, ranked **answers** "Winds will reach forty miles per hour.", stable across file order. Sort key `(title_relevance DESC, title ASC, document_id ASC)` is insertion-order-independent for distinct titles. 18 reading-autonomy tests (5 new: title-priority recovery, file-order stability, anti-fabrication, deterministic, loose-budget no-regression) + 8 eval tests + runnable `ranked_pack_report`. release_check gates it (test+fmt+clippy + runnable example + `read_ranked`/`read_selecting`/`title_relevance`/`title_ranked_order` signals + **no-`read_span`/`.text()` in ranked.rs** metadata-only proof + no-ML + separation); live sabotage (title_relevance ignores the title → blunt) → 1 unit + 2 eval tests + gate exit 101 (no-regression/0-false-grounded stay green under sabotage — safety is independent of the win), restored byte-identical. Read-only adversarial panel (9 agents): **0 defects** across 5 attack lenses, all rubric sub-points (a)–(g) PASS. Boundary held: deterministic title ranking only — no model/entailment/paraphrase/training; coverage misses are an engineering signal, P12 still owns weights. blunt `read` 0-diff; `read_budgeted` behavior-identical; all other prior crates 0-diff._
 
 ## Sprint 20R — Signed Replay Identity Review Pass
 
@@ -1772,6 +1773,60 @@ live sabotage that makes relevance always-true (reverting to blunt) fails four t
 training.** A coverage miss is an engineering signal about the lexical floor (a future reader could select
 better), never a reason to open weights — P12 still owns that and remains "not justified". The blunt `read`
 is 0-diff and every other prior crate is 0-diff.
+
+### READ-9 — Title-Aware Deterministic Relevance Ranking
+
+Status: delivered (2026-06-17). READ-8 made the reader *less blunt* by claiming only question-relevant
+spans, but it still visited spans in raw **metadata order** — so under a tight budget a relevant document
+filed late could be missed while an irrelevant one consumed the budget. READ-9 fixes the ORDER without a
+model, via `reading_autonomy::read_ranked` (a new `ranked.rs`, additive). Before reading, it ranks the
+documents by **title relevance** to the question and reads higher-ranked documents' spans first, so a tight
+budget reaches the relevant document instead of missing it.
+
+The ranking is **metadata-only**. `DocumentMeta.title` is exposed before any span text is read, so
+`title_relevance` scores the TITLE against the question using the **same** lexical machinery READ-8 uses for
+spans — content terms (length ≥ 3, minus the fixed stopword list) and word-prefix overlap — and
+`title_ranked_order` sorts documents by `(title_relevance DESC, title ASC, document_id ASC)`. The primary
+and secondary keys are independent of insertion order, so for distinct titles the ranking — and therefore
+the selection — is **stable across any file-order permutation**; `document_id` is only the final tiebreak
+for two documents sharing both a title and a score, which keeps the result replayable. No model, semantics,
+entailment, or paraphrase enters selection, and the ordering **never previews a span's text** — `ranked.rs`
+calls neither `read_span` nor `.text()` (a gate grep pins this to zero).
+
+Crucially the **claim filter is unchanged**. The two readers share one core, `read_selecting`, factored out
+of READ-8's `read_budgeted` behavior-identically and parameterised only by the order in which span ids are
+visited (`read_budgeted` = metadata order; `read_ranked` = title-ranked order). Budget, the text-relevance
+filter, and the codec routing are therefore identical for both, so a span is claimed only if its OWN text is
+lexically relevant AND grounds verbatim through the codec/verifier. A title match only changes READING ORDER
+— never whether something becomes a claim — so a title match alone **cannot fabricate support** (a document
+whose title matches but whose span text is irrelevant yields a coverage miss, not a grounded answer).
+
+`crates/reading-ranked-eval` proves both halves. On the committed READ-4 pack the relevant documents are
+already first, so ranking only **reorders**: the eval shows **no-regression** (every fixture's ranked answer
+equals the budgeted answer — 15 answered, **0 regressions**, **0 false-grounded**, cross-validated with a
+fresh `verify` plus the independent `independently_grounded` check). The title-priority **win** is measured
+on a constructed scenario where the relevant document is filed *second* but its title matches: under
+`max_spans = 1` the budgeted reader reads the first, irrelevant document and **misses**, while the
+title-ranked reader reads the relevant document first and **answers** `"Winds will reach forty miles per
+hour."` — with 0 false-grounded and an identical answer whether the documents are inserted forward or
+reversed. 18 reading-autonomy tests (5 new: title-priority recovery, file-order stability, anti-fabrication,
+deterministic/replayable, loose-budget no-regression) and 8 eval tests pin it; a runnable `ranked_pack_report`
+prints the comparison and the demo and exits non-zero on any false-grounded, regression, or a demo that
+fails to show the win.
+
+`release_check` gates it (test + fmt + clippy + the runnable example + `read_ranked`/`read_selecting`/
+`title_relevance`/`title_ranked_order` source signals + the **no-`read_span`/`.text()` in `ranked.rs`**
+metadata-only proof + no-ML + separation). A live sabotage that makes `title_relevance` ignore the title
+(reverting to blunt order) fails one reading-autonomy test and two eval tests and the gate (exit 101), and
+notably the no-regression and 0-false-grounded checks **stay green under that sabotage** — neutralising the
+ranking degrades to a coverage miss, never a false answer, so safety is independent of the ranking win;
+restored byte-identical. A read-only adversarial panel (9 agents, Explore) found **0 defects** across five
+attack lenses (title-fabrication, full-text-preview boundary, stability/determinism, regression/aggregate-
+hiding, gate-vacuity) and returned PASS on every rubric sub-point (a)–(g) with code citations. Boundary
+held: **deterministic title ranking only — no model, semantics, entailment, paraphrase, or training.** A
+coverage miss is an engineering signal; P12 still owns weights and remains "not justified". The blunt `read`
+is 0-diff, `read_budgeted` is behavior-identical (refactored to share the core), and every other prior crate
+is 0-diff.
 
 ## Appendix — LLM Training as Constraint Engineering (supporting methodology)
 

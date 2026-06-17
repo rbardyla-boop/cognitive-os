@@ -107,6 +107,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "reading-ranked-eval"
+version = "0.1.0"
+dependencies = [
+ "reading-autonomous-eval",
+ "reading-autonomy",
+ "reading-cli",
+ "reading-corpus-eval",
+ "reading-substrate",
+]
+
+[[package]]
 name = "reading-substrate"
 version = "0.1.0"
 

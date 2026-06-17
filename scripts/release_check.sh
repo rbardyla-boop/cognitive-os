@@ -429,6 +429,39 @@ test "$(grep -riE 'torch|tensorflow|candle|onnx|tract|\bburn\b|llama|inference' 
 # Separation: depends on reading-autonomy (the readers it compares) and NO vibe engine crate.
 test "$(cargo tree --offline --manifest-path crates/reading-budgeted-eval/Cargo.toml --edges normal 2>/dev/null | grep -cE 'vibe-')" -eq 0
 test "$(cargo tree --offline --manifest-path crates/reading-budgeted-eval/Cargo.toml --edges normal 2>/dev/null | grep -c 'reading-autonomy')" -ge 1
+# ---------------------------------------------------------------------------------------------------
+# READ-9 — title-aware deterministic relevance ranking. reading_autonomy::read_ranked orders the
+# budgeted reader's span reads by DETERMINISTIC title relevance (document TITLE vs question, the same
+# lexical word-prefix overlap as READ-8 — NO model / semantics / entailment / paraphrase, and NEVER a
+# span-text preview before read_span), so under a tight budget a title-relevant document is reached
+# first instead of missed. The claim FILTER is unchanged (a span is claimed only if its OWN text is
+# relevant AND grounds verbatim through the codec), so a title match alone can never fabricate support.
+# reading-ranked-eval proves no-regression vs read_budgeted on the committed pack, classifies coverage
+# misses, keeps 0 false-grounded (cross-validated), and measures the tight-budget recovery + file-order
+# stability the ranking buys. read_budgeted/read are behaviour-unchanged, so READ-7/READ-8 stay green.
+# No training.
+# ---------------------------------------------------------------------------------------------------
+cargo test --offline --quiet --manifest-path crates/reading-ranked-eval/Cargo.toml >/dev/null 2>&1
+cargo fmt --manifest-path crates/reading-ranked-eval/Cargo.toml --check >/dev/null 2>&1
+cargo clippy --offline --manifest-path crates/reading-ranked-eval/Cargo.toml --all-targets -- -D warnings >/dev/null 2>&1
+# Runnable: the ranked pack must report 0 false-grounded AND 0 regressions vs budgeted, and the
+# title-priority demo must show the recovery (exits non-zero otherwise).
+cargo run --offline --quiet --example ranked_pack_report -p reading-ranked-eval >/dev/null 2>&1
+# The ranked reader exists and reuses the shared budgeted/codec core (no second executor/verifier — the
+# READ-6 codec-only scan over reading-autonomy/src above also covers ranked.rs).
+grep -q 'pub fn read_ranked' crates/reading-autonomy/src/ranked.rs
+grep -q 'read_selecting' crates/reading-autonomy/src/ranked.rs
+# Title ranking is METADATA-ONLY (positive signals): it scores the document TITLE and orders reads by it.
+grep -q 'fn title_relevance' crates/reading-autonomy/src/ranked.rs
+grep -q 'fn title_ranked_order' crates/reading-autonomy/src/ranked.rs
+# It NEVER previews span text for ordering: ranked.rs calls no read_span / .text() (those live only in
+# the shared budget loop in budgeted.rs). A "rank by full-text preview" regression trips this.
+test "$(grep -cE 'read_span|\.text\(\)' crates/reading-autonomy/src/ranked.rs)" -eq 0
+# No model/training dependency in the eval manifest.
+test "$(grep -riE 'torch|tensorflow|candle|onnx|tract|\bburn\b|llama|inference' crates/reading-ranked-eval/Cargo.toml | wc -l)" -eq 0
+# Separation: depends on reading-autonomy (the readers it compares) and NO vibe engine crate.
+test "$(cargo tree --offline --manifest-path crates/reading-ranked-eval/Cargo.toml --edges normal 2>/dev/null | grep -cE 'vibe-')" -eq 0
+test "$(cargo tree --offline --manifest-path crates/reading-ranked-eval/Cargo.toml --edges normal 2>/dev/null | grep -c 'reading-autonomy')" -ge 1
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json

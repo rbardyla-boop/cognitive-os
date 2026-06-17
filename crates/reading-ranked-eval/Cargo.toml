@@ -1,0 +1,22 @@
+[package]
+name = "reading-ranked-eval"
+version = "0.1.0"
+edition = "2021"
+description = "READ-9 — title-aware ranked-selection eval: run the deterministic title-ranked reader (read_ranked) across the READ-4 corpus fixtures, prove no-regression vs read_budgeted, classify coverage misses, keep 0 false-grounded (cross-validated), and measure the tight-budget recovery + file-order stability that title ranking buys"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# READ-9 measures the TITLE-RANKED reader against the budgeted one over the same
+# READ-4 corpora. On the committed pack ranking only REORDERS reads (relevant docs
+# are already first), so the eval proves NO-REGRESSION: the ranked answer equals the
+# budgeted answer and false-grounded stays 0 (cross-validated with a fresh verify +
+# the reading_autonomous_eval::independently_grounded check). A separate constructed
+# demo MEASURES the win: with the relevant document filed second, a tight budget
+# makes the budgeted reader miss while the title-ranked reader answers — and the
+# ranked answer is identical across file order. Deterministic; no model, no training.
+[dependencies]
+reading-autonomy = { path = "../reading-autonomy" }
+reading-autonomous-eval = { path = "../reading-autonomous-eval" }
+reading-corpus-eval = { path = "../reading-corpus-eval" }
+reading-cli = { path = "../reading-cli" }
+reading-substrate = { path = "../reading-substrate" }

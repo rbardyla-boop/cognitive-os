@@ -10,6 +10,11 @@
 //! sentence. Reads are bounded by `max_spans`, so with a tight budget a relevant
 //! span beyond the budget is simply never reached — a COVERAGE MISS (a classified
 //! false-reject), never a false-grounded answer. Deterministic ⇒ replayable.
+//!
+//! The budget loop (`read_selecting`) is parameterised by the ORDER in which span
+//! ids are visited. `read_budgeted` visits them in METADATA order; READ-9's
+//! `read_ranked` reuses the SAME core with a title-ranked order, so the selection
+//! + budget + codec behaviour can never drift between the two readers.
 
 use crate::reader::{ReaderBounds, ReaderOutcome};
 use reading_codec::{decode, CodecPolicy};
@@ -17,14 +22,33 @@ use reading_substrate::{Corpus, SpanId};
 
 /// Autonomously read `corpus` for `question` within `bounds`, but CLAIM only the
 /// spans lexically relevant to the question. Deterministic: same inputs → same
-/// plan and decision.
+/// plan and decision. Visits spans in metadata order (document, then span).
 pub fn read_budgeted(corpus: &Corpus, question: &str, bounds: ReaderBounds) -> ReaderOutcome {
-    // Metadata first: titles + span ids, never the text.
-    let span_ids: Vec<u64> = corpus
+    read_selecting(corpus, question, &metadata_order(corpus), bounds)
+}
+
+/// The span ids of `corpus` in METADATA order: each document in order, then its
+/// spans in order. Metadata only — no span text is read.
+pub(crate) fn metadata_order(corpus: &Corpus) -> Vec<u64> {
+    corpus
         .metadata()
         .iter()
         .flat_map(|doc| doc.span_ids.iter().map(|s| s.0))
-        .collect();
+        .collect()
+}
+
+/// The shared budgeted, selective read core: visit `span_ids` IN THE GIVEN ORDER,
+/// read each within budget, claim only the ones lexically relevant to `question`,
+/// and finalize through the codec. The order is the only thing a caller varies
+/// (`read_budgeted` = metadata order; `read_ranked` = title-ranked order); the
+/// budget, the relevance filter, and the codec routing are identical for both, so
+/// the safety behaviour cannot diverge. Deterministic.
+pub(crate) fn read_selecting(
+    corpus: &Corpus,
+    question: &str,
+    span_ids: &[u64],
+    bounds: ReaderBounds,
+) -> ReaderOutcome {
     let query = content_terms(question);
 
     let mut actions: Vec<serde_json::Value> = Vec::new();
@@ -33,7 +57,7 @@ pub fn read_budgeted(corpus: &Corpus, question: &str, bounds: ReaderBounds) -> R
     let mut spans_read = 0usize;
     let mut claim_statements: Vec<String> = Vec::new();
 
-    for span_id in span_ids {
+    for &span_id in span_ids {
         // Budget on READS: the reader cannot inspect a span unless the budget
         // allows it. Keep room for a read (+ a possible extract + finalize).
         if spans_read >= bounds.max_spans {
@@ -89,7 +113,8 @@ pub fn read_budgeted(corpus: &Corpus, question: &str, bounds: ReaderBounds) -> R
 
 /// The content terms of `text`: lowercase alphanumeric words of length ≥ 3 that
 /// are not common stopwords. Purely lexical — no stemming, synonyms, or meaning.
-fn content_terms(text: &str) -> Vec<String> {
+/// Shared by the span relevance filter and READ-9's title ranking.
+pub(crate) fn content_terms(text: &str) -> Vec<String> {
     text.split(|c: char| !c.is_alphanumeric())
         .filter(|w| !w.is_empty())
         .map(|w| w.to_ascii_lowercase())
@@ -100,7 +125,7 @@ fn content_terms(text: &str) -> Vec<String> {
 /// Whether `span_text` shares a content term with the query by deterministic
 /// word-prefix overlap (the shorter term, ≥ 3 chars, is a prefix of the longer —
 /// so "wind" matches "winds" but "art" does not match "start"). Lexical only.
-fn is_relevant(span_text: &str, query: &[String]) -> bool {
+pub(crate) fn is_relevant(span_text: &str, query: &[String]) -> bool {
     if query.is_empty() {
         return false;
     }
@@ -111,7 +136,7 @@ fn is_relevant(span_text: &str, query: &[String]) -> bool {
 }
 
 /// True when the shorter of `a`/`b` (≥ 3 chars) is a prefix of the longer.
-fn prefix_overlap(a: &str, b: &str) -> bool {
+pub(crate) fn prefix_overlap(a: &str, b: &str) -> bool {
     let (short, long) = if a.len() <= b.len() { (a, b) } else { (b, a) };
     short.len() >= 3 && long.starts_with(short)
 }

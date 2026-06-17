@@ -8,9 +8,11 @@
 #![forbid(unsafe_code)]
 
 mod budgeted;
+mod ranked;
 mod reader;
 
 pub use budgeted::read_budgeted;
+pub use ranked::read_ranked;
 pub use reader::{read, ReaderBounds, ReaderOutcome};
 
 #[cfg(test)]
@@ -254,5 +256,115 @@ mod tests {
             .unwrap();
         assert_eq!(ra.memory_hash, rb.memory_hash);
         assert_eq!(ra.answer_hash, rb.answer_hash);
+    }
+
+    // --- READ-9: title-aware deterministic relevance ranking (read_ranked) ---
+
+    /// A two-document corpus whose question-relevant document (its title matches
+    /// the question) is filed SECOND, behind an irrelevant first document.
+    fn relevant_doc_second() -> (reading_substrate::Corpus, &'static str) {
+        let mut corpus = reading_substrate::Corpus::new();
+        corpus.add_document("daily_log", &["The office opened at nine."]);
+        corpus.add_document("wind_forecast", &["Winds will reach forty miles per hour."]);
+        (corpus, "What is the wind forecast?")
+    }
+
+    #[test]
+    fn ranked_reader_prioritizes_a_title_relevant_document() {
+        // Tight 1-span budget. The blunt budgeted reader reads in metadata order,
+        // so it reads the irrelevant first document and misses. The title-aware
+        // ranked reader reads the title-relevant document first and answers.
+        let (corpus, question) = relevant_doc_second();
+        let tight = ReaderBounds {
+            max_spans: 1,
+            ..Default::default()
+        };
+        let budgeted = read_budgeted(&corpus, question, tight);
+        let ranked = read_ranked(&corpus, question, tight);
+        assert!(
+            !budgeted.finalized(),
+            "blunt metadata order reads the irrelevant first doc ⇒ coverage miss"
+        );
+        assert_eq!(
+            ranked.answer(),
+            Some("Winds will reach forty miles per hour."),
+            "title rank reaches the relevant document within the same 1-span budget"
+        );
+    }
+
+    #[test]
+    fn ranked_reader_is_stable_across_file_order() {
+        // Distinct titles ⇒ the (relevance, title) sort key is a total order
+        // independent of insertion order, so permuting the documents yields the
+        // identical ranked answer.
+        let question = "What is the wind forecast?";
+        let mut forward = reading_substrate::Corpus::new();
+        forward.add_document("daily_log", &["The office opened at nine."]);
+        forward.add_document("wind_forecast", &["Winds will reach forty miles per hour."]);
+        let mut reverse = reading_substrate::Corpus::new();
+        reverse.add_document("wind_forecast", &["Winds will reach forty miles per hour."]);
+        reverse.add_document("daily_log", &["The office opened at nine."]);
+
+        let a = read_ranked(&forward, question, ReaderBounds::default());
+        let b = read_ranked(&reverse, question, ReaderBounds::default());
+        assert_eq!(
+            a.answer(),
+            Some("Winds will reach forty miles per hour."),
+            "the title-relevant sentence is the answer"
+        );
+        assert_eq!(
+            a.answer(),
+            b.answer(),
+            "ranking is stable across file order"
+        );
+    }
+
+    #[test]
+    fn title_match_does_not_fabricate_a_claim_from_an_irrelevant_span() {
+        // The document TITLE matches the question ("wind"), so ranking reads its
+        // span first — but the span TEXT is not question-relevant, so it is not
+        // claimed. A title match only reorders reads; it never grounds a claim, so
+        // it cannot fabricate support.
+        let mut corpus = reading_substrate::Corpus::new();
+        corpus.add_document("wind_report", &["The committee adjourned at noon."]);
+        let ranked = read_ranked(
+            &corpus,
+            "What is the wind forecast?",
+            ReaderBounds::default(),
+        );
+        assert_eq!(ranked.spans_read, 1, "the title-ranked span was read");
+        assert!(
+            !ranked.finalized(),
+            "an irrelevant span is not claimed even when the title matches"
+        );
+        assert_eq!(ranked.answer(), None);
+    }
+
+    #[test]
+    fn ranked_reader_is_deterministic() {
+        let (corpus, question) = relevant_doc_second();
+        let a = read_ranked(&corpus, question, ReaderBounds::default());
+        let b = read_ranked(&corpus, question, ReaderBounds::default());
+        assert_eq!(a.plan, b.plan, "ranking is deterministic ⇒ replayable");
+        assert_eq!(a.answer(), b.answer());
+    }
+
+    #[test]
+    fn ranked_reader_matches_budgeted_under_a_loose_budget() {
+        // With a budget wide enough to read everything, ranking only REORDERS the
+        // reads — it drops and adds nothing — so the ranked answer equals the
+        // budgeted answer (no regression). Here both relevant sentences are claimed.
+        let mut corpus = reading_substrate::Corpus::new();
+        corpus.add_document("bridge_report", &["The bridge inspection found cracks."]);
+        corpus.add_document("road_notice", &["The road was closed for repairs."]);
+        let question = "What happened to the bridge and road?";
+        let budgeted = read_budgeted(&corpus, question, ReaderBounds::default());
+        let ranked = read_ranked(&corpus, question, ReaderBounds::default());
+        assert_eq!(
+            budgeted.answer(),
+            ranked.answer(),
+            "a loose budget ⇒ ranking only reorders, same claims as budgeted"
+        );
+        assert!(ranked.finalized());
     }
 }
