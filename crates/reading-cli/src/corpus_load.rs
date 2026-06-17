@@ -89,7 +89,9 @@ fn push_section(sections: &mut Vec<(String, Vec<String>)>, heading: &str, body: 
 /// If `line` is a Markdown ATX heading (1–6 leading `#`, then whitespace, then
 /// non-empty text), return its trimmed heading text; otherwise `None`. Strict and
 /// deterministic: `#nospace`, `#######` (7+), and a bare `#` are NOT headings.
-fn parse_atx_heading(line: &str) -> Option<String> {
+/// `pub(crate)` so the run-file integrity check can reject a stored span that is an
+/// ATX heading (a heading must never be re-derived as a span — READ-12).
+pub(crate) fn parse_atx_heading(line: &str) -> Option<String> {
     let hashes = line.bytes().take_while(|&b| b == b'#').count();
     if hashes == 0 || hashes > 6 {
         return None;
@@ -113,6 +115,31 @@ pub fn corpus_from_spans(documents: &[(String, Vec<String>)]) -> Corpus {
     for (title, spans) in documents {
         let refs: Vec<&str> = spans.iter().map(String::as_str).collect();
         corpus.add_document(title, &refs);
+    }
+    corpus
+}
+
+/// A document as `(title, sections)`, where each section is `(heading, spans)` —
+/// the heading-labelled, already-split form used to rebuild a sectioned corpus.
+pub type SectionedDocument = (String, Vec<(String, Vec<String>)>);
+
+/// Rebuild a corpus from already-split SECTIONS — each `(heading, spans)` pair —
+/// used on replay/verify so the reconstructed corpus has the SAME sections (and
+/// the same span ids) as the one `run` built (READ-12). Pure.
+pub fn corpus_from_sections(documents: &[SectionedDocument]) -> Corpus {
+    let mut corpus = Corpus::new();
+    for (title, sections) in documents {
+        // Own the per-section `&str` span slices so they outlive the call.
+        let section_spans: Vec<Vec<&str>> = sections
+            .iter()
+            .map(|(_, spans)| spans.iter().map(String::as_str).collect())
+            .collect();
+        let section_refs: Vec<(&str, &[&str])> = sections
+            .iter()
+            .zip(&section_spans)
+            .map(|((heading, _), spans)| (heading.as_str(), spans.as_slice()))
+            .collect();
+        corpus.add_document_with_sections(title, &section_refs);
     }
     corpus
 }

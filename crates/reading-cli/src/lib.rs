@@ -13,18 +13,37 @@
 
 mod corpus_load;
 
-pub use corpus_load::{corpus_from_documents, corpus_from_spans, load_documents};
+pub use corpus_load::{
+    corpus_from_documents, corpus_from_sections, corpus_from_spans, load_documents,
+    SectionedDocument,
+};
 
 use reading_codec::{decode, CodecPolicy};
 use reading_substrate::{split_sentences, verify};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-/// One document in the run file: its title and its sentence spans (in order).
+/// One heading-labelled section of a run-file document (READ-12): its heading
+/// (METADATA — never a span) and the NUMBER of consecutive body spans it owns. The
+/// sections partition the document's flat `spans`, so the section structure is
+/// persisted without duplicating span text and without granting a heading a span.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SectionDto {
+    pub heading: String,
+    pub span_count: usize,
+}
+
+/// One document in the run file: its title, its sentence spans (in order), and its
+/// heading-labelled sections (a partition of `spans`). `spans` stays the canonical
+/// span-id source (so the existing grounding/hash/tamper checks are unchanged);
+/// `sections` is additive metadata persisted so section-aware autonomy can operate
+/// over a real read0 output without rebuilding a different structure.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DocumentDto {
     pub title: String,
     pub spans: Vec<String>,
+    #[serde(default)]
+    pub sections: Vec<SectionDto>,
 }
 
 /// The verifier receipt: the three READ-0/1/2 checks and their conjunction.
@@ -50,7 +69,7 @@ pub struct RunFile {
     pub receipt: Receipt,
 }
 
-const SCHEMA: &str = "read0-run-v1";
+const SCHEMA: &str = "read0-run-v2";
 
 /// What can go wrong at the CLI boundary. Every failure is explicit.
 #[derive(Debug)]
@@ -111,9 +130,9 @@ pub fn produce_run(
         return Err(CliError::VerifyFailed(report.problems));
     }
     // Store the spans the corpus actually built — the body sentences in span-id
-    // order, with ATX heading lines excluded (READ-11). For headingless content
-    // this equals split_sentences(content); for headed content the headings are
-    // never stored as spans, so a heading can never be re-derived as evidence.
+    // order, with ATX heading lines excluded (READ-11) — AND the heading-labelled
+    // sections that partition them (READ-12). The headings are metadata only (a
+    // span count, never a span), so a heading can never be re-derived as evidence.
     let documents = corpus
         .metadata()
         .iter()
@@ -128,6 +147,14 @@ pub fn produce_run(
                         .expect("metadata span ids exist in the corpus")
                         .text()
                         .to_string()
+                })
+                .collect(),
+            sections: doc
+                .sections
+                .iter()
+                .map(|s| SectionDto {
+                    heading: s.heading.clone(),
+                    span_count: s.span_ids.len(),
                 })
                 .collect(),
         })
@@ -186,15 +213,25 @@ pub fn replay_file(file: &RunFile) -> Result<(), CliError> {
     Ok(())
 }
 
-/// Rebuild the corpus from the stored spans and re-run the stored plan through
-/// the codec. Shared by verify/replay so both use the codec-only path.
-fn rederive(
-    file: &RunFile,
-) -> Result<(reading_substrate::Corpus, reading_substrate::ReadingRun), CliError> {
-    // Integrity: a run read0 produced has exactly ONE sentence per span. Reject a
-    // run file whose stored spans are not single sentences (e.g. a hand-edited
-    // multi-sentence span that the run path could never produce, which would let
-    // a claim ground against an inner sentence on the verify/replay path).
+/// Rebuild the SECTIONED corpus a run file describes, rejecting tamper, so a
+/// consumer (verify/replay, or section-aware autonomy over a real read0 output)
+/// gets the SAME sections and span ids `run` built. Integrity checks (READ-12):
+///
+/// 1. Each stored span is exactly ONE sentence — a multi-sentence span is a corpus
+///    the run path could never produce (it would let a claim ground against an
+///    inner sentence). (Pre-existing READ-3 check, unchanged.)
+/// 2. No stored span is an ATX heading — a heading must never be re-derived as a
+///    span, or it could be cited and grounded (HEADING-AS-SPAN tamper).
+/// 3. Each document's section span counts partition its body spans exactly
+///    (`sum == spans.len()`) — otherwise the receipt's sections do not match its
+///    body (SECTION/BODY-MISMATCH tamper). A document with no stored sections (an
+///    old/headingless receipt) is treated as one default empty-heading section.
+///
+/// Sections are metadata: they affect reading ORDER only, never grounding, so the
+/// re-derived memory/answer hashes are unaffected and the existing tamper checks
+/// keep their full strength.
+pub fn rebuild_corpus(file: &RunFile) -> Result<reading_substrate::Corpus, CliError> {
+    let mut docs_sectioned: Vec<SectionedDocument> = Vec::new();
     for document in &file.documents {
         for span in &document.spans {
             if split_sentences(span).len() != 1 {
@@ -202,14 +239,57 @@ fn rederive(
                     "stored span is not a single sentence: {span:?}"
                 )));
             }
+            if corpus_load::parse_atx_heading(span).is_some() {
+                return Err(CliError::Tamper(format!(
+                    "stored span is an ATX heading (a heading must never be a span): {span:?}"
+                )));
+            }
         }
+        let sections = if document.sections.is_empty() {
+            // No persisted sections (headingless / pre-section receipt): one default
+            // empty-heading section over every span — the flat rebuild.
+            vec![(String::new(), document.spans.clone())]
+        } else {
+            // Partition the body spans by the section counts using CHECKED, bounded
+            // arithmetic: a count that overflows or overruns the body is tamper (so a
+            // crafted receipt returns Tamper, never panics), and after all sections
+            // the cover must be exact (no under-coverage). This is overflow-safe where
+            // a plain `sum() == len` check could be wrapped past by a usize::MAX count.
+            let mut idx = 0usize;
+            let mut secs = Vec::with_capacity(document.sections.len());
+            for s in &document.sections {
+                let end = idx
+                    .checked_add(s.span_count)
+                    .filter(|&e| e <= document.spans.len())
+                    .ok_or_else(|| {
+                        CliError::Tamper(format!(
+                            "section span count {} overruns the {} body spans",
+                            s.span_count,
+                            document.spans.len()
+                        ))
+                    })?;
+                secs.push((s.heading.clone(), document.spans[idx..end].to_vec()));
+                idx = end;
+            }
+            if idx != document.spans.len() {
+                return Err(CliError::Tamper(format!(
+                    "section span counts cover only {idx} of {} body spans",
+                    document.spans.len()
+                )));
+            }
+            secs
+        };
+        docs_sectioned.push((document.title.clone(), sections));
     }
-    let docs: Vec<(String, Vec<String>)> = file
-        .documents
-        .iter()
-        .map(|d| (d.title.clone(), d.spans.clone()))
-        .collect();
-    let corpus = corpus_from_spans(&docs);
+    Ok(corpus_from_sections(&docs_sectioned))
+}
+
+/// Rebuild the corpus from the stored receipt and re-run the stored plan through
+/// the codec. Shared by verify/replay so both use the codec-only path.
+fn rederive(
+    file: &RunFile,
+) -> Result<(reading_substrate::Corpus, reading_substrate::ReadingRun), CliError> {
+    let corpus = rebuild_corpus(file)?;
     let decoded = decode(&corpus, &file.question, &file.plan, CodecPolicy::strict())
         .map_err(|e| CliError::Rejected(format!("{e:?}")))?;
     let run = decoded.finalized.ok_or(CliError::NotFinalized)?;
@@ -431,5 +511,117 @@ mod tests {
         ]"#;
         let err = produce_run(&docs, "Is Bridge A safe?", plan).unwrap_err();
         assert!(matches!(err, CliError::Rejected(_)));
+    }
+
+    // --- READ-12: persisted section metadata in run receipts ---
+
+    // A valid headed-document run, finalizing the body sentence under "Wind Forecast".
+    fn headed_run() -> RunFile {
+        let plan = r#"[
+            {"action":"inspect_corpus"},
+            {"action":"read_span","span_id":1},
+            {"action":"extract_claim","statement":"Winds will reach forty miles per hour.","source_span_ids":[1]},
+            {"action":"synthesize","answer_text":"Winds will reach forty miles per hour.","supporting_claims":[0]}
+        ]"#;
+        produce_run(&headed_docs(), "What is the wind forecast?", plan).expect("valid headed run")
+    }
+
+    #[test]
+    fn run_receipt_includes_section_metadata() {
+        // The run file is schema v2 and carries the heading-labelled sections that
+        // partition the body spans (a span COUNT per heading — never a span).
+        let file = headed_run();
+        assert_eq!(file.schema, "read0-run-v2");
+        let doc = &file.documents[0];
+        let headings: Vec<&str> = doc.sections.iter().map(|s| s.heading.as_str()).collect();
+        assert_eq!(headings, vec!["Overview", "Wind Forecast"]);
+        let total: usize = doc.sections.iter().map(|s| s.span_count).sum();
+        assert_eq!(total, doc.spans.len(), "sections partition the body spans");
+    }
+
+    #[test]
+    fn rebuild_corpus_reconstructs_the_run_sections() {
+        // verify/replay rebuild the SAME sections (and span ids) the run built — the
+        // heading is metadata, the span texts are the body sentences.
+        let file = headed_run();
+        let corpus = rebuild_corpus(&file).expect("a valid receipt rebuilds");
+        let doc = &corpus.metadata()[0];
+        let headings: Vec<&str> = doc.sections.iter().map(|s| s.heading.as_str()).collect();
+        assert_eq!(headings, vec!["Overview", "Wind Forecast"]);
+        let text_of = |sid: &reading_substrate::SpanId| corpus.read_span(*sid).unwrap().text();
+        assert_eq!(
+            doc.sections[1]
+                .span_ids
+                .iter()
+                .map(text_of)
+                .collect::<Vec<_>>(),
+            vec!["Winds will reach forty miles per hour."]
+        );
+    }
+
+    #[test]
+    fn heading_as_span_tamper_is_rejected() {
+        // A hand-edited receipt that injects an ATX heading as a body span is
+        // rejected before any grounding — a heading can never be re-derived as a
+        // span (so it can never be cited or grounded).
+        let mut file = headed_run();
+        file.documents[0].spans[0] = "# Injected Heading".to_string();
+        assert!(matches!(verify_file(&file), Err(CliError::Tamper(_))));
+        assert!(matches!(replay_file(&file), Err(CliError::Tamper(_))));
+    }
+
+    #[test]
+    fn section_body_mismatch_tamper_is_rejected() {
+        // A receipt whose section span counts no longer partition the body spans is
+        // rejected — the sections must match the body they describe.
+        let mut file = headed_run();
+        file.documents[0].sections[0].span_count = 5; // sum 5+1 != 2 body spans
+        assert!(matches!(verify_file(&file), Err(CliError::Tamper(_))));
+        assert!(matches!(replay_file(&file), Err(CliError::Tamper(_))));
+    }
+
+    #[test]
+    fn headingless_document_round_trips_under_v2() {
+        // A headingless document still runs/verifies/replays under the v2 receipt:
+        // its sole section is the default empty-heading section over all spans.
+        let file = produce_run(&docs(), QUESTION, VALID_PLAN).expect("headingless run finalizes");
+        assert_eq!(file.schema, "read0-run-v2");
+        assert_eq!(file.documents[0].sections.len(), 1);
+        assert_eq!(file.documents[0].sections[0].heading, "");
+        assert_eq!(
+            file.documents[0].sections[0].span_count,
+            file.documents[0].spans.len()
+        );
+        assert!(verify_file(&file).unwrap().passed);
+        replay_file(&file).expect("headingless receipt replays");
+    }
+
+    #[test]
+    fn section_count_overflow_tamper_is_rejected_without_panic() {
+        // A crafted receipt whose section counts OVERFLOW (so a naive `sum == len`
+        // check could wrap past) must return a graceful Tamper, never panic on the
+        // out-of-bounds partition slice.
+        let mut file = headed_run();
+        file.documents[0].sections = vec![
+            SectionDto {
+                heading: "H1".to_string(),
+                span_count: usize::MAX,
+            },
+            SectionDto {
+                heading: "H2".to_string(),
+                span_count: 6,
+            },
+        ];
+        assert!(matches!(verify_file(&file), Err(CliError::Tamper(_))));
+        assert!(matches!(replay_file(&file), Err(CliError::Tamper(_))));
+    }
+
+    #[test]
+    fn span_text_tamper_still_caught_under_v2() {
+        // The pre-existing tamper check keeps its full strength: editing a body span
+        // so it no longer supports the answer fails verify (no weakening from v2).
+        let mut file = headed_run();
+        file.documents[0].spans[1] = "Winds will be calm and gentle tonight.".to_string();
+        assert!(verify_file(&file).is_err());
     }
 }

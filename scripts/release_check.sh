@@ -538,8 +538,57 @@ READ11_PLAN
 ./target/debug/read0 run "$_read11_dir/docs" "What is the wind forecast?" "$_read11_dir/plan.json" "$_read11_dir/out.json" >/dev/null 2>&1
 ./target/debug/read0 verify "$_read11_dir/out.json" >/dev/null 2>&1
 ./target/debug/read0 replay "$_read11_dir/out.json" >/dev/null 2>&1
-if grep -q 'Wind Forecast' "$_read11_dir/out.json"; then rm -rf "$_read11_dir"; exit 1; fi
+# A heading is metadata: READ-12 persists it as a section heading ("Wind Forecast", no '#'), but the
+# ATX heading LINE ("# Wind Forecast") must never appear as a stored span. So an "# Wind Forecast" token
+# (with the hash) anywhere in the run file means a heading leaked into a span.
+if grep -q '# Wind Forecast' "$_read11_dir/out.json"; then rm -rf "$_read11_dir"; exit 1; fi
 rm -rf "$_read11_dir"
+# ---------------------------------------------------------------------------------------------------
+# READ-12 — persist section metadata in run receipts. The run file now carries each document's
+# heading-labelled SECTIONS (DocumentDto.sections: a heading + a span COUNT — never a span), so
+# section-aware autonomy can operate over a real read0 output without rebuilding a different structure.
+# `spans` stays the canonical span-id source, so grounding/hash/tamper checks keep full strength. The
+# shared `rebuild_corpus` (verify/replay + section consumers) rejects HEADING-AS-SPAN tamper (no stored
+# span is an ATX heading) and SECTION/BODY-MISMATCH tamper (section counts must partition the body), and
+# reconstructs the SAME sections the run built. Headings rank reads, never ground claims. The reading-cli
+# suite (run_receipt_includes_section_metadata, rebuild_corpus_reconstructs_the_run_sections,
+# heading_as_span_tamper_is_rejected, section_body_mismatch_tamper_is_rejected, headingless_document_round_trips_under_v2,
+# span_text_tamper_still_caught_under_v2) and the reading-section-eval test (section_ranked_read0_uses_persisted_metadata)
+# above are the load-bearing checks. Schema/receipt hardening only — no model, no training.
+# ---------------------------------------------------------------------------------------------------
+# The receipt schema is v2 and carries the section structure + the tamper-checking rebuild (signals).
+grep -q '"read0-run-v2"' crates/reading-cli/src/lib.rs
+grep -q 'struct SectionDto' crates/reading-cli/src/lib.rs
+grep -q 'pub fn rebuild_corpus' crates/reading-cli/src/lib.rs
+grep -q 'fn corpus_from_sections' crates/reading-cli/src/corpus_load.rs
+# rebuild_corpus enforces the heading-as-span check (a stored span that is an ATX heading is tamper).
+grep -q 'parse_atx_heading' crates/reading-cli/src/lib.rs
+# End-to-end receipt-tamper binary smoke: a headed document's receipt carries section metadata and
+# verifies; injecting an ATX heading as a body span OR corrupting the section partition MUST be rejected.
+_read12_dir="$(mktemp -d)"
+mkdir -p "$_read12_dir/docs"
+printf '# Overview\nThe bridge is open.\n## Wind Forecast\nWinds will reach forty miles per hour.' > "$_read12_dir/docs/forecast.txt"
+cat > "$_read12_dir/plan.json" <<'READ12_PLAN'
+[{"action":"inspect_corpus"},{"action":"read_span","span_id":1},{"action":"extract_claim","statement":"Winds will reach forty miles per hour.","source_span_ids":[1]},{"action":"synthesize","answer_text":"Winds will reach forty miles per hour.","supporting_claims":[0]}]
+READ12_PLAN
+./target/debug/read0 run "$_read12_dir/docs" "What is the wind forecast?" "$_read12_dir/plan.json" "$_read12_dir/out.json" >/dev/null 2>&1
+./target/debug/read0 verify "$_read12_dir/out.json" >/dev/null 2>&1
+# the receipt persists the section heading (metadata) and a span count partition.
+grep -q '"heading": "Wind Forecast"' "$_read12_dir/out.json"
+grep -q '"span_count"' "$_read12_dir/out.json"
+# TAMPER 1 — inject an ATX heading as the (uncited) first body span: verify MUST reject (heading-as-span).
+sed 's/"The bridge is open."/"# Injected Heading"/' "$_read12_dir/out.json" > "$_read12_dir/tamper_heading.json"
+if ./target/debug/read0 verify "$_read12_dir/tamper_heading.json" >/dev/null 2>&1; then rm -rf "$_read12_dir"; exit 1; fi
+# TAMPER 2 — corrupt the section span counts so they no longer partition the body: verify MUST reject.
+sed 's/"span_count": [0-9]*/"span_count": 9/' "$_read12_dir/out.json" > "$_read12_dir/tamper_count.json"
+if ./target/debug/read0 verify "$_read12_dir/tamper_count.json" >/dev/null 2>&1; then rm -rf "$_read12_dir"; exit 1; fi
+# TAMPER 3 — a usize::MAX section count (overflow attempt): verify MUST reject GRACEFULLY (no panic on a
+# crafted receipt). Caught a panel finding: a plain sum could be wrapped past; the checked partition
+# returns Tamper instead of an out-of-bounds panic.
+sed 's/"span_count": [0-9]*/"span_count": 18446744073709551615/' "$_read12_dir/out.json" > "$_read12_dir/tamper_overflow.json"
+if ./target/debug/read0 verify "$_read12_dir/tamper_overflow.json" >/dev/null 2>"$_read12_dir/of.err"; then rm -rf "$_read12_dir"; exit 1; fi
+if grep -qi panic "$_read12_dir/of.err"; then rm -rf "$_read12_dir"; exit 1; fi
+rm -rf "$_read12_dir"
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json

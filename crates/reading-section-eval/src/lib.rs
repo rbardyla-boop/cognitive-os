@@ -198,4 +198,50 @@ mod tests {
             "the parsed heading lets section ranking reach the relevant section first"
         );
     }
+
+    #[test]
+    fn section_ranked_read0_uses_persisted_metadata() {
+        // READ-12: produce a read0 receipt for a headed document, then rebuild the
+        // corpus FROM THE RECEIPT (not the original file). The persisted section
+        // metadata is sufficient to drive section-aware autonomy: the budgeted
+        // reader misses the relevant second section under a 1-span budget while the
+        // section-ranked reader uses the persisted "Wind Forecast" heading to answer.
+        use reading_autonomy::{read_budgeted, read_section_ranked};
+        use reading_cli::{produce_run, rebuild_corpus};
+        let content = "# Daily Notes\nThe office opened at nine.\n## Wind Forecast\nWinds will reach forty miles per hour.".to_string();
+        let plan = r#"[
+            {"action":"inspect_corpus"},
+            {"action":"read_span","span_id":1},
+            {"action":"extract_claim","statement":"Winds will reach forty miles per hour.","source_span_ids":[1]},
+            {"action":"synthesize","answer_text":"Winds will reach forty miles per hour.","supporting_claims":[0]}
+        ]"#;
+        let file = produce_run(
+            &[("bulletin.txt".to_string(), content)],
+            "What is the wind forecast?",
+            plan,
+        )
+        .expect("the headed run finalizes");
+        // Rebuild the sectioned corpus from the PERSISTED receipt — no original content.
+        let corpus = rebuild_corpus(&file).expect("the receipt rebuilds");
+        let headings: Vec<&str> = corpus.metadata()[0]
+            .sections
+            .iter()
+            .map(|s| s.heading.as_str())
+            .collect();
+        assert_eq!(headings, vec!["Daily Notes", "Wind Forecast"]);
+        let tight = ReaderBounds {
+            max_spans: 1,
+            ..Default::default()
+        };
+        let question = "What is the wind forecast?";
+        assert!(
+            !read_budgeted(&corpus, question, tight).finalized(),
+            "metadata order misses the persisted second section"
+        );
+        assert_eq!(
+            read_section_ranked(&corpus, question, tight).answer(),
+            Some("Winds will reach forty miles per hour."),
+            "section-aware autonomy operates over the persisted read0 receipt"
+        );
+    }
 }
