@@ -3,6 +3,33 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-18-B — Add the probe queue / human-review boundary (P16 / HYP-1) in-crate
+
+**Decision.** Add `crates/hypothesis-layer/src/probe.rs` — a `ProbeRequest` queue derived from a
+`HypothesisPacket`'s recommended probe, with an explicit machine-checkable review status
+(`queued` / `human_review_required` / `blocked`) — WITHOUT executing the probe or mutating anything.
+Doctrine: *Hypothesis proposes a probe. HYP-1 queues or blocks it. Human/governance decides execution.
+Nothing executes automatically.* Kept INSIDE the existing crate (a new module, no new dependency), so the
+serde-only quarantine is unchanged; the queue needed no separate crate for dependency hygiene.
+
+**Why.** HYP-0 can propose a probe; the next risk is what happens to it afterwards. HYP-1 makes probe
+handling explicit, replayable, bounded, and incapable of side effects. The status is DERIVED from the
+packet's canonical `ProbeClearance` (HYP-1 respects the HYP-0 decision, never recomputing one), so a
+high-risk or irreversible probe is escalated to review or blocked and only a `queued` probe is
+execution-eligible. The queue is content-ordered (insertion-order independent) so replay reproduces it.
+
+**Boundary (enforced by the compiler, types, and the gate).** A `ProbeRequest`/`ProbeQueue` is minted only
+by `from_hypothesis(es)`, has private fields, and derives `Serialize` but not `Deserialize` (compile_fail
+proofs, pinned live via cargo's own doctest report) — so a forged status cannot be hand-set or deserialized
+off the wire. `is_execution_eligible` is an exhaustive no-wildcard match (E0004 on a new status variant). A
+crate-wide gate scan forbids any process spawn / filesystem / network / side-effecting I/O in the crate, so
+the layer provably executes nothing. No LLM, no training, no probe execution; P12 still owns weights,
+P13–P15 stay closed. Verified by four read-only adversarial panel rounds (five substantive lenses clean for
+four rounds; the gate-vacuity lens drove three first-hand-reproduced folds — no-execution scan added, made
+crate-wide, then a cargo doctest-reality pin; round four fully dry) plus three live sabotage probes.
+`release_check` green + silent. Recorded in full in [a.md](../a.md) under "Probe Queue / Human Review
+Boundary (P16 / HYP-1)". Additive: HYP-0 and all prior crates/docs 0-diff. Local only — no remote push.
+
 ## DD-2026-06-18-A — Open the hypothesis-only abductive layer (P16 / HYP-0) as a post-freeze track
 
 **Decision.** Add `crates/hypothesis-layer` — an abductive layer ABOVE the frozen reading substrate

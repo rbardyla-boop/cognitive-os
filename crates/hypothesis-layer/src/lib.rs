@@ -34,6 +34,10 @@
 
 use serde::{Deserialize, Serialize};
 
+/// HYP-1: the probe queue / human-review boundary, built on the HYP-0 packet.
+mod probe;
+pub use probe::{ProbeQueue, ProbeReason, ProbeRequest, ProbeStatus};
+
 /// Probability-like fields are fixed-point per-mille in `0..=SCALE` (no floats, so
 /// scoring is deterministic and replayable across platforms — matching the engine's
 /// integer discipline).

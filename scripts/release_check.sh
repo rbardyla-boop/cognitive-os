@@ -821,6 +821,92 @@ grep -q '"authority": "hypothesis_only"' "$_hyp_dir/run1.json"
 grep -q '"ground_claim"' "$_hyp_dir/run1.json"
 grep -q '"clearance"' "$_hyp_dir/run1.json"
 rm -rf "$_hyp_dir"
+# ---------------------------------------------------------------------------------------------------
+# HYP-1 / Probe Queue / Human Review Boundary (crates/hypothesis-layer/src/probe.rs). Turns a
+# HypothesisPacket's recommended probe into an inert, deterministic ProbeRequest queue item with a
+# MACHINE-CHECKABLE review status (queued | human_review_required | blocked) — WITHOUT executing the
+# probe or mutating anything. A request is minted ONLY by ProbeRequest::from_hypothesis (private fields,
+# no Deserialize — compiler-enforced), so its risk/reversibility-derived status cannot be hand-set or
+# forged off the wire; a high-risk/irreversible probe is human_review_required and a high-risk AND
+# irreversible one is blocked and never execution-eligible; the queue is content-ordered (insertion-order
+# independent) so replay reproduces it. Same quarantine as HYP-0 (serde-only production deps, asserted
+# above for the whole crate), so a probe queue changes neither the verifier receipt nor the P12 verdict.
+# Doctrine: Hypothesis proposes a probe. HYP-1 queues or blocks it. Human/governance decides execution.
+# (test/fmt/clippy for the whole crate, and the quarantine cargo-tree + no-ML scans, run in the HYP-0
+# block above and already cover probe.rs.)
+# ---------------------------------------------------------------------------------------------------
+# Probe-queue structure present (signals).
+grep -q 'enum ProbeStatus' crates/hypothesis-layer/src/probe.rs
+grep -q 'enum ProbeReason' crates/hypothesis-layer/src/probe.rs
+grep -q 'struct ProbeRequest' crates/hypothesis-layer/src/probe.rs
+grep -q 'struct ProbeQueue' crates/hypothesis-layer/src/probe.rs
+grep -q 'pub fn from_hypothesis' crates/hypothesis-layer/src/probe.rs
+grep -q 'pub fn from_hypotheses' crates/hypothesis-layer/src/probe.rs
+grep -q 'fn is_execution_eligible' crates/hypothesis-layer/src/probe.rs
+grep -q 'human_review_required' crates/hypothesis-layer/src/probe.rs
+# ENCAPSULATION (compiler-enforced, the HYP-0 discipline): a ProbeRequest / ProbeQueue is minted ONLY by
+# from_hypothesis(es), is read-only (private fields), and is NOT deserializable — so a forged request
+# with a hand-set status cannot enter off the wire. Non-deserializability is proven by `compile_fail`
+# doctests (the compiler enforces it against derive AND manual impl; `cargo test` runs them); we assert
+# the proofs EXIST so they cannot be silently deleted, plus private-fields and whole-file manual-impl scans.
+grep -q 'let _: hypothesis_layer::ProbeRequest = serde_json::from_str' crates/hypothesis-layer/src/probe.rs
+grep -q 'let _: hypothesis_layer::ProbeQueue = serde_json::from_str' crates/hypothesis-layer/src/probe.rs
+test "$(grep -c 'compile_fail' crates/hypothesis-layer/src/probe.rs)" -ge 2
+# ...but a text grep cannot tell a LIVE `///` doctest from one converted to a `//` comment (which keeps the
+# grep-visible tokens yet drops out of the doctest suite, letting the type be made Deserialize undetected).
+# So we ALSO pin the doctest REALITY from cargo itself — it reports every live doctest and labels the
+# compile_fail ones — so commenting out or deleting any compile_fail proof lowers these counts and fails
+# here. Crate-wide: exactly 8 live doctests, 4 `compile fail`, one per inert type (HypothesisPacket,
+# RecommendedProbe, ProbeRequest, ProbeQueue). (Residual: a decoy compile_fail deliberately planted on the
+# same type while the real one is commented out is review-evident insider forgery, beyond regression scope.)
+_doc_out="$(cargo test --offline --doc --manifest-path crates/hypothesis-layer/Cargo.toml 2>/dev/null)"
+test "$(printf '%s\n' "$_doc_out" | grep -oE 'running [0-9]+ tests' | grep -oE '[0-9]+')" -eq 8
+test "$(printf '%s\n' "$_doc_out" | grep -c 'compile fail')" -eq 4
+printf '%s\n' "$_doc_out" | grep -q 'HypothesisPacket (line.*compile fail'
+printf '%s\n' "$_doc_out" | grep -q 'RecommendedProbe (line.*compile fail'
+printf '%s\n' "$_doc_out" | grep -q 'ProbeRequest (line.*compile fail'
+printf '%s\n' "$_doc_out" | grep -q 'ProbeQueue (line.*compile fail'
+test "$(awk '/pub struct ProbeRequest \{/,/^\}/' crates/hypothesis-layer/src/probe.rs | grep -cE '^[[:space:]]+pub ')" -eq 0
+test "$(awk '/pub struct ProbeQueue \{/,/^\}/' crates/hypothesis-layer/src/probe.rs | grep -cE '^[[:space:]]+pub ')" -eq 0
+test "$(grep -cE 'impl([[:space:]]|<).*Deserialize.*for[[:space:]]+Probe(Request|Queue|Status|Reason)\b' crates/hypothesis-layer/src/probe.rs)" -eq 0
+# The blocked/review boundary is COMPILER-pinned, not prose: is_execution_eligible matches ProbeStatus
+# exhaustively with NO wildcard, so a new status variant cannot silently become executable (E0004). The
+# forged_status_cannot_be_constructed + high_risk_and_irreversible_probe_is_blocked tests (run by cargo
+# test above) prove a high-risk probe can never carry a Queued status and a blocked probe is never eligible.
+grep -q 'fn forged_status_cannot_be_constructed' crates/hypothesis-layer/src/probe.rs
+grep -q 'fn high_risk_and_irreversible_probe_is_blocked' crates/hypothesis-layer/src/probe.rs
+grep -q 'fn probe_queue_does_not_change_training_gate' crates/hypothesis-layer/src/probe.rs
+grep -q 'fn probe_queue_does_not_change_verifier_receipt' crates/hypothesis-layer/src/probe.rs
+# Deterministic integer classification + NO PROBE EXECUTION, enforced CRATE-WIDE — over EVERY module under
+# src/ (lib.rs, probe.rs, and any future file), not one named file, because the doctrine binds the whole
+# crate: the hypothesis-layer is a PROPOSER that may CREATE / SCORE / TRACE and NOTHING else; it NEVER
+# runs a probe. NO floats / wall-clock / entropy (non-determinism); and NO process spawn / filesystem /
+# network anywhere in src/ OR the examples — a live executor (even `Command::new("sh").arg(req.probe_text())
+# .spawn()`) leaves the deterministic output unchanged, so the double-run cannot catch it; these recursive
+# scans do. (`std::process::ExitCode` / `process::id` are read-only and intentionally not matched.)
+test "$(grep -rE '\bf32\b|\bf64\b' crates/hypothesis-layer/src | wc -l)" -eq 0
+test "$(grep -rE 'SystemTime|Instant|rand::|rand_|random|thread_rng' crates/hypothesis-layer/src | wc -l)" -eq 0
+test "$(grep -rE 'Command::new|process::Command|\.spawn\(|std::fs|File::create|File::open|fs::write|fs::read|OpenOptions|std::net|TcpStream|UdpSocket' crates/hypothesis-layer/src crates/hypothesis-layer/examples | wc -l)" -eq 0
+# The LIBRARY (src/) performs no side-effecting I/O and carries no `#[allow(...)]` that could hide dead or
+# execution code past clippy's `-D warnings` dead-code lint. (The example legitimately prints its report.)
+test "$(grep -rE 'println!|eprintln!|print!|eprint!|dbg!' crates/hypothesis-layer/src | wc -l)" -eq 0
+test "$(grep -rE '#\[allow\(' crates/hypothesis-layer/src | wc -l)" -eq 0
+# The end-to-end determinism smoke must EXERCISE the real API: the example CALLS from_hypotheses (not a
+# hardcoded queue), so the two-run diff + status greps below prove a genuine ProbeQueue output.
+grep -q 'from_hypotheses' crates/hypothesis-layer/examples/probe_queue_report.rs
+# End-to-end determinism smoke: the demo queue is a pure function of fixed inputs, so two runs are
+# byte-identical (replay reproduces the queue); the queue carries all three review statuses, and exactly
+# one probe (the low-risk reversible one) is execution-eligible — blocked + review-required are excluded.
+cargo build --offline --quiet --manifest-path crates/hypothesis-layer/Cargo.toml --example probe_queue_report >/dev/null 2>&1
+_pq_dir="$(mktemp -d)"
+./target/debug/examples/probe_queue_report > "$_pq_dir/run1.json" 2>/dev/null
+./target/debug/examples/probe_queue_report > "$_pq_dir/run2.json" 2>/dev/null
+if ! cmp -s "$_pq_dir/run1.json" "$_pq_dir/run2.json"; then rm -rf "$_pq_dir"; exit 1; fi
+grep -q '"status": "queued"' "$_pq_dir/run1.json"
+grep -q '"status": "human_review_required"' "$_pq_dir/run1.json"
+grep -q '"status": "blocked"' "$_pq_dir/run1.json"
+grep -q '"execution_eligible": 1' "$_pq_dir/run1.json"
+rm -rf "$_pq_dir"
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json
