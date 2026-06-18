@@ -589,6 +589,50 @@ sed 's/"span_count": [0-9]*/"span_count": 18446744073709551615/' "$_read12_dir/o
 if ./target/debug/read0 verify "$_read12_dir/tamper_overflow.json" >/dev/null 2>"$_read12_dir/of.err"; then rm -rf "$_read12_dir"; exit 1; fi
 if grep -qi panic "$_read12_dir/of.err"; then rm -rf "$_read12_dir"; exit 1; fi
 rm -rf "$_read12_dir"
+# ---------------------------------------------------------------------------------------------------
+# READ-13 — explicit receipt schema versioning / migration discipline. verify/replay now recognize the
+# schema tag (`read0-run-v1` / `read0-run-v2`) explicitly and require it to AGREE with the receipt's
+# content, so version handling is deterministic and the tag can never weaken tamper detection. An old v1
+# receipt (no section metadata) MIGRATES forward to one default empty-heading section over all spans (the
+# flat rebuild reproduces the same span ids + hashes, so it still verifies/replays). A v2 receipt MUST
+# carry its sections — stripping them is rejected (closing the READ-12 hole where empty sections silently
+# fell back to flat and still verified, so section metadata could DISAPPEAR unnoticed). A v1 tag wearing
+# v2 sections is ambiguous and rejected; an unknown schema version is refused cleanly without panic. The
+# schema tag governs STRUCTURE only, never evidence authority. The reading-cli suite
+# (v1_headingless_receipt_migrates_and_verifies, v1_receipt_carrying_sections_is_rejected,
+# v2_receipt_with_dropped_sections_is_rejected, unknown_schema_is_rejected) is the load-bearing check.
+# Schema/receipt hardening only — no model, no training.
+# ---------------------------------------------------------------------------------------------------
+# Version discipline is present: an explicit version enum, the v1 tag, the unsupported-schema refusal,
+# and the checked section partition (signals).
+grep -q 'enum SchemaVersion' crates/reading-cli/src/lib.rs
+grep -q 'UnsupportedSchema' crates/reading-cli/src/lib.rs
+grep -q 'read0-run-v1' crates/reading-cli/src/lib.rs
+grep -q 'fn partition_sections' crates/reading-cli/src/lib.rs
+# End-to-end schema-version binary smoke: a real v2 receipt verifies; its v1 migration verifies; and
+# every tag/content mismatch (dropped sections, v1-with-sections, unknown version) is rejected.
+_read13_dir="$(mktemp -d)"
+mkdir -p "$_read13_dir/docs"
+printf '# Overview\nThe bridge is open.\n## Wind Forecast\nWinds will reach forty miles per hour.' > "$_read13_dir/docs/forecast.txt"
+cat > "$_read13_dir/plan.json" <<'READ13_PLAN'
+[{"action":"inspect_corpus"},{"action":"read_span","span_id":1},{"action":"extract_claim","statement":"Winds will reach forty miles per hour.","source_span_ids":[1]},{"action":"synthesize","answer_text":"Winds will reach forty miles per hour.","supporting_claims":[0]}]
+READ13_PLAN
+./target/debug/read0 run "$_read13_dir/docs" "What is the wind forecast?" "$_read13_dir/plan.json" "$_read13_dir/out.json" >/dev/null 2>&1
+./target/debug/read0 verify "$_read13_dir/out.json" >/dev/null 2>&1
+# MIGRATE — a faithful old v1 receipt (tag read0-run-v1, NO section metadata) MUST verify (flat migration).
+python3 -c "import json; d=json.load(open('$_read13_dir/out.json')); d['schema']='read0-run-v1'; [doc.pop('sections',None) for doc in d['documents']]; json.dump(d,open('$_read13_dir/v1.json','w'))"
+./target/debug/read0 verify "$_read13_dir/v1.json" >/dev/null 2>&1
+# TAMPER A — a v2 receipt with its sections DROPPED MUST be rejected (sections cannot silently vanish).
+python3 -c "import json; d=json.load(open('$_read13_dir/out.json')); [doc.update(sections=[]) for doc in d['documents']]; json.dump(d,open('$_read13_dir/drop.json','w'))"
+if ./target/debug/read0 verify "$_read13_dir/drop.json" >/dev/null 2>&1; then rm -rf "$_read13_dir"; exit 1; fi
+# TAMPER B — a v1 tag still carrying v2 sections is ambiguous and MUST be rejected.
+python3 -c "import json; d=json.load(open('$_read13_dir/out.json')); d['schema']='read0-run-v1'; json.dump(d,open('$_read13_dir/v1sec.json','w'))"
+if ./target/debug/read0 verify "$_read13_dir/v1sec.json" >/dev/null 2>&1; then rm -rf "$_read13_dir"; exit 1; fi
+# TAMPER C — an unknown schema version MUST be rejected GRACEFULLY (no panic).
+python3 -c "import json; d=json.load(open('$_read13_dir/out.json')); d['schema']='read0-run-v9'; json.dump(d,open('$_read13_dir/unknown.json','w'))"
+if ./target/debug/read0 verify "$_read13_dir/unknown.json" >/dev/null 2>"$_read13_dir/u.err"; then rm -rf "$_read13_dir"; exit 1; fi
+if grep -qi panic "$_read13_dir/u.err"; then rm -rf "$_read13_dir"; exit 1; fi
+rm -rf "$_read13_dir"
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json

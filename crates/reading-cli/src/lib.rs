@@ -69,13 +69,45 @@ pub struct RunFile {
     pub receipt: Receipt,
 }
 
-const SCHEMA: &str = "read0-run-v2";
+/// The receipt schema versions `read0` understands (READ-13). Versions are
+/// explicit so verify/replay behaviour is deterministic and a receipt's tag must
+/// agree with its content: a v2 receipt MUST carry its section metadata, a v1
+/// receipt MUST NOT, and any other tag is refused outright. The tag never grants
+/// evidence authority — it only governs how the section STRUCTURE is rebuilt.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SchemaVersion {
+    /// `read0-run-v1` — the pre-section receipt: documents carry spans only, with
+    /// no section metadata. Migrated forward deterministically by treating each
+    /// document as one default (empty-heading) section over all its spans. The flat
+    /// rebuild reproduces the same span ids and hashes a v1 run produced, so old
+    /// receipts still verify/replay (sections affect reading ORDER only).
+    V1,
+    /// `read0-run-v2` — documents carry heading-labelled sections that partition
+    /// their spans (READ-12). Sections must be present (they cannot be dropped).
+    V2,
+}
+
+impl SchemaVersion {
+    const V1_TAG: &'static str = "read0-run-v1";
+    const V2_TAG: &'static str = "read0-run-v2";
+
+    /// Recognize a receipt's schema tag, or refuse an unknown version cleanly.
+    fn parse(tag: &str) -> Result<Self, CliError> {
+        match tag {
+            Self::V1_TAG => Ok(Self::V1),
+            Self::V2_TAG => Ok(Self::V2),
+            other => Err(CliError::UnsupportedSchema(other.to_string())),
+        }
+    }
+}
 
 /// What can go wrong at the CLI boundary. Every failure is explicit.
 #[derive(Debug)]
 pub enum CliError {
     Io(String),
     Json(String),
+    /// The receipt's schema tag is not a version `read0` understands (READ-13).
+    UnsupportedSchema(String),
     /// The codec rejected the untrusted plan (malformed / fabricated / etc.).
     Rejected(String),
     /// The plan produced no finalized answer (a partial plan, not an answer).
@@ -91,6 +123,7 @@ impl std::fmt::Display for CliError {
         match self {
             CliError::Io(m) => write!(f, "io error: {m}"),
             CliError::Json(m) => write!(f, "json error: {m}"),
+            CliError::UnsupportedSchema(s) => write!(f, "unsupported receipt schema: {s}"),
             CliError::Rejected(m) => write!(f, "plan rejected by codec: {m}"),
             CliError::NotFinalized => write!(f, "plan produced no finalized answer"),
             CliError::VerifyFailed(p) => write!(f, "verifier failed: {}", p.join("; ")),
@@ -160,7 +193,9 @@ pub fn produce_run(
         })
         .collect();
     Ok(RunFile {
-        schema: SCHEMA.to_string(),
+        // read0 always writes the current schema: every document carries its
+        // sections (v2). v1 is recognized for reading old receipts, never written.
+        schema: SchemaVersion::V2_TAG.to_string(),
         question: question.to_string(),
         documents,
         plan: plan.to_string(),
@@ -213,24 +248,32 @@ pub fn replay_file(file: &RunFile) -> Result<(), CliError> {
     Ok(())
 }
 
+/// One document's heading-labelled sections as `(heading, span_texts)` pairs.
+type DocumentSections = Vec<(String, Vec<String>)>;
+
 /// Rebuild the SECTIONED corpus a run file describes, rejecting tamper, so a
 /// consumer (verify/replay, or section-aware autonomy over a real read0 output)
-/// gets the SAME sections and span ids `run` built. Integrity checks (READ-12):
+/// gets the SAME sections and span ids `run` built. Integrity checks:
 ///
+/// 0. The receipt's schema tag is a version `read0` understands (READ-13) — an
+///    unknown tag is refused as `UnsupportedSchema` before any rebuild.
 /// 1. Each stored span is exactly ONE sentence — a multi-sentence span is a corpus
 ///    the run path could never produce (it would let a claim ground against an
 ///    inner sentence). (Pre-existing READ-3 check, unchanged.)
 /// 2. No stored span is an ATX heading — a heading must never be re-derived as a
 ///    span, or it could be cited and grounded (HEADING-AS-SPAN tamper).
-/// 3. Each document's section span counts partition its body spans exactly
-///    (`sum == spans.len()`) — otherwise the receipt's sections do not match its
-///    body (SECTION/BODY-MISMATCH tamper). A document with no stored sections (an
-///    old/headingless receipt) is treated as one default empty-heading section.
+/// 3. The section structure must AGREE with the schema tag (READ-13 version
+///    discipline): a v2 receipt MUST carry section metadata (it cannot silently
+///    vanish), a v1 receipt MUST NOT (a v1 tag wearing v2 sections is ambiguous).
+///    A v1 receipt migrates to one default empty-heading section over all spans; a
+///    v2 receipt's section span counts must partition its body spans exactly
+///    (SECTION/BODY-MISMATCH tamper).
 ///
 /// Sections are metadata: they affect reading ORDER only, never grounding, so the
 /// re-derived memory/answer hashes are unaffected and the existing tamper checks
-/// keep their full strength.
+/// keep their full strength. The schema tag governs structure, never evidence.
 pub fn rebuild_corpus(file: &RunFile) -> Result<reading_substrate::Corpus, CliError> {
+    let version = SchemaVersion::parse(&file.schema)?;
     let mut docs_sectioned: Vec<SectionedDocument> = Vec::new();
     for document in &file.documents {
         for span in &document.spans {
@@ -245,43 +288,66 @@ pub fn rebuild_corpus(file: &RunFile) -> Result<reading_substrate::Corpus, CliEr
                 )));
             }
         }
-        let sections = if document.sections.is_empty() {
-            // No persisted sections (headingless / pre-section receipt): one default
-            // empty-heading section over every span — the flat rebuild.
-            vec![(String::new(), document.spans.clone())]
-        } else {
-            // Partition the body spans by the section counts using CHECKED, bounded
-            // arithmetic: a count that overflows or overruns the body is tamper (so a
-            // crafted receipt returns Tamper, never panics), and after all sections
-            // the cover must be exact (no under-coverage). This is overflow-safe where
-            // a plain `sum() == len` check could be wrapped past by a usize::MAX count.
-            let mut idx = 0usize;
-            let mut secs = Vec::with_capacity(document.sections.len());
-            for s in &document.sections {
-                let end = idx
-                    .checked_add(s.span_count)
-                    .filter(|&e| e <= document.spans.len())
-                    .ok_or_else(|| {
-                        CliError::Tamper(format!(
-                            "section span count {} overruns the {} body spans",
-                            s.span_count,
-                            document.spans.len()
-                        ))
-                    })?;
-                secs.push((s.heading.clone(), document.spans[idx..end].to_vec()));
-                idx = end;
+        let sections = match version {
+            SchemaVersion::V1 => {
+                // A v1 receipt carries NO section metadata. Sections under a v1 tag
+                // are ambiguous (v1 or v2?) and rejected. Otherwise migrate forward
+                // deterministically: one default empty-heading section over all spans.
+                if !document.sections.is_empty() {
+                    return Err(CliError::Tamper(format!(
+                        "a {} receipt must not carry section metadata",
+                        SchemaVersion::V1_TAG
+                    )));
+                }
+                vec![(String::new(), document.spans.clone())]
             }
-            if idx != document.spans.len() {
-                return Err(CliError::Tamper(format!(
-                    "section span counts cover only {idx} of {} body spans",
-                    document.spans.len()
-                )));
+            SchemaVersion::V2 => {
+                // A v2 receipt MUST carry its sections; empty sections means the
+                // section metadata was dropped — it cannot silently disappear.
+                if document.sections.is_empty() {
+                    return Err(CliError::Tamper(format!(
+                        "a {} receipt must carry section metadata (sections were dropped)",
+                        SchemaVersion::V2_TAG
+                    )));
+                }
+                partition_sections(document)?
             }
-            secs
         };
         docs_sectioned.push((document.title.clone(), sections));
     }
     Ok(corpus_from_sections(&docs_sectioned))
+}
+
+/// Partition a v2 document's body spans by its section span counts, using CHECKED,
+/// bounded arithmetic: a count that overflows or overruns the body is tamper (so a
+/// crafted receipt returns Tamper, never panics on an out-of-bounds slice), and
+/// after all sections the cover must be EXACT (no under-coverage). This is
+/// overflow-safe where a plain `sum() == len` check could be wrapped past by a
+/// `usize::MAX` count.
+fn partition_sections(document: &DocumentDto) -> Result<DocumentSections, CliError> {
+    let mut idx = 0usize;
+    let mut secs = Vec::with_capacity(document.sections.len());
+    for s in &document.sections {
+        let end = idx
+            .checked_add(s.span_count)
+            .filter(|&e| e <= document.spans.len())
+            .ok_or_else(|| {
+                CliError::Tamper(format!(
+                    "section span count {} overruns the {} body spans",
+                    s.span_count,
+                    document.spans.len()
+                ))
+            })?;
+        secs.push((s.heading.clone(), document.spans[idx..end].to_vec()));
+        idx = end;
+    }
+    if idx != document.spans.len() {
+        return Err(CliError::Tamper(format!(
+            "section span counts cover only {idx} of {} body spans",
+            document.spans.len()
+        )));
+    }
+    Ok(secs)
 }
 
 /// Rebuild the corpus from the stored receipt and re-run the stored plan through
@@ -325,14 +391,11 @@ pub fn replay_run(out_path: &Path) -> Result<(), CliError> {
 }
 
 fn read_run_file(path: &Path) -> Result<RunFile, CliError> {
-    let file: RunFile = serde_json::from_str(&std::fs::read_to_string(path)?)?;
-    if file.schema != SCHEMA {
-        return Err(CliError::Json(format!(
-            "unexpected schema: {}",
-            file.schema
-        )));
-    }
-    Ok(file)
+    // The schema tag is validated in the pure path (`rebuild_corpus`, the single
+    // chokepoint shared by verify/replay and the section consumers), so an unknown
+    // version is refused as `UnsupportedSchema` and a tag/content mismatch as
+    // `Tamper` there — no duplicated, driftable check here.
+    Ok(serde_json::from_str(&std::fs::read_to_string(path)?)?)
 }
 
 #[cfg(test)]
@@ -623,5 +686,72 @@ mod tests {
         let mut file = headed_run();
         file.documents[0].spans[1] = "Winds will be calm and gentle tonight.".to_string();
         assert!(verify_file(&file).is_err());
+    }
+
+    // --- READ-13: explicit receipt schema versioning / migration discipline ---
+
+    #[test]
+    fn v1_headingless_receipt_migrates_and_verifies() {
+        // A faithful old `read0-run-v1` receipt: the schema tag is v1 and it carries
+        // NO section metadata (the pre-READ-12 shape). It migrates forward — each
+        // document becomes one default empty-heading section over all its spans —
+        // and still verifies and replays, because sections affect reading ORDER only
+        // (the flat rebuild reproduces the same span ids and hashes).
+        let mut file = headed_run();
+        file.schema = SchemaVersion::V1_TAG.to_string();
+        for doc in &mut file.documents {
+            doc.sections.clear();
+        }
+        assert!(
+            verify_file(&file).unwrap().passed,
+            "a v1 headingless receipt migrates and verifies"
+        );
+        replay_file(&file).expect("a v1 receipt migrates and replays");
+        // The migration rebuilds one default section over the body spans.
+        let corpus = rebuild_corpus(&file).expect("v1 migrates");
+        assert_eq!(corpus.metadata()[0].sections.len(), 1);
+        assert_eq!(corpus.metadata()[0].sections[0].heading, "");
+    }
+
+    #[test]
+    fn v1_receipt_carrying_sections_is_rejected() {
+        // Ambiguity attack: a receipt tagged v1 but still wearing v2 section
+        // metadata is neither cleanly v1 nor v2. It is rejected, so a v1 tag can
+        // never be used to smuggle (or relabel away the integrity of) sections.
+        let mut file = headed_run(); // v2, with sections
+        file.schema = SchemaVersion::V1_TAG.to_string();
+        assert!(matches!(verify_file(&file), Err(CliError::Tamper(_))));
+        assert!(matches!(replay_file(&file), Err(CliError::Tamper(_))));
+    }
+
+    #[test]
+    fn v2_receipt_with_dropped_sections_is_rejected() {
+        // The load-bearing READ-13 hardening: a v2 receipt whose section metadata has
+        // been stripped is rejected. Under READ-12 the empty-sections path silently
+        // fell back to a flat rebuild and still verified (sections affect only order,
+        // not hashes) — so sections could DISAPPEAR unnoticed. Now a v2 tag REQUIRES
+        // its sections, so the drop is caught.
+        let mut file = headed_run();
+        for doc in &mut file.documents {
+            doc.sections.clear(); // still tagged v2
+        }
+        assert!(matches!(verify_file(&file), Err(CliError::Tamper(_))));
+        assert!(matches!(replay_file(&file), Err(CliError::Tamper(_))));
+    }
+
+    #[test]
+    fn unknown_schema_is_rejected() {
+        // An unrecognized schema version is refused cleanly (never accepted by
+        // default), on both verify and replay.
+        let mut file = headed_run();
+        file.schema = "read0-run-v3".to_string();
+        assert!(matches!(
+            verify_file(&file),
+            Err(CliError::UnsupportedSchema(_))
+        ));
+        assert!(matches!(
+            replay_file(&file),
+            Err(CliError::UnsupportedSchema(_))
+        ));
     }
 }
