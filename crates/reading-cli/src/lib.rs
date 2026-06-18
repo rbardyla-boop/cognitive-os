@@ -124,6 +124,61 @@ impl SchemaVersion {
     }
 }
 
+/// The structural-integrity LEVEL a verified receipt provides (READ-15). It is
+/// DERIVED from the receipt's validated schema version — never persisted — so it
+/// cannot be forged: a receipt cannot claim a higher level than its tag earns. The
+/// level classifies how strongly the receipt's STRUCTURE is bound; it never affects
+/// grounding (evidence authority is identical at every level).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IntegrityLevel {
+    /// `read0-run-v3`: the structural metadata is bound by a structure hash (READ-14)
+    /// — the current, full-integrity receipt `read0` writes today.
+    Current,
+    /// `read0-run-v1`/`read0-run-v2`: a LEGACY receipt whose structural metadata is
+    /// NOT bound by a structure hash. Its evidence is still fully verified, but a
+    /// structural-metadata edit (a heading/title string, an uncited span, a section
+    /// boundary) is UNDETECTABLE. Accepted for backward compatibility, but explicitly
+    /// NOT equivalent to current integrity — so a v3→v2 downgrade cannot pass itself
+    /// off as full integrity.
+    LegacyUnboundStructure,
+}
+
+impl IntegrityLevel {
+    fn from_version(version: SchemaVersion) -> Self {
+        match version {
+            SchemaVersion::V3 => Self::Current,
+            SchemaVersion::V1 | SchemaVersion::V2 => Self::LegacyUnboundStructure,
+        }
+    }
+
+    /// A stable, MACHINE-CHECKABLE token (not prose) so a consumer can gate on the
+    /// integrity level deterministically. `legacy_unbound_structure` is the explicit
+    /// warning a legacy/downgraded receipt carries.
+    pub fn token(self) -> &'static str {
+        match self {
+            Self::Current => "structure_bound",
+            Self::LegacyUnboundStructure => "legacy_unbound_structure",
+        }
+    }
+
+    /// Whether this is the current, fully-bound integrity level. A legacy or
+    /// downgraded receipt returns `false`, so it is never treated as fully current.
+    pub fn is_current(self) -> bool {
+        matches!(self, Self::Current)
+    }
+}
+
+/// The outcome of verifying a receipt (READ-15): the verifier `Receipt` plus the
+/// structural-integrity LEVEL the receipt provides. Bundling them means verification
+/// can never report a passing receipt without also reporting how strongly its
+/// structure is bound — a legacy/downgraded receipt is flagged, never silently
+/// accepted as equivalent to current integrity.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VerifyOutcome {
+    pub receipt: Receipt,
+    pub integrity: IntegrityLevel,
+}
+
 /// What can go wrong at the CLI boundary. Every failure is explicit.
 #[derive(Debug)]
 pub enum CliError {
@@ -240,10 +295,12 @@ pub fn produce_run(
     })
 }
 
-/// Re-derive the run from its own plan and confirm it matches AND verifies.
-/// Catches a tampered answer/hash (mismatch) and a tampered plan/span
-/// (re-decode rejects or grounding fails). Pure.
-pub fn verify_file(file: &RunFile) -> Result<Receipt, CliError> {
+/// Re-derive the run from its own plan and confirm it matches AND verifies, and
+/// classify the receipt's structural-integrity level (READ-15). Catches a tampered
+/// answer/hash (mismatch) and a tampered plan/span (re-decode rejects or grounding
+/// fails). The integrity level is derived from the validated schema version, so a
+/// legacy/downgraded receipt is reported as such, never as current. Pure.
+pub fn verify_file(file: &RunFile) -> Result<VerifyOutcome, CliError> {
     let (corpus, run) = rederive(file)?;
     if run.memory_hash != file.memory_hash
         || run.answer_hash != file.answer_hash
@@ -257,11 +314,18 @@ pub fn verify_file(file: &RunFile) -> Result<Receipt, CliError> {
     if !report.passed {
         return Err(CliError::VerifyFailed(report.problems));
     }
-    Ok(Receipt {
-        grounded: report.grounded,
-        answer_supported: report.answer_supported,
-        replay_matches: report.replay_matches,
-        passed: report.passed,
+    // The schema was already validated inside rederive -> rebuild_corpus, so this
+    // re-parse cannot disagree; it derives the (unforgeable, never-persisted)
+    // integrity level from the validated version.
+    let integrity = IntegrityLevel::from_version(SchemaVersion::parse(&file.schema)?);
+    Ok(VerifyOutcome {
+        receipt: Receipt {
+            grounded: report.grounded,
+            answer_supported: report.answer_supported,
+            replay_matches: report.replay_matches,
+            passed: report.passed,
+        },
+        integrity,
     })
 }
 
@@ -505,8 +569,9 @@ pub fn run_reading(
     Ok(file)
 }
 
-/// `read0 verify`: load the run file and re-verify it.
-pub fn verify_run(out_path: &Path) -> Result<Receipt, CliError> {
+/// `read0 verify`: load the run file and re-verify it, returning the receipt and
+/// its structural-integrity level (READ-15).
+pub fn verify_run(out_path: &Path) -> Result<VerifyOutcome, CliError> {
     let file: RunFile = read_run_file(out_path)?;
     verify_file(&file)
 }
@@ -551,7 +616,7 @@ mod tests {
         let file = produce_run(&docs(), QUESTION, VALID_PLAN).expect("valid plan finalizes");
         assert_eq!(file.answer, "Bridge B stayed open.");
         assert!(file.receipt.passed);
-        assert!(verify_file(&file).unwrap().passed);
+        assert!(verify_file(&file).unwrap().receipt.passed);
         replay_file(&file).expect("replay reproduces the run");
     }
 
@@ -665,7 +730,7 @@ mod tests {
             assert_ne!(span, "Overview");
             assert_ne!(span, "Wind Forecast");
         }
-        assert!(verify_file(&file).unwrap().passed);
+        assert!(verify_file(&file).unwrap().receipt.passed);
         replay_file(&file).expect("a headed document replays");
     }
 
@@ -815,7 +880,7 @@ mod tests {
             file.documents[0].sections[0].span_count,
             file.documents[0].spans.len()
         );
-        assert!(verify_file(&file).unwrap().passed);
+        assert!(verify_file(&file).unwrap().receipt.passed);
         replay_file(&file).expect("headingless receipt replays");
     }
 
@@ -866,7 +931,7 @@ mod tests {
         // reading ORDER only (the flat rebuild reproduces the same span ids and hashes).
         let file = as_v1(headed_run());
         assert!(
-            verify_file(&file).unwrap().passed,
+            verify_file(&file).unwrap().receipt.passed,
             "a v1 headingless receipt migrates and verifies"
         );
         replay_file(&file).expect("a v1 receipt migrates and replays");
@@ -930,7 +995,7 @@ mod tests {
         let file = headed_run();
         assert_eq!(file.schema, "read0-run-v3");
         assert!(file.structure_hash.is_some());
-        assert!(verify_file(&file).unwrap().passed);
+        assert!(verify_file(&file).unwrap().receipt.passed);
         replay_file(&file).expect("a v3 receipt replays");
         assert!(
             !file.answer.contains("Wind Forecast"),
@@ -971,7 +1036,7 @@ mod tests {
         let mut v2 = as_v2(headed_run());
         v2.documents[0].spans[0] = "The bridge is closed.".to_string();
         assert!(
-            verify_file(&v2).unwrap().passed,
+            verify_file(&v2).unwrap().receipt.passed,
             "a legacy v2 receipt does not bind the uncited span (the gap v3 closes)"
         );
         let mut v3 = headed_run();
@@ -1040,6 +1105,92 @@ mod tests {
         assert_ne!(
             base,
             structural_hash(&span_edit.schema, &span_edit.documents)
+        );
+    }
+
+    // --- READ-15: receipt integrity LEVEL classification / downgrade policy ---
+
+    #[test]
+    fn v3_receipt_reports_current_integrity() {
+        // A v3 receipt verifies AND reports the current, fully-bound integrity level
+        // with the machine-checkable `structure_bound` token.
+        let outcome = verify_file(&headed_run()).expect("v3 verifies");
+        assert!(outcome.receipt.passed);
+        assert_eq!(outcome.integrity, IntegrityLevel::Current);
+        assert!(outcome.integrity.is_current());
+        assert_eq!(outcome.integrity.token(), "structure_bound");
+    }
+
+    #[test]
+    fn legacy_v2_and_v1_report_legacy_unbound_structure() {
+        // Legacy receipts still verify (their evidence is fully bound) but are
+        // classified LegacyUnboundStructure with the explicit, machine-checkable
+        // `legacy_unbound_structure` token — never the current level.
+        for legacy in [as_v2(headed_run()), as_v1(headed_run())] {
+            let outcome = verify_file(&legacy).expect("legacy receipt still verifies");
+            assert!(outcome.receipt.passed);
+            assert_eq!(outcome.integrity, IntegrityLevel::LegacyUnboundStructure);
+            assert!(!outcome.integrity.is_current());
+            assert_eq!(outcome.integrity.token(), "legacy_unbound_structure");
+        }
+    }
+
+    #[test]
+    fn v3_to_v2_downgrade_is_not_reported_as_current() {
+        // The headline READ-15 policy: a v3 receipt downgraded to v2 (relabel + strip
+        // the structure hash) still verifies, but is NOT reported as current
+        // integrity — so weaker integrity can never pass itself off as equivalent.
+        let v3 = verify_file(&headed_run()).expect("v3 verifies");
+        assert!(v3.integrity.is_current());
+        let downgraded = verify_file(&as_v2(headed_run())).expect("downgrade still verifies");
+        assert!(
+            !downgraded.integrity.is_current(),
+            "a v3→v2 downgrade must not report current integrity"
+        );
+        assert_eq!(downgraded.integrity.token(), "legacy_unbound_structure");
+    }
+
+    #[test]
+    fn integrity_level_does_not_change_evidence_authority() {
+        // Classifying the integrity level must not touch grounding: the v3 receipt and
+        // its v2 downgrade produce the IDENTICAL verifier Receipt (same grounded /
+        // answer_supported / replay_matches / passed) — only the integrity LEVEL
+        // differs. The level is about structural binding, never about evidence.
+        let v3 = verify_file(&headed_run()).expect("v3 verifies");
+        let v2 = verify_file(&as_v2(headed_run())).expect("v2 verifies");
+        assert_eq!(
+            v3.receipt, v2.receipt,
+            "evidence receipt is level-independent"
+        );
+        assert_ne!(
+            v3.integrity, v2.integrity,
+            "but the integrity level differs"
+        );
+    }
+
+    #[test]
+    fn integrity_level_is_derived_from_version_not_a_stored_claim() {
+        // The level follows the (validated) schema version, not a persisted field, so
+        // it cannot be forged: the SAME run reports Current as v3 and Legacy as v2.
+        let mut file = headed_run();
+        assert_eq!(
+            verify_file(&file).unwrap().integrity,
+            IntegrityLevel::Current
+        );
+        file = as_v2(file);
+        assert_eq!(
+            verify_file(&file).unwrap().integrity,
+            IntegrityLevel::LegacyUnboundStructure
+        );
+    }
+
+    #[test]
+    fn integrity_tokens_are_stable_and_machine_checkable() {
+        // Pin the machine-checkable tokens the gate and downstream consumers rely on.
+        assert_eq!(IntegrityLevel::Current.token(), "structure_bound");
+        assert_eq!(
+            IntegrityLevel::LegacyUnboundStructure.token(),
+            "legacy_unbound_structure"
         );
     }
 }

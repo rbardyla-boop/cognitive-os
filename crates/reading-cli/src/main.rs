@@ -35,11 +35,26 @@ fn dispatch(args: &[String]) -> Result<String, String> {
         }
         Some("verify") => {
             let out = arg(args, 2, "out.json")?;
-            let r = verify_run(Path::new(out)).map_err(|e| e.to_string())?;
-            Ok(format!(
-                "verify: passed={} grounded={} answer_supported={} replay_matches={}",
-                r.passed, r.grounded, r.answer_supported, r.replay_matches
-            ))
+            let o = verify_run(Path::new(out)).map_err(|e| e.to_string())?;
+            // The integrity token is machine-checkable; a legacy/downgraded receipt
+            // also carries an explicit warning so weaker integrity is never reported
+            // as equivalent to current (READ-15).
+            let mut msg = format!(
+                "verify: passed={} grounded={} answer_supported={} replay_matches={} integrity={}",
+                o.receipt.passed,
+                o.receipt.grounded,
+                o.receipt.answer_supported,
+                o.receipt.replay_matches,
+                o.integrity.token()
+            );
+            if !o.integrity.is_current() {
+                msg.push_str(&format!(
+                    "\nwarning: {} — legacy receipt: structural metadata is NOT bound, \
+                     so structural tamper is undetectable (not equivalent to current integrity)",
+                    o.integrity.token()
+                ));
+            }
+            Ok(msg)
         }
         Some("replay") => {
             let out = arg(args, 2, "out.json")?;

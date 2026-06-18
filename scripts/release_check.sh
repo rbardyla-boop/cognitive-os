@@ -680,6 +680,44 @@ if grep -qi panic "$_read14_dir/n.err"; then rm -rf "$_read14_dir"; exit 1; fi
 python3 -c "import json; d=json.load(open('$_read14_dir/out.json')); d['schema']='read0-run-v2'; json.dump(d,open('$_read14_dir/v2hash.json','w'))"
 if ./target/debug/read0 verify "$_read14_dir/v2hash.json" >/dev/null 2>&1; then rm -rf "$_read14_dir"; exit 1; fi
 rm -rf "$_read14_dir"
+# ---------------------------------------------------------------------------------------------------
+# READ-15 — receipt downgrade policy / final receipt boundary. verify now CLASSIFIES the receipt's
+# structural-integrity LEVEL (IntegrityLevel, derived from the validated schema version, never persisted so
+# it cannot be forged) and surfaces it as a MACHINE-CHECKABLE token: a v3 receipt reports `structure_bound`;
+# a legacy/downgraded v1/v2 receipt reports `legacy_unbound_structure` plus an explicit warning. So weaker
+# integrity is never silently accepted as equivalent to current integrity — a v3→v2 stripped-hash downgrade
+# still verifies (its evidence is bound) but is reported as legacy, NOT current. The integrity level
+# classifies structure only and NEVER changes grounding authority (a v3 receipt and its v2 downgrade produce
+# the identical verifier Receipt). The reading-cli suite (v3_receipt_reports_current_integrity,
+# legacy_v2_and_v1_report_legacy_unbound_structure, v3_to_v2_downgrade_is_not_reported_as_current,
+# integrity_level_does_not_change_evidence_authority, integrity_level_is_derived_from_version_not_a_stored_claim)
+# is the load-bearing check. Integrity classification only — no model, no training.
+# ---------------------------------------------------------------------------------------------------
+# The integrity classification is present: the level type, the machine-checkable tokens, the verify outcome.
+grep -q 'enum IntegrityLevel' crates/reading-cli/src/lib.rs
+grep -q 'struct VerifyOutcome' crates/reading-cli/src/lib.rs
+grep -q 'legacy_unbound_structure' crates/reading-cli/src/lib.rs
+grep -q 'structure_bound' crates/reading-cli/src/lib.rs
+# End-to-end downgrade-policy binary smoke: a v3 receipt reports structure_bound; a faithful v2 downgrade
+# (relabel + strip hash) still verifies but reports legacy_unbound_structure and NEVER structure_bound.
+_read15_dir="$(mktemp -d)"
+mkdir -p "$_read15_dir/docs"
+printf '# Overview\nThe bridge is open.\n## Wind Forecast\nWinds will reach forty miles per hour.' > "$_read15_dir/docs/forecast.txt"
+cat > "$_read15_dir/plan.json" <<'READ15_PLAN'
+[{"action":"inspect_corpus"},{"action":"read_span","span_id":1},{"action":"extract_claim","statement":"Winds will reach forty miles per hour.","source_span_ids":[1]},{"action":"synthesize","answer_text":"Winds will reach forty miles per hour.","supporting_claims":[0]}]
+READ15_PLAN
+./target/debug/read0 run "$_read15_dir/docs" "What is the wind forecast?" "$_read15_dir/plan.json" "$_read15_dir/out.json" >/dev/null 2>&1
+# A v3 receipt verifies AND reports the current, machine-checkable structure_bound integrity token.
+./target/debug/read0 verify "$_read15_dir/out.json" > "$_read15_dir/v3.txt" 2>&1
+grep -q 'integrity=structure_bound' "$_read15_dir/v3.txt"
+# A faithful v2 downgrade (relabel + strip the structure hash) still VERIFIES (legacy evidence is bound)...
+python3 -c "import json; d=json.load(open('$_read15_dir/out.json')); d['schema']='read0-run-v2'; d.pop('structure_hash',None); json.dump(d,open('$_read15_dir/v2.json','w'))"
+./target/debug/read0 verify "$_read15_dir/v2.json" > "$_read15_dir/v2.txt" 2>&1
+# ...but is reported as legacy_unbound_structure and is NEVER reported as current (structure_bound).
+grep -q 'integrity=legacy_unbound_structure' "$_read15_dir/v2.txt"
+grep -q 'warning: legacy_unbound_structure' "$_read15_dir/v2.txt"
+if grep -q 'integrity=structure_bound' "$_read15_dir/v2.txt"; then rm -rf "$_read15_dir"; exit 1; fi
+rm -rf "$_read15_dir"
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json
