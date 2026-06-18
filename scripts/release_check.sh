@@ -718,6 +718,23 @@ grep -q 'integrity=legacy_unbound_structure' "$_read15_dir/v2.txt"
 grep -q 'warning: legacy_unbound_structure' "$_read15_dir/v2.txt"
 if grep -q 'integrity=structure_bound' "$_read15_dir/v2.txt"; then rm -rf "$_read15_dir"; exit 1; fi
 rm -rf "$_read15_dir"
+# ---------------------------------------------------------------------------------------------------
+# READ-16 — reading track milestone freeze. The READ-0 -> READ-15 arc is frozen as reading-track-v0.1. The
+# milestone record (READING_TRACK_MILESTONE.md) pins the commit lineage, the boundaries that hold across the
+# arc, the P12 training verdict, and the honest residuals, and is locked here so the freeze cannot silently
+# drift. The pinned commit hashes are auditable against `git log`. Documentation freeze only — no model, no
+# training; the milestone records training_not_justified.
+# ---------------------------------------------------------------------------------------------------
+test -f READING_TRACK_MILESTONE.md
+grep -q 'FROZEN' READING_TRACK_MILESTONE.md
+grep -q 'reading-track-v0.1' READING_TRACK_MILESTONE.md
+grep -q 'READ-0' READING_TRACK_MILESTONE.md
+grep -q 'READ-15' READING_TRACK_MILESTONE.md
+grep -q 'training_not_justified' READING_TRACK_MILESTONE.md
+# Commit-lineage endpoints + the P12 training gate are pinned (cross-checkable against git log).
+grep -q 'f5b3fa9' READING_TRACK_MILESTONE.md
+grep -q '3902418' READING_TRACK_MILESTONE.md
+grep -q '11e9c5f' READING_TRACK_MILESTONE.md
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json
