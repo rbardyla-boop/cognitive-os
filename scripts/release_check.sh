@@ -860,12 +860,22 @@ test "$(grep -c 'compile_fail' crates/hypothesis-layer/src/probe.rs)" -ge 2
 # RecommendedProbe, ProbeRequest, ProbeQueue). (Residual: a decoy compile_fail deliberately planted on the
 # same type while the real one is commented out is review-evident insider forgery, beyond regression scope.)
 _doc_out="$(cargo test --offline --doc --manifest-path crates/hypothesis-layer/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_doc_out" | grep -oE 'running [0-9]+ tests' | grep -oE '[0-9]+')" -eq 8
-test "$(printf '%s\n' "$_doc_out" | grep -c 'compile fail')" -eq 4
+test "$(printf '%s\n' "$_doc_out" | grep -oE 'running [0-9]+ tests' | grep -oE '[0-9]+')" -eq 12
+test "$(printf '%s\n' "$_doc_out" | grep -c 'compile fail')" -eq 6
 printf '%s\n' "$_doc_out" | grep -q 'HypothesisPacket (line.*compile fail'
 printf '%s\n' "$_doc_out" | grep -q 'RecommendedProbe (line.*compile fail'
 printf '%s\n' "$_doc_out" | grep -q 'ProbeRequest (line.*compile fail'
 printf '%s\n' "$_doc_out" | grep -q 'ProbeQueue (line.*compile fail'
+printf '%s\n' "$_doc_out" | grep -q 'ReviewReceipt (line.*compile fail'
+printf '%s\n' "$_doc_out" | grep -q 'ReviewLog (line.*compile fail'
+# Likewise, the UNIT tests must actually RUN, not be silently disabled: an `#[ignore]` (or a cfg-out /
+# commented-out `#[test]`) skips a test without failing `cargo test`, so a test-name grep cannot tell an
+# enforced policy from a disabled one. We pin the test reality from cargo: the crate's library unit tests
+# must report EXACTLY the expected passed count and ZERO ignored — ignoring or removing any test lowers the
+# passed count and/or raises the ignored count and fails here. (Update the count when adding/removing tests.)
+_unit_out="$(cargo test --offline --lib --manifest-path crates/hypothesis-layer/Cargo.toml 2>/dev/null)"
+test "$(printf '%s\n' "$_unit_out" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 35
+test "$(printf '%s\n' "$_unit_out" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
 test "$(awk '/pub struct ProbeRequest \{/,/^\}/' crates/hypothesis-layer/src/probe.rs | grep -cE '^[[:space:]]+pub ')" -eq 0
 test "$(awk '/pub struct ProbeQueue \{/,/^\}/' crates/hypothesis-layer/src/probe.rs | grep -cE '^[[:space:]]+pub ')" -eq 0
 test "$(grep -cE 'impl([[:space:]]|<).*Deserialize.*for[[:space:]]+Probe(Request|Queue|Status|Reason)\b' crates/hypothesis-layer/src/probe.rs)" -eq 0
@@ -907,6 +917,71 @@ grep -q '"status": "human_review_required"' "$_pq_dir/run1.json"
 grep -q '"status": "blocked"' "$_pq_dir/run1.json"
 grep -q '"execution_eligible": 1' "$_pq_dir/run1.json"
 rm -rf "$_pq_dir"
+# ---------------------------------------------------------------------------------------------------
+# HYP-2 / Governance Review Receipt Boundary (crates/hypothesis-layer/src/review.rs). Records the
+# GOVERNANCE DECISION on a HYP-1 ProbeRequest as an inert, deterministic ReviewReceipt (approved /
+# rejected / deferred) — WITHOUT executing the probe or mutating anything. Policy is machine-checkable: a
+# BLOCKED probe can never be approved by ANY authority; a human_review_required probe can be approved only
+# by a human/governance authority (ReviewerAuthority is a CHECKED ENUM, never a free string); a queued
+# probe may be approved or rejected — approval still executes nothing. A receipt is minted ONLY by
+# ReviewReceipt::decide (private fields, no Deserialize — compiler-enforced, and pinned LIVE by the
+# crate-wide cargo doctest-reality check above), so a forged decision cannot be hand-set or deserialized
+# off the wire; it carries an integrity_hash over all fields and reuses the FORBIDDEN_USES quarantine so it
+# can never become evidence. The crate-wide no-execution / no-float / no-wall-clock / no-IO / no-#[allow]
+# scans and the serde-only quarantine cargo-tree above already cover review.rs. Doctrine: Hypothesis
+# proposes. Probe queue classifies. Governance reviews. Nothing executes. Nothing becomes evidence.
+# ---------------------------------------------------------------------------------------------------
+# Review-receipt structure present (signals).
+grep -q 'enum ReviewDecision' crates/hypothesis-layer/src/review.rs
+grep -q 'enum ReviewerAuthority' crates/hypothesis-layer/src/review.rs
+grep -q 'enum ReasonCode' crates/hypothesis-layer/src/review.rs
+grep -q 'struct ReviewReceipt' crates/hypothesis-layer/src/review.rs
+grep -q 'struct ReviewLog' crates/hypothesis-layer/src/review.rs
+grep -q 'pub fn decide' crates/hypothesis-layer/src/review.rs
+grep -q 'fn can_approve_review_required' crates/hypothesis-layer/src/review.rs
+grep -q 'integrity_hash' crates/hypothesis-layer/src/review.rs
+# ENCAPSULATION (compiler-enforced): a ReviewReceipt / ReviewLog is minted ONLY by decide / from_receipts,
+# is read-only (private fields), and is NOT deserializable — proven by compile_fail doctests whose LIVE
+# presence is pinned by the cargo doctest-reality check above (the existence greps below cannot be dodged
+# by a `//`-commented copy because that copy drops out of cargo's doctest run). Plus private-fields and
+# whole-file manual-`impl Deserialize` scans for the inert output types.
+grep -q 'let _: hypothesis_layer::ReviewReceipt = serde_json::from_str' crates/hypothesis-layer/src/review.rs
+grep -q 'let _: hypothesis_layer::ReviewLog = serde_json::from_str' crates/hypothesis-layer/src/review.rs
+test "$(awk '/pub struct ReviewReceipt \{/,/^\}/' crates/hypothesis-layer/src/review.rs | grep -cE '^[[:space:]]+pub ')" -eq 0
+test "$(awk '/pub struct ReviewLog \{/,/^\}/' crates/hypothesis-layer/src/review.rs | grep -cE '^[[:space:]]+pub ')" -eq 0
+test "$(grep -cE 'impl([[:space:]]|<).*Deserialize.*for[[:space:]]+(ReviewReceipt|ReviewLog|ReasonCode)\b' crates/hypothesis-layer/src/review.rs)" -eq 0
+# The governance POLICY is compiler/test-enforced, not prose: the approval gate in decide() matches the
+# probe status exhaustively (no wildcard → E0004 on a new status), and these tests (run by cargo test
+# above) prove a blocked probe is never approved, a review-required probe needs authority, a queued probe
+# is approved without execution, a receipt can't be evidence, and a review changes neither P12 nor a receipt.
+grep -q 'fn blocked_probe_cannot_be_approved' crates/hypothesis-layer/src/review.rs
+grep -q 'fn review_required_probe_requires_authority' crates/hypothesis-layer/src/review.rs
+grep -q 'fn queued_probe_can_be_approved_without_execution' crates/hypothesis-layer/src/review.rs
+grep -q 'fn review_receipt_cannot_be_evidence' crates/hypothesis-layer/src/review.rs
+grep -q 'fn review_receipt_does_not_change_training_gate' crates/hypothesis-layer/src/review.rs
+grep -q 'fn review_receipt_does_not_change_verifier_receipt' crates/hypothesis-layer/src/review.rs
+# The end-to-end determinism smoke must EXERCISE the real API: the example CALLS decide + from_receipts.
+grep -q 'ReviewReceipt::decide' crates/hypothesis-layer/examples/review_log_report.rs
+grep -q 'ReviewLog::from_receipts' crates/hypothesis-layer/examples/review_log_report.rs
+# End-to-end determinism smoke: the demo review log is a pure function of fixed inputs, so two runs are
+# byte-identical (replay reproduces the log); it carries all three decisions, a blocked probe is rejected
+# (never approved → reason rejected_blocked_probe), and exactly two of four reviews are approved.
+cargo build --offline --quiet --manifest-path crates/hypothesis-layer/Cargo.toml --example review_log_report >/dev/null 2>&1
+_rl_dir="$(mktemp -d)"
+./target/debug/examples/review_log_report > "$_rl_dir/run1.json" 2>/dev/null
+./target/debug/examples/review_log_report > "$_rl_dir/run2.json" 2>/dev/null
+if ! cmp -s "$_rl_dir/run1.json" "$_rl_dir/run2.json"; then rm -rf "$_rl_dir"; exit 1; fi
+grep -q '"decision": "approved"' "$_rl_dir/run1.json"
+grep -q '"decision": "rejected"' "$_rl_dir/run1.json"
+grep -q '"decision": "deferred"' "$_rl_dir/run1.json"
+grep -q '"reason_code": "rejected_blocked_probe"' "$_rl_dir/run1.json"
+grep -q '"approved": 2' "$_rl_dir/run1.json"
+# BEHAVIORAL policy backstop, independent of the (potentially gut-able) unit tests: the example RUNS the
+# real decide() on the forbidden paths, so the gate verifies the policy by behaviour. If the Blocked guard
+# or the authority check regresses, decide() returns Ok, these flip to false, and the gate fails here.
+grep -q '"policy_blocked_approve_refused": true' "$_rl_dir/run1.json"
+grep -q '"policy_automated_review_required_refused": true' "$_rl_dir/run1.json"
+rm -rf "$_rl_dir"
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json

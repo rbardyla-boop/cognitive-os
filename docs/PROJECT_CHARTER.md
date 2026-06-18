@@ -3,6 +3,36 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-18-C — Add the governance review receipt boundary (P16 / HYP-2) in-crate
+
+**Decision.** Add `crates/hypothesis-layer/src/review.rs` — a `ReviewReceipt` recording the governance
+decision (approved / rejected / deferred) on a HYP-1 `ProbeRequest`, WITHOUT executing the probe or
+mutating anything. Doctrine: *Hypothesis proposes. Probe queue classifies. Governance reviews. Nothing
+executes. Nothing becomes evidence.* Kept INSIDE the existing crate (a new module, no new dependency), so
+the serde-only quarantine is unchanged.
+
+**Why.** HYP-1 creates inert probe queue items; the next boundary is an explicit, machine-checkable
+governance decision that keeps human/governance authorization explicit before any future execution layer
+exists. A receipt is minted only by `decide`, which enforces the policy: a blocked probe can never be
+approved by any authority; a human_review_required probe needs Human/Governance authority (never
+Automated); a queued probe may be approved but approval is a record for a human to act on later, not an
+execution. `ReviewerAuthority` is a checked enum, never a free string.
+
+**Boundary (enforced by the compiler, types, the gate, and a behavioral backstop).** A
+`ReviewReceipt`/`ReviewLog` is minted only by `decide`/`from_receipts`, has private fields, and derives
+`Serialize` but not `Deserialize` (compile_fail proofs, pinned live by cargo's doctest report; `ReasonCode`
+is output-only to keep the receipt non-deserializable) — so a forged decision cannot be deserialized off
+the wire or built from a raw struct. The receipt binds its fields with an `integrity_hash`, cites its
+provenance, and reuses the forbidden-uses quarantine so it can never become evidence. No execution code
+exists in the crate (crate-wide gate scan). Verified by three read-only adversarial panel rounds (five
+substantive lenses clean; one determinism finding reproduced and refuted; the gate-vacuity lens drove two
+first-hand-reproduced folds — a cargo unit-test-reality pin closing an `#[ignore]` test-disable bypass, and
+a behavioral example backstop that re-runs the real `decide()` on the forbidden paths so the policy holds
+even if the unit tests were gutted; round three fully dry) plus four live sabotage probes. No LLM, no
+training, no probe execution; P12 still owns weights, P13–P15 stay closed. `release_check` green + silent.
+Recorded in full in [a.md](../a.md) under "Governance Review Receipt Boundary (P16 / HYP-2)". Additive:
+HYP-0, HYP-1, and all prior crates/docs 0-diff. Local only — no remote push.
+
 ## DD-2026-06-18-B — Add the probe queue / human-review boundary (P16 / HYP-1) in-crate
 
 **Decision.** Add `crates/hypothesis-layer/src/probe.rs` — a `ProbeRequest` queue derived from a

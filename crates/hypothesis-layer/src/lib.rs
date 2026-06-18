@@ -38,6 +38,12 @@ use serde::{Deserialize, Serialize};
 mod probe;
 pub use probe::{ProbeQueue, ProbeReason, ProbeRequest, ProbeStatus};
 
+/// HYP-2: the governance review receipt boundary, built on the HYP-1 probe request.
+mod review;
+pub use review::{
+    ReasonCode, ReviewDecision, ReviewError, ReviewLog, ReviewReceipt, ReviewerAuthority,
+};
+
 /// Probability-like fields are fixed-point per-mille in `0..=SCALE` (no floats, so
 /// scoring is deterministic and replayable across platforms — matching the engine's
 /// integer discipline).
