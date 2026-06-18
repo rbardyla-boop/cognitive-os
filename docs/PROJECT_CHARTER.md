@@ -3,6 +3,32 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-18-A — Open the hypothesis-only abductive layer (P16 / HYP-0) as a post-freeze track
+
+**Decision.** Add `crates/hypothesis-layer` — an abductive layer ABOVE the frozen reading substrate
+and BELOW human review that may CREATE, SCORE, and TRACE proposed explanations / next probes and
+nothing else. Doctrine: *Probability proposes. Replay tests. Governance authorizes. Memory records.*
+The core `HypothesisPacket` is inert: minted only by `propose`, private read-only fields, no
+`Deserialize`, fixed `Authority::HypothesisOnly` (single-variant enum), a baked canonical
+`FORBIDDEN_USES` set, receipt citations by content hash, deterministic integer scoring, and a
+replay that re-derives the packet from its `HypothesisSpec`. This is a **new post-freeze track,
+additive** to `reading-track-v0.1`, not part of the P0–P15 prototype track.
+
+**Why.** The reading substrate grounds answers only from cited-span evidence and forbids whatever it
+cannot ground; it deliberately cannot propose. HYP-0 adds the missing faculty — proposing an
+explanation or next probe that is not yet grounded — while structurally preventing a proposal from
+acquiring the authority of a fact. Probability can schedule a test but can never ground an answer,
+mutate memory, alter a receipt, change the training verdict, or bypass governance.
+
+**Boundary (enforced by the compiler and types, not convention).** No LLM, no training, no semantic
+judge — deterministic scoring only for v0. The quarantine is structural: production deps are serde
+only, the reading crates are dev-only to prove non-interference, and the gate asserts the non-dev
+tree holds no substrate/engine/ML crate. P12 still owns weights and remains "not justified"; P13–P15
+stay closed. Verified by six read-only adversarial panel rounds (five substantive lenses clean for
+five consecutive rounds; the gate-vacuity lens drove four rounds of compiler-backed gate hardening,
+each reproduced first-hand; round six fully dry). `release_check` green + silent. Recorded in full in
+[a.md](../a.md) under "Hypothesis Layer Track (P16 / HYP-0)". Local only — no remote push.
+
 ## DD-2026-06-14-C — P0: snapshot v0.1 governance as a git freeze point
 
 **Decision.** The repo was initialized as a git repository (Option A) and the frozen v0.1

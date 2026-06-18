@@ -3,6 +3,18 @@
 version = 4
 
 [[package]]
+name = "hypothesis-layer"
+version = "0.1.0"
+dependencies = [
+ "reading-cli",
+ "reading-eval",
+ "reading-substrate",
+ "reading-train-gate",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"

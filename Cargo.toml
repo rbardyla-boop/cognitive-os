@@ -23,4 +23,5 @@ members = [
     "crates/reading-budgeted-eval",
     "crates/reading-ranked-eval",
     "crates/reading-section-eval",
+    "crates/hypothesis-layer",
 ]

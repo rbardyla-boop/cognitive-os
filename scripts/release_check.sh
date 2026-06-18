@@ -735,6 +735,92 @@ grep -q 'training_not_justified' READING_TRACK_MILESTONE.md
 grep -q 'f5b3fa9' READING_TRACK_MILESTONE.md
 grep -q '3902418' READING_TRACK_MILESTONE.md
 grep -q '11e9c5f' READING_TRACK_MILESTONE.md
+# ---------------------------------------------------------------------------------------------------
+# HYP-0 / P16 — hypothesis-only abductive layer (post-freeze track, above the frozen reading substrate,
+# below human review). It may CREATE / SCORE / TRACE proposed explanations and next probes, and NOTHING
+# else. Structural quarantine: hypothesis-layer depends on serde ONLY — its non-dev dependency tree contains
+# no codec/substrate/engine crate and no ML crate, so it holds no handle that could mutate memory, the
+# verifier, governance, receipts, or engine state (the reading crates are DEV-only, used solely to prove
+# non-interference). Every HypothesisPacket carries authority hypothesis_only (the only variant that exists)
+# and a baked forbidden_uses list, so it can never become a claim or evidence; a high-risk / irreversible
+# probe escalates to human_review_required or is blocked. Scoring is deterministic integer math (no floats,
+# no wall-clock, no entropy, no model), so trace replay reproduces the same packet. The reading-cli suite
+# proves a hypothesis changes neither the verifier receipt nor the P12 training verdict. Doctrine:
+# Probability proposes. Replay tests. Governance authorizes. Memory records. No model, no training.
+# ---------------------------------------------------------------------------------------------------
+cargo test --offline --quiet --manifest-path crates/hypothesis-layer/Cargo.toml >/dev/null 2>&1
+cargo fmt --manifest-path crates/hypothesis-layer/Cargo.toml --check >/dev/null 2>&1
+cargo clippy --offline --manifest-path crates/hypothesis-layer/Cargo.toml --all-targets -- -D warnings >/dev/null 2>&1
+# Hypothesis-only structure is present (signals).
+grep -q 'enum Authority' crates/hypothesis-layer/src/lib.rs
+grep -q 'HypothesisOnly' crates/hypothesis-layer/src/lib.rs
+grep -q 'struct HypothesisPacket' crates/hypothesis-layer/src/lib.rs
+grep -q 'forbidden_uses' crates/hypothesis-layer/src/lib.rs
+grep -q 'HumanReviewRequired' crates/hypothesis-layer/src/lib.rs
+grep -q 'pub fn propose' crates/hypothesis-layer/src/lib.rs
+# A replayed packet re-derives from its inputs: verify_consistency asserts the derivation contract.
+grep -q 'fn verify_consistency' crates/hypothesis-layer/src/lib.rs
+# ENCAPSULATION (structural, not by convention): a HypothesisPacket can only be MINTED by propose()
+# and is read-only thereafter — its fields are private (no indented `pub ` inside the struct body) and
+# it does NOT derive Deserialize, so a caller cannot mutate forbidden_uses/clearance/provenance or
+# forge a packet off the wire. The deserializable trace surface is the INPUTS (HypothesisSpec); replay
+# re-derives every governed field. RecommendedProbe is likewise read-only. These checks fail closed if
+# the boundary regresses to public/forgeable fields.
+grep -q 'pub fn recommended_probe(&self)' crates/hypothesis-layer/src/lib.rs
+grep -q 'pub fn forbidden_uses(&self)' crates/hypothesis-layer/src/lib.rs
+test "$(awk '/pub struct HypothesisPacket \{/,/^\}/' crates/hypothesis-layer/src/lib.rs | grep -cE '^[[:space:]]+pub ')" -eq 0
+test "$(awk '/pub struct RecommendedProbe \{/,/^\}/' crates/hypothesis-layer/src/lib.rs | grep -cE '^[[:space:]]+pub ')" -eq 0
+# Non-deserializability of BOTH inert output types is COMPILER-enforced by `compile_fail` doctests,
+# NOT by grepping the derive line. A line-based `grep -B1 ... Deserialize` is dodgeable: an interposing
+# comment between `#[derive(...)]` and the struct pushes the token out of the one-line window, and
+# RecommendedProbe (unlike a packet, whose RecommendedProbe field blocks the derive) has only
+# deserializable fields, so it would derive Deserialize cleanly. So we instead assert the compiler
+# proofs EXIST and are anchored to the right types: if a proof is deleted the count check fails; if a
+# type regresses to Deserialize (derive OR hand-written impl), its `compile_fail` body compiles and
+# `cargo test` (above) fails. A proof cannot be both present and satisfied while its type deserializes.
+grep -q 'let _: hypothesis_layer::HypothesisPacket = serde_json::from_str' crates/hypothesis-layer/src/lib.rs
+grep -q 'let _: hypothesis_layer::RecommendedProbe = serde_json::from_str' crates/hypothesis-layer/src/lib.rs
+test "$(grep -c 'compile_fail' crates/hypothesis-layer/src/lib.rs)" -ge 2
+# The deserializable trace surface (the INPUTS) is likewise compiler-proven: a positive doctest
+# round-trips a HypothesisSpec through propose(), so the replay path can't silently break.
+grep -q 'let spec: hypothesis_layer::HypothesisSpec = serde_json::from_str' crates/hypothesis-layer/src/lib.rs
+# Non-derive (hand-written `impl Deserialize for ...`) bypass is rejected too — whole-file scan,
+# comment-insensitive — as a cheap canary on top of the compiler proofs above.
+test "$(grep -cE 'impl([[:space:]]|<).*Deserialize.*for[[:space:]]+HypothesisPacket\b' crates/hypothesis-layer/src/lib.rs)" -eq 0
+test "$(grep -cE 'impl([[:space:]]|<).*Deserialize.*for[[:space:]]+RecommendedProbe\b' crates/hypothesis-layer/src/lib.rs)" -eq 0
+# Single-variant Authority is COMPILER-enforced, not just grepped: the authority_has_exactly_one_variant
+# test matches Authority exhaustively with no wildcard, so adding a second variant (e.g. a Claim/Evidence
+# authority) breaks compilation. "Any other authority is unrepresentable" cannot silently regress.
+grep -q 'fn authority_has_exactly_one_variant' crates/hypothesis-layer/src/lib.rs
+# The forbidden-uses quarantine is pinned by IDENTITY, not by a circular length/membership check:
+# forbidden_uses_are_exactly_the_canonical_six asserts each of the six canonical use-names (written as
+# literals, not read from FORBIDDEN_USES) is refused AND that the set has six DISTINCT entries. Replacing
+# a canonical use with a duplicate (length stays 6) un-forbids it but fails the distinctness assert, and
+# dropping/renaming one fails the literal assert. The other forbidden_uses tests iterate the const and so
+# cannot catch a substitution; this one can.
+grep -q 'fn forbidden_uses_are_exactly_the_canonical_six' crates/hypothesis-layer/src/lib.rs
+# The end-to-end determinism smoke must EXERCISE the real API: the example has to CALL propose() (not
+# print a hardcoded JSON), so the two-run diff + key greps below prove a genuine propose() output.
+grep -q 'propose(' crates/hypothesis-layer/examples/hypothesis_report.rs
+# Deterministic integer scoring: NO floats, NO wall-clock, NO entropy in the source.
+test "$(grep -cE '\bf32\b|\bf64\b' crates/hypothesis-layer/src/lib.rs)" -eq 0
+test "$(grep -cE 'SystemTime|Instant|rand::|rand_|random|thread_rng' crates/hypothesis-layer/src/lib.rs)" -eq 0
+# Structural QUARANTINE: the production (non-dev) dependency tree holds no engine/reading crate and no ML.
+test "$(cargo tree --offline --manifest-path crates/hypothesis-layer/Cargo.toml --edges normal 2>/dev/null | grep -cE 'vibe-')" -eq 0
+test "$(cargo tree --offline --manifest-path crates/hypothesis-layer/Cargo.toml --edges normal 2>/dev/null | grep -cE 'reading-')" -eq 0
+test "$(grep -ciE 'torch|tensorflow|candle|onnx|tract|\bburn\b|llama|inference' crates/hypothesis-layer/Cargo.toml)" -eq 0
+# End-to-end determinism smoke: the demo packet is a pure function of fixed inputs, so two runs are
+# byte-identical (trace replay reproduces the packet), and the packet carries hypothesis_only authority,
+# the forbidden-uses, and a probe clearance.
+cargo build --offline --quiet --manifest-path crates/hypothesis-layer/Cargo.toml --example hypothesis_report >/dev/null 2>&1
+_hyp_dir="$(mktemp -d)"
+./target/debug/examples/hypothesis_report > "$_hyp_dir/run1.json" 2>/dev/null
+./target/debug/examples/hypothesis_report > "$_hyp_dir/run2.json" 2>/dev/null
+if ! cmp -s "$_hyp_dir/run1.json" "$_hyp_dir/run2.json"; then rm -rf "$_hyp_dir"; exit 1; fi
+grep -q '"authority": "hypothesis_only"' "$_hyp_dir/run1.json"
+grep -q '"ground_claim"' "$_hyp_dir/run1.json"
+grep -q '"clearance"' "$_hyp_dir/run1.json"
+rm -rf "$_hyp_dir"
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json

@@ -1,0 +1,29 @@
+[package]
+name = "hypothesis-layer"
+version = "0.1.0"
+edition = "2021"
+description = "P16 / HYP-0 — hypothesis-only abductive layer: create, score, and trace proposed explanations and next probes without gaining authority. Probability proposes; replay tests; governance authorizes; memory records."
+license = "MIT OR Apache-2.0"
+publish = false
+
+# HYP-0 is a SEPARATE post-freeze track above the deterministic reading substrate
+# and BELOW human review. It is structurally a PROPOSER, not an actor: it depends
+# only on serde (for tracing/replay) and on NOTHING that could mutate memory, the
+# verifier, governance, receipts, or engine state — release_check asserts the
+# normal (non-dev) dependency tree contains no codec/substrate/engine crate and no
+# ML crate. A HypothesisPacket carries authority hypothesis_only (the only variant
+# that exists) and a baked forbidden_uses list; it can never become a claim or
+# evidence. Scoring is deterministic integer math (no floats, no model, no semantic
+# judge), so trace replay reproduces the same packet.
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Dev-only: used solely to PROVE non-interference — that deriving a hypothesis from
+# a real receipt or eval changes neither the verifier receipt nor the P12 training
+# verdict. These are test dependencies; the production crate holds no such handle.
+[dev-dependencies]
+reading-cli = { path = "../reading-cli" }
+reading-substrate = { path = "../reading-substrate" }
+reading-train-gate = { path = "../reading-train-gate" }
+reading-eval = { path = "../reading-eval" }
