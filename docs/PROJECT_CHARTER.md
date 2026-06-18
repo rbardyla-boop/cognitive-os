@@ -3,6 +3,39 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-18-D — Add the approved-probe execution stub / non-execution boundary (P16 / HYP-3) in-crate
+
+**Decision.** Add `crates/hypothesis-layer/src/execution.rs` — a `ProbeExecutionIntent` derived from a HYP-2
+`ReviewReceipt` that records what may happen to the probe NEXT (`not_executed` / `blocked` /
+`requires_operator`) WITHOUT executing the probe, writing a probe result, or mutating anything. Doctrine:
+*Hypothesis proposes. Probe queue classifies. Governance reviews. HYP-3 records intent. Nothing executes.
+Nothing becomes evidence.* Kept INSIDE the existing crate (a new module, no new dependency), so the
+serde-only quarantine is unchanged.
+
+**Why.** HYP-2 can approve a probe; the next risk is that approval is mistaken for execution. HYP-3 makes the
+execution boundary an explicit inert stub: an intent is minted only by `from_review`, which DERIVES the
+disposition from the review — only an approved review yields a cleared intent (a disposition a human/operator
+may run later), and a rejected or deferred review yields a `blocked` one. A blocked probe can never be
+approved (HYP-2 refuses it), so it can never reach the cleared path. There is no `executed` status; HYP-3
+records and runs nothing.
+
+**Boundary (enforced by the compiler, types, the gate, and a behavioral surface).** A `ProbeExecutionIntent`
+is minted only by `from_review`, has private fields, and derives `Serialize` but not `Deserialize`
+(`ExecutionStatus`/`ExecutionReason` are output-only, so the intent is structurally non-deserializable — a
+`compile_fail` proof, pinned live by cargo's doctest report). The disposition derivation and the
+status-from-reason map are exhaustive with no wildcard (E0004 on a new variant), so a rejected/deferred review
+can never derive a cleared status. The intent binds its fields with an `integrity_hash`, cites its provenance,
+and reuses the forbidden-uses quarantine so it can never become evidence. No execution code exists in the
+crate (crate-wide gate scan over `src/` + examples for any process/filesystem/network/side-effecting I/O).
+Verified by two read-only adversarial panel rounds (five substantive lenses clean both rounds; the
+gate-vacuity lens drove one fold — reproduced and refuted as stated, then a real strengthening: the gate now
+greps all four `ExecutionReason` tokens against the least-fabricable surface, the real serialized intents
+array, so each disposition is bound to genuine `from_review` output; round two fully dry) plus four live
+sabotage probes. No LLM, no training, no probe execution; P12 still owns weights, P13–P15 stay closed.
+`release_check` green + silent. Recorded in full in [a.md](../a.md) under "Approved Probe Execution Stub /
+Non-Execution Boundary (P16 / HYP-3)". Additive: HYP-0, HYP-1, HYP-2, and all prior crates/docs 0-diff. Local
+only — no remote push.
+
 ## DD-2026-06-18-C — Add the governance review receipt boundary (P16 / HYP-2) in-crate
 
 **Decision.** Add `crates/hypothesis-layer/src/review.rs` — a `ReviewReceipt` recording the governance

@@ -856,25 +856,27 @@ test "$(grep -c 'compile_fail' crates/hypothesis-layer/src/probe.rs)" -ge 2
 # grep-visible tokens yet drops out of the doctest suite, letting the type be made Deserialize undetected).
 # So we ALSO pin the doctest REALITY from cargo itself — it reports every live doctest and labels the
 # compile_fail ones — so commenting out or deleting any compile_fail proof lowers these counts and fails
-# here. Crate-wide: exactly 8 live doctests, 4 `compile fail`, one per inert type (HypothesisPacket,
-# RecommendedProbe, ProbeRequest, ProbeQueue). (Residual: a decoy compile_fail deliberately planted on the
-# same type while the real one is commented out is review-evident insider forgery, beyond regression scope.)
+# here. Crate-wide: exactly 14 live doctests, 7 `compile fail`, one per inert type (HypothesisPacket,
+# RecommendedProbe, ProbeRequest, ProbeQueue, ReviewReceipt, ReviewLog, ProbeExecutionIntent). (Residual: a
+# decoy compile_fail deliberately planted on the same type while the real one is commented out is
+# review-evident insider forgery, beyond regression scope.)
 _doc_out="$(cargo test --offline --doc --manifest-path crates/hypothesis-layer/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_doc_out" | grep -oE 'running [0-9]+ tests' | grep -oE '[0-9]+')" -eq 12
-test "$(printf '%s\n' "$_doc_out" | grep -c 'compile fail')" -eq 6
+test "$(printf '%s\n' "$_doc_out" | grep -oE 'running [0-9]+ tests' | grep -oE '[0-9]+')" -eq 14
+test "$(printf '%s\n' "$_doc_out" | grep -c 'compile fail')" -eq 7
 printf '%s\n' "$_doc_out" | grep -q 'HypothesisPacket (line.*compile fail'
 printf '%s\n' "$_doc_out" | grep -q 'RecommendedProbe (line.*compile fail'
 printf '%s\n' "$_doc_out" | grep -q 'ProbeRequest (line.*compile fail'
 printf '%s\n' "$_doc_out" | grep -q 'ProbeQueue (line.*compile fail'
 printf '%s\n' "$_doc_out" | grep -q 'ReviewReceipt (line.*compile fail'
 printf '%s\n' "$_doc_out" | grep -q 'ReviewLog (line.*compile fail'
+printf '%s\n' "$_doc_out" | grep -q 'ProbeExecutionIntent (line.*compile fail'
 # Likewise, the UNIT tests must actually RUN, not be silently disabled: an `#[ignore]` (or a cfg-out /
 # commented-out `#[test]`) skips a test without failing `cargo test`, so a test-name grep cannot tell an
 # enforced policy from a disabled one. We pin the test reality from cargo: the crate's library unit tests
 # must report EXACTLY the expected passed count and ZERO ignored — ignoring or removing any test lowers the
 # passed count and/or raises the ignored count and fails here. (Update the count when adding/removing tests.)
 _unit_out="$(cargo test --offline --lib --manifest-path crates/hypothesis-layer/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_unit_out" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 35
+test "$(printf '%s\n' "$_unit_out" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 48
 test "$(printf '%s\n' "$_unit_out" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
 test "$(awk '/pub struct ProbeRequest \{/,/^\}/' crates/hypothesis-layer/src/probe.rs | grep -cE '^[[:space:]]+pub ')" -eq 0
 test "$(awk '/pub struct ProbeQueue \{/,/^\}/' crates/hypothesis-layer/src/probe.rs | grep -cE '^[[:space:]]+pub ')" -eq 0
@@ -982,6 +984,86 @@ grep -q '"approved": 2' "$_rl_dir/run1.json"
 grep -q '"policy_blocked_approve_refused": true' "$_rl_dir/run1.json"
 grep -q '"policy_automated_review_required_refused": true' "$_rl_dir/run1.json"
 rm -rf "$_rl_dir"
+# ---------------------------------------------------------------------------------------------------
+# HYP-3 / Approved Probe Execution Stub — Non-Execution Boundary (crates/hypothesis-layer/src/execution.rs).
+# Converts a HYP-2 ReviewReceipt into an inert, deterministic ProbeExecutionIntent that records what may
+# happen to the probe NEXT — WITHOUT executing it, writing a probe result, or mutating anything. The
+# disposition is machine-checkable and DERIVED from the review: only an APPROVED review yields a cleared
+# intent (not_executed for an automated-scope approval, requires_operator for a human/governance approval);
+# a rejected or deferred review yields a `blocked` intent that must never run. A blocked probe can never be
+# approved (HYP-2), so it can never reach the cleared path. An intent is minted ONLY by
+# ProbeExecutionIntent::from_review (private fields, no Deserialize — compiler-enforced and pinned LIVE by
+# the crate-wide cargo doctest-reality check above), so a forged disposition cannot be hand-set or
+# deserialized off the wire; it carries an integrity_hash over all fields and reuses the FORBIDDEN_USES
+# quarantine so it can never become evidence. The crate-wide no-execution / no-float / no-wall-clock / no-IO
+# / no-#[allow] scans and the serde-only quarantine cargo-tree above already cover execution.rs and the new
+# example. Doctrine: Hypothesis proposes. Probe queue classifies. Governance reviews. HYP-3 records intent.
+# Nothing executes. Nothing becomes evidence.
+# ---------------------------------------------------------------------------------------------------
+# Execution-intent structure present (signals).
+grep -q 'enum ExecutionStatus' crates/hypothesis-layer/src/execution.rs
+grep -q 'enum ExecutionReason' crates/hypothesis-layer/src/execution.rs
+grep -q 'struct ProbeExecutionIntent' crates/hypothesis-layer/src/execution.rs
+grep -q 'pub fn from_review' crates/hypothesis-layer/src/execution.rs
+grep -q 'requires_operator' crates/hypothesis-layer/src/execution.rs
+grep -q 'integrity_hash' crates/hypothesis-layer/src/execution.rs
+# ENCAPSULATION (compiler-enforced): a ProbeExecutionIntent is minted ONLY by from_review, is read-only
+# (private fields), and is NOT deserializable — proven by the compile_fail doctest whose LIVE presence is
+# pinned by the cargo doctest-reality check above (the existence grep below cannot be dodged by a
+# `//`-commented copy because that copy drops out of cargo's doctest run). Plus private-fields and whole-file
+# manual-`impl Deserialize` scans for the inert output type and its derived (Serialize-only) enums.
+grep -q 'let _: hypothesis_layer::ProbeExecutionIntent = serde_json::from_str' crates/hypothesis-layer/src/execution.rs
+test "$(awk '/pub struct ProbeExecutionIntent \{/,/^\}/' crates/hypothesis-layer/src/execution.rs | grep -cE '^[[:space:]]+pub ')" -eq 0
+test "$(grep -cE 'impl([[:space:]]|<).*Deserialize.*for[[:space:]]+(ProbeExecutionIntent|ExecutionStatus|ExecutionReason)\b' crates/hypothesis-layer/src/execution.rs)" -eq 0
+# The non-execution boundary is COMPILER/test-enforced, not prose: the reason derivation matches the review
+# decision exhaustively with NO wildcard (a cleared reason requires Approved → E0004 on a new decision), and
+# the status<-reason map is likewise exhaustive (E0004 on a new reason), so a rejected/deferred review can
+# never derive a cleared status. These tests (run by cargo test above) prove a rejected/deferred review is
+# blocked, a blocked probe never reaches a cleared intent, an approval records but does not execute, an
+# intent can't be evidence, and an intent changes neither P12 nor a verifier receipt.
+grep -q 'fn rejected_review_cannot_create_execution_intent' crates/hypothesis-layer/src/execution.rs
+grep -q 'fn deferred_review_cannot_create_execution_intent' crates/hypothesis-layer/src/execution.rs
+grep -q 'fn blocked_probe_never_reaches_cleared_intent' crates/hypothesis-layer/src/execution.rs
+grep -q 'fn execution_intent_is_not_executed' crates/hypothesis-layer/src/execution.rs
+grep -q 'fn intent_cannot_be_evidence' crates/hypothesis-layer/src/execution.rs
+grep -q 'fn intent_does_not_change_training_gate' crates/hypothesis-layer/src/execution.rs
+grep -q 'fn intent_does_not_change_verifier_receipt' crates/hypothesis-layer/src/execution.rs
+# The end-to-end determinism smoke must EXERCISE the real API: the example CALLS from_review + decide.
+grep -q 'ProbeExecutionIntent::from_review' crates/hypothesis-layer/examples/execution_intent_report.rs
+grep -q 'ReviewReceipt::decide' crates/hypothesis-layer/examples/execution_intent_report.rs
+# End-to-end determinism smoke: the demo intent set is a pure function of fixed inputs, so two runs are
+# byte-identical (replay reproduces the intents); it carries all three dispositions and exactly two of four
+# reviews are cleared (the approvals). The `intents` array is the LEAST-FABRICABLE behavioral surface: each
+# element is a serialized REAL ProbeExecutionIntent (built by from_review, a type that is private +
+# non-deserializable, so it cannot be forged off-API), so EVERY ExecutionReason token below must appear
+# because the corresponding fixed review really derived it. This binds all four dispositions to the real
+# from_review output, not just to the (individually hardcodable) standalone policy booleans further down — a
+# rejected/deferred review becoming cleared, or an approval being marked executed, drops the matching reason
+# token here and fails the gate. (Residual: fabricating the ENTIRE example output AND gutting all four
+# covering unit tests is review-evident multi-file insider forgery, beyond regression scope.)
+cargo build --offline --quiet --manifest-path crates/hypothesis-layer/Cargo.toml --example execution_intent_report >/dev/null 2>&1
+_ei_dir="$(mktemp -d)"
+./target/debug/examples/execution_intent_report > "$_ei_dir/run1.json" 2>/dev/null
+./target/debug/examples/execution_intent_report > "$_ei_dir/run2.json" 2>/dev/null
+if ! cmp -s "$_ei_dir/run1.json" "$_ei_dir/run2.json"; then rm -rf "$_ei_dir"; exit 1; fi
+grep -q '"execution_status": "not_executed"' "$_ei_dir/run1.json"
+grep -q '"execution_status": "requires_operator"' "$_ei_dir/run1.json"
+grep -q '"execution_status": "blocked"' "$_ei_dir/run1.json"
+grep -q '"cleared": 2' "$_ei_dir/run1.json"
+# All four ExecutionReason tokens, each from a real from_review disposition in the intents array above.
+grep -q '"reason_code": "approved_automated_scope_not_executed"' "$_ei_dir/run1.json"
+grep -q '"reason_code": "approved_requires_operator"' "$_ei_dir/run1.json"
+grep -q '"reason_code": "rejected_not_executable"' "$_ei_dir/run1.json"
+grep -q '"reason_code": "deferred_not_executable"' "$_ei_dir/run1.json"
+# BEHAVIORAL policy backstop (a SECONDARY channel to the unit tests + the intents-array reasons above): the
+# example RUNS the real from_review() / decide() on the boundary paths — including the blocked-probe path,
+# which cannot appear in the intents array (an approved blocked probe is unconstructable) — and emits these.
+# If a blocked probe became approvable, or any boundary path regressed, these flip to false and the gate fails.
+grep -q '"policy_rejected_review_blocked": true' "$_ei_dir/run1.json"
+grep -q '"policy_deferred_review_blocked": true' "$_ei_dir/run1.json"
+grep -q '"policy_blocked_probe_never_approved": true' "$_ei_dir/run1.json"
+grep -q '"policy_approved_records_not_executed": true' "$_ei_dir/run1.json"
+rm -rf "$_ei_dir"
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json

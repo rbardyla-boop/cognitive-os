@@ -44,6 +44,10 @@ pub use review::{
     ReasonCode, ReviewDecision, ReviewError, ReviewLog, ReviewReceipt, ReviewerAuthority,
 };
 
+/// HYP-3: the approved-probe execution stub / non-execution boundary, built on the HYP-2 receipt.
+mod execution;
+pub use execution::{ExecutionError, ExecutionReason, ExecutionStatus, ProbeExecutionIntent};
+
 /// Probability-like fields are fixed-point per-mille in `0..=SCALE` (no floats, so
 /// scoring is deterministic and replayable across platforms — matching the engine's
 /// integer discipline).
