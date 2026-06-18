@@ -609,8 +609,9 @@ grep -q 'enum SchemaVersion' crates/reading-cli/src/lib.rs
 grep -q 'UnsupportedSchema' crates/reading-cli/src/lib.rs
 grep -q 'read0-run-v1' crates/reading-cli/src/lib.rs
 grep -q 'fn partition_sections' crates/reading-cli/src/lib.rs
-# End-to-end schema-version binary smoke: a real v2 receipt verifies; its v1 migration verifies; and
-# every tag/content mismatch (dropped sections, v1-with-sections, unknown version) is rejected.
+# End-to-end schema-version binary smoke: read0 writes a v3 receipt (READ-14); a faithful v1 migration of
+# it verifies; and every tag/content mismatch (v2 dropped sections, v1-with-sections, unknown version) is
+# rejected. Each legacy variant is built FAITHFULLY (a pre-v3 tag carries no structure hash).
 _read13_dir="$(mktemp -d)"
 mkdir -p "$_read13_dir/docs"
 printf '# Overview\nThe bridge is open.\n## Wind Forecast\nWinds will reach forty miles per hour.' > "$_read13_dir/docs/forecast.txt"
@@ -619,20 +620,66 @@ cat > "$_read13_dir/plan.json" <<'READ13_PLAN'
 READ13_PLAN
 ./target/debug/read0 run "$_read13_dir/docs" "What is the wind forecast?" "$_read13_dir/plan.json" "$_read13_dir/out.json" >/dev/null 2>&1
 ./target/debug/read0 verify "$_read13_dir/out.json" >/dev/null 2>&1
-# MIGRATE — a faithful old v1 receipt (tag read0-run-v1, NO section metadata) MUST verify (flat migration).
-python3 -c "import json; d=json.load(open('$_read13_dir/out.json')); d['schema']='read0-run-v1'; [doc.pop('sections',None) for doc in d['documents']]; json.dump(d,open('$_read13_dir/v1.json','w'))"
+# MIGRATE — a faithful old v1 receipt (tag read0-run-v1, NO sections, NO structure hash) MUST verify.
+python3 -c "import json; d=json.load(open('$_read13_dir/out.json')); d['schema']='read0-run-v1'; d.pop('structure_hash',None); [doc.pop('sections',None) for doc in d['documents']]; json.dump(d,open('$_read13_dir/v1.json','w'))"
 ./target/debug/read0 verify "$_read13_dir/v1.json" >/dev/null 2>&1
-# TAMPER A — a v2 receipt with its sections DROPPED MUST be rejected (sections cannot silently vanish).
-python3 -c "import json; d=json.load(open('$_read13_dir/out.json')); [doc.update(sections=[]) for doc in d['documents']]; json.dump(d,open('$_read13_dir/drop.json','w'))"
+# TAMPER A — a faithful v2 receipt with its sections DROPPED MUST be rejected (sections cannot silently vanish).
+python3 -c "import json; d=json.load(open('$_read13_dir/out.json')); d['schema']='read0-run-v2'; d.pop('structure_hash',None); [doc.update(sections=[]) for doc in d['documents']]; json.dump(d,open('$_read13_dir/drop.json','w'))"
 if ./target/debug/read0 verify "$_read13_dir/drop.json" >/dev/null 2>&1; then rm -rf "$_read13_dir"; exit 1; fi
-# TAMPER B — a v1 tag still carrying v2 sections is ambiguous and MUST be rejected.
-python3 -c "import json; d=json.load(open('$_read13_dir/out.json')); d['schema']='read0-run-v1'; json.dump(d,open('$_read13_dir/v1sec.json','w'))"
+# TAMPER B — a v1 tag still carrying sections is ambiguous and MUST be rejected.
+python3 -c "import json; d=json.load(open('$_read13_dir/out.json')); d['schema']='read0-run-v1'; d.pop('structure_hash',None); json.dump(d,open('$_read13_dir/v1sec.json','w'))"
 if ./target/debug/read0 verify "$_read13_dir/v1sec.json" >/dev/null 2>&1; then rm -rf "$_read13_dir"; exit 1; fi
 # TAMPER C — an unknown schema version MUST be rejected GRACEFULLY (no panic).
 python3 -c "import json; d=json.load(open('$_read13_dir/out.json')); d['schema']='read0-run-v9'; json.dump(d,open('$_read13_dir/unknown.json','w'))"
 if ./target/debug/read0 verify "$_read13_dir/unknown.json" >/dev/null 2>"$_read13_dir/u.err"; then rm -rf "$_read13_dir"; exit 1; fi
 if grep -qi panic "$_read13_dir/u.err"; then rm -rf "$_read13_dir"; exit 1; fi
 rm -rf "$_read13_dir"
+# ---------------------------------------------------------------------------------------------------
+# READ-14 — receipt integrity hashing for structural metadata. read0 now writes `read0-run-v3`, which adds
+# an explicit structural-integrity hash (FNV-1a 64-bit) binding the schema + per-document title, ordered
+# span texts, and ordered sections (heading + span count). verify/replay recompute it and reject a mismatch,
+# so a NON-EVIDENTIARY structural edit that the READ-12/13 consistency checks would miss — a heading or
+# title string, an UNCITED span's text, a section boundary that still partitions — is now caught. The hash
+# is version-gated: a v3 receipt MUST carry a matching hash; a pre-v3 (v1/v2) receipt MUST NOT (a relabel
+# that keeps a stale hash is rejected). The hash is an INTEGRITY checksum, never an evidence signal — it
+# never reaches the codec/grounding and never makes a heading citable; evidence authority (memory/answer
+# re-derivation + cited-span grounding) is unchanged. The reading-cli suite (heading_string_tamper_is_rejected,
+# title_tamper_is_rejected, uncited_span_tamper_caught_under_v3_not_v2, v3_receipt_with_missing_structure_hash_is_rejected,
+# v2_receipt_carrying_structure_hash_is_rejected, structural_hash_is_deterministic_and_field_sensitive) is
+# the load-bearing check. Schema/receipt hardening only — no model, no training.
+# ---------------------------------------------------------------------------------------------------
+# The structural binding is present: the v3 tag, the structure_hash field, and the deterministic hasher.
+grep -q 'read0-run-v3' crates/reading-cli/src/lib.rs
+grep -q 'structure_hash' crates/reading-cli/src/lib.rs
+grep -q 'fn structural_hash' crates/reading-cli/src/lib.rs
+grep -q 'fn enforce_structure_hash' crates/reading-cli/src/lib.rs
+# End-to-end structural-hash binary smoke: a v3 receipt carries a structure_hash and verifies; tampering a
+# heading STRING, corrupting the hash, dropping the hash, or relabel-keeping it under v2 are each rejected.
+_read14_dir="$(mktemp -d)"
+mkdir -p "$_read14_dir/docs"
+printf '# Overview\nThe bridge is open.\n## Wind Forecast\nWinds will reach forty miles per hour.' > "$_read14_dir/docs/forecast.txt"
+cat > "$_read14_dir/plan.json" <<'READ14_PLAN'
+[{"action":"inspect_corpus"},{"action":"read_span","span_id":1},{"action":"extract_claim","statement":"Winds will reach forty miles per hour.","source_span_ids":[1]},{"action":"synthesize","answer_text":"Winds will reach forty miles per hour.","supporting_claims":[0]}]
+READ14_PLAN
+./target/debug/read0 run "$_read14_dir/docs" "What is the wind forecast?" "$_read14_dir/plan.json" "$_read14_dir/out.json" >/dev/null 2>&1
+./target/debug/read0 verify "$_read14_dir/out.json" >/dev/null 2>&1
+# the v3 receipt carries the schema tag and a structure hash.
+grep -q '"read0-run-v3"' "$_read14_dir/out.json"
+grep -q '"structure_hash"' "$_read14_dir/out.json"
+# TAMPER A — edit a section HEADING string (a non-evidentiary label that still partitions): MUST be rejected.
+python3 -c "import json; d=json.load(open('$_read14_dir/out.json')); d['documents'][0]['sections'][1]['heading']='Calm Skies'; json.dump(d,open('$_read14_dir/heading.json','w'))"
+if ./target/debug/read0 verify "$_read14_dir/heading.json" >/dev/null 2>&1; then rm -rf "$_read14_dir"; exit 1; fi
+# TAMPER B — corrupt the structure hash: MUST be rejected.
+python3 -c "import json; d=json.load(open('$_read14_dir/out.json')); d['structure_hash']=(d['structure_hash'] ^ 0xDEADBEEF); json.dump(d,open('$_read14_dir/corrupt.json','w'))"
+if ./target/debug/read0 verify "$_read14_dir/corrupt.json" >/dev/null 2>&1; then rm -rf "$_read14_dir"; exit 1; fi
+# TAMPER C — a v3 receipt with the structure hash DROPPED: MUST be rejected (the binding cannot vanish).
+python3 -c "import json; d=json.load(open('$_read14_dir/out.json')); d.pop('structure_hash',None); json.dump(d,open('$_read14_dir/nohash.json','w'))"
+if ./target/debug/read0 verify "$_read14_dir/nohash.json" >/dev/null 2>"$_read14_dir/n.err"; then rm -rf "$_read14_dir"; exit 1; fi
+if grep -qi panic "$_read14_dir/n.err"; then rm -rf "$_read14_dir"; exit 1; fi
+# TAMPER D — relabel to v2 but KEEP the structure hash (a pre-v3 tag must not carry it): MUST be rejected.
+python3 -c "import json; d=json.load(open('$_read14_dir/out.json')); d['schema']='read0-run-v2'; json.dump(d,open('$_read14_dir/v2hash.json','w'))"
+if ./target/debug/read0 verify "$_read14_dir/v2hash.json" >/dev/null 2>&1; then rm -rf "$_read14_dir"; exit 1; fi
+rm -rf "$_read14_dir"
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json

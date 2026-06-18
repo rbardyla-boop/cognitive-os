@@ -66,37 +66,60 @@ pub struct RunFile {
     pub answer: String,
     pub memory_hash: u64,
     pub answer_hash: u64,
+    /// READ-14 structural-integrity hash binding the schema + document/section/span
+    /// STRUCTURE. Present (and required to match) on `read0-run-v3`; absent on the
+    /// pre-v3 v1/v2 receipts. Non-evidentiary: it gates tamper, never grounding.
+    #[serde(default)]
+    pub structure_hash: Option<u64>,
     pub receipt: Receipt,
 }
 
-/// The receipt schema versions `read0` understands (READ-13). Versions are
+/// The receipt schema versions `read0` understands (READ-13/14). Versions are
 /// explicit so verify/replay behaviour is deterministic and a receipt's tag must
-/// agree with its content: a v2 receipt MUST carry its section metadata, a v1
-/// receipt MUST NOT, and any other tag is refused outright. The tag never grants
-/// evidence authority — it only governs how the section STRUCTURE is rebuilt.
+/// agree with its content, and any other tag is refused outright. The tag never
+/// grants evidence authority — it only governs how the STRUCTURE is rebuilt and
+/// whether the structural-integrity hash (READ-14) is required.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SchemaVersion {
     /// `read0-run-v1` — the pre-section receipt: documents carry spans only, with
-    /// no section metadata. Migrated forward deterministically by treating each
-    /// document as one default (empty-heading) section over all its spans. The flat
-    /// rebuild reproduces the same span ids and hashes a v1 run produced, so old
-    /// receipts still verify/replay (sections affect reading ORDER only).
+    /// no section metadata and no structure hash. Migrated forward deterministically
+    /// by treating each document as one default (empty-heading) section over all its
+    /// spans. The flat rebuild reproduces the same span ids and hashes a v1 run
+    /// produced, so old receipts still verify/replay (sections affect reading ORDER
+    /// only).
     V1,
     /// `read0-run-v2` — documents carry heading-labelled sections that partition
-    /// their spans (READ-12). Sections must be present (they cannot be dropped).
+    /// their spans (READ-12), but no structure hash. Sections must be present (they
+    /// cannot be dropped); a structure hash must NOT be present (it predates v3).
     V2,
+    /// `read0-run-v3` — like v2, plus an explicit structural-integrity hash
+    /// (READ-14) binding the schema, document titles, span texts, and section
+    /// structure. Sections AND a matching structure hash must both be present. This
+    /// is what `read0` writes today.
+    V3,
 }
 
 impl SchemaVersion {
     const V1_TAG: &'static str = "read0-run-v1";
     const V2_TAG: &'static str = "read0-run-v2";
+    const V3_TAG: &'static str = "read0-run-v3";
 
     /// Recognize a receipt's schema tag, or refuse an unknown version cleanly.
     fn parse(tag: &str) -> Result<Self, CliError> {
         match tag {
             Self::V1_TAG => Ok(Self::V1),
             Self::V2_TAG => Ok(Self::V2),
+            Self::V3_TAG => Ok(Self::V3),
             other => Err(CliError::UnsupportedSchema(other.to_string())),
+        }
+    }
+
+    /// The on-disk tag for this version.
+    fn tag(self) -> &'static str {
+        match self {
+            Self::V1 => Self::V1_TAG,
+            Self::V2 => Self::V2_TAG,
+            Self::V3 => Self::V3_TAG,
         }
     }
 }
@@ -166,7 +189,7 @@ pub fn produce_run(
     // order, with ATX heading lines excluded (READ-11) — AND the heading-labelled
     // sections that partition them (READ-12). The headings are metadata only (a
     // span count, never a span), so a heading can never be re-derived as evidence.
-    let documents = corpus
+    let documents: Vec<DocumentDto> = corpus
         .metadata()
         .iter()
         .map(|doc| DocumentDto {
@@ -192,16 +215,22 @@ pub fn produce_run(
                 .collect(),
         })
         .collect();
+    // read0 always writes the current schema (v3): every document carries its
+    // sections, and the receipt carries a structural-integrity hash binding the
+    // schema + document/section/span structure. v1/v2 are recognized for reading old
+    // receipts, never written. The structure hash is non-evidentiary — it binds
+    // tamper-detection over the structure, not grounding.
+    let schema = SchemaVersion::V3_TAG.to_string();
+    let structure_hash = Some(structural_hash(&schema, &documents));
     Ok(RunFile {
-        // read0 always writes the current schema: every document carries its
-        // sections (v2). v1 is recognized for reading old receipts, never written.
-        schema: SchemaVersion::V2_TAG.to_string(),
+        schema,
         question: question.to_string(),
         documents,
         plan: plan.to_string(),
         answer: run.proof.answer_text.clone(),
         memory_hash: run.memory_hash,
         answer_hash: run.answer_hash,
+        structure_hash,
         receipt: Receipt {
             grounded: report.grounded,
             answer_supported: report.answer_supported,
@@ -251,22 +280,119 @@ pub fn replay_file(file: &RunFile) -> Result<(), CliError> {
 /// One document's heading-labelled sections as `(heading, span_texts)` pairs.
 type DocumentSections = Vec<(String, Vec<String>)>;
 
+// --- Structural-integrity hash (READ-14) ---
+//
+// A deterministic FNV-1a 64-bit hash over the receipt's STRUCTURAL metadata: the
+// schema tag, and per document the title, the ordered span texts, and the ordered
+// sections (heading + span count). This is the same FNV-1a 64-bit construction the
+// substrate uses for its content hashes (offset basis 0xcbf29ce484222325, prime
+// 0x100000001b3); it is kept local here so the substrate stays a pure evidence-hash
+// layer and the receipt-integrity concern lives with the receipt.
+//
+// The structural hash is an INTEGRITY checksum, NOT an evidence signal: it never
+// reaches the codec or the grounding path, and it never makes a heading or title
+// citable. It binds the persisted, NON-EVIDENTIARY structure so a field edit that
+// the consistency checks would miss — a heading or title string, an UNCITED span's
+// text, a section boundary that still partitions — is caught as tamper. Evidence
+// authority is protected independently and unchanged: memory_hash/answer_hash are
+// re-derived from the plan through the codec, and grounding still flows only from
+// cited span text. Because the structure is non-evidentiary, this checksum is a
+// faithfulness/corruption guard over it, never a substitute for that re-derivation.
+const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
+
+fn fnv_bytes(mut h: u64, bytes: &[u8]) -> u64 {
+    for &b in bytes {
+        h ^= b as u64;
+        h = h.wrapping_mul(FNV_PRIME);
+    }
+    h
+}
+
+fn fnv_u64(h: u64, value: u64) -> u64 {
+    fnv_bytes(h, &value.to_le_bytes())
+}
+
+/// Deterministic structural hash over the schema tag and documents (titles, ordered
+/// span texts, ordered sections). Every variable-length field is length-prefixed at
+/// every level, so distinct structures cannot collide by re-grouping bytes across
+/// fields. Pure and entropy-free, so identical structure always hashes identically.
+fn structural_hash(schema: &str, documents: &[DocumentDto]) -> u64 {
+    let mut h = FNV_OFFSET;
+    h = fnv_u64(h, schema.len() as u64);
+    h = fnv_bytes(h, schema.as_bytes());
+    h = fnv_u64(h, documents.len() as u64);
+    for doc in documents {
+        h = fnv_u64(h, doc.title.len() as u64);
+        h = fnv_bytes(h, doc.title.as_bytes());
+        h = fnv_u64(h, doc.spans.len() as u64);
+        for span in &doc.spans {
+            h = fnv_u64(h, span.len() as u64);
+            h = fnv_bytes(h, span.as_bytes());
+        }
+        h = fnv_u64(h, doc.sections.len() as u64);
+        for sec in &doc.sections {
+            h = fnv_u64(h, sec.heading.len() as u64);
+            h = fnv_bytes(h, sec.heading.as_bytes());
+            h = fnv_u64(h, sec.span_count as u64);
+        }
+    }
+    h
+}
+
+/// Enforce the READ-14 structural-hash discipline by schema version. A v3 receipt
+/// MUST carry a structure hash that matches the one recomputed from its structural
+/// fields, so a structural field edit is caught as tamper. A pre-v3 (v1/v2) receipt
+/// MUST NOT carry a structure hash — a stray hash under an older tag is ambiguous,
+/// and forbidding it blocks a relabel-to-legacy that keeps the field. The hash binds
+/// structure only; it is never consulted for grounding.
+fn enforce_structure_hash(file: &RunFile, version: SchemaVersion) -> Result<(), CliError> {
+    match version {
+        SchemaVersion::V3 => {
+            let stored = file.structure_hash.ok_or_else(|| {
+                CliError::Tamper(format!(
+                    "a {} receipt must carry a structure hash",
+                    SchemaVersion::V3_TAG
+                ))
+            })?;
+            let computed = structural_hash(&file.schema, &file.documents);
+            if stored != computed {
+                return Err(CliError::Tamper(format!(
+                    "structure hash mismatch: receipt {stored:#018x} vs recomputed {computed:#018x}"
+                )));
+            }
+            Ok(())
+        }
+        SchemaVersion::V1 | SchemaVersion::V2 => {
+            if file.structure_hash.is_some() {
+                return Err(CliError::Tamper(format!(
+                    "a {} receipt must not carry a structure hash",
+                    version.tag()
+                )));
+            }
+            Ok(())
+        }
+    }
+}
+
 /// Rebuild the SECTIONED corpus a run file describes, rejecting tamper, so a
 /// consumer (verify/replay, or section-aware autonomy over a real read0 output)
 /// gets the SAME sections and span ids `run` built. Integrity checks:
 ///
 /// 0. The receipt's schema tag is a version `read0` understands (READ-13) — an
-///    unknown tag is refused as `UnsupportedSchema` before any rebuild.
+///    unknown tag is refused as `UnsupportedSchema` before any rebuild — and the
+///    structural-integrity hash agrees with the tag (READ-14): a v3 receipt must
+///    carry a matching structure hash, a v1/v2 receipt must carry none.
 /// 1. Each stored span is exactly ONE sentence — a multi-sentence span is a corpus
 ///    the run path could never produce (it would let a claim ground against an
 ///    inner sentence). (Pre-existing READ-3 check, unchanged.)
 /// 2. No stored span is an ATX heading — a heading must never be re-derived as a
 ///    span, or it could be cited and grounded (HEADING-AS-SPAN tamper).
 /// 3. The section structure must AGREE with the schema tag (READ-13 version
-///    discipline): a v2 receipt MUST carry section metadata (it cannot silently
-///    vanish), a v1 receipt MUST NOT (a v1 tag wearing v2 sections is ambiguous).
+///    discipline): a v2/v3 receipt MUST carry section metadata (it cannot silently
+///    vanish), a v1 receipt MUST NOT (a v1 tag wearing sections is ambiguous).
 ///    A v1 receipt migrates to one default empty-heading section over all spans; a
-///    v2 receipt's section span counts must partition its body spans exactly
+///    v2/v3 receipt's section span counts must partition its body spans exactly
 ///    (SECTION/BODY-MISMATCH tamper).
 ///
 /// Sections are metadata: they affect reading ORDER only, never grounding, so the
@@ -274,6 +400,7 @@ type DocumentSections = Vec<(String, Vec<String>)>;
 /// keep their full strength. The schema tag governs structure, never evidence.
 pub fn rebuild_corpus(file: &RunFile) -> Result<reading_substrate::Corpus, CliError> {
     let version = SchemaVersion::parse(&file.schema)?;
+    enforce_structure_hash(file, version)?;
     let mut docs_sectioned: Vec<SectionedDocument> = Vec::new();
     for document in &file.documents {
         for span in &document.spans {
@@ -291,7 +418,7 @@ pub fn rebuild_corpus(file: &RunFile) -> Result<reading_substrate::Corpus, CliEr
         let sections = match version {
             SchemaVersion::V1 => {
                 // A v1 receipt carries NO section metadata. Sections under a v1 tag
-                // are ambiguous (v1 or v2?) and rejected. Otherwise migrate forward
+                // are ambiguous (v1 or v2+?) and rejected. Otherwise migrate forward
                 // deterministically: one default empty-heading section over all spans.
                 if !document.sections.is_empty() {
                     return Err(CliError::Tamper(format!(
@@ -301,13 +428,13 @@ pub fn rebuild_corpus(file: &RunFile) -> Result<reading_substrate::Corpus, CliEr
                 }
                 vec![(String::new(), document.spans.clone())]
             }
-            SchemaVersion::V2 => {
-                // A v2 receipt MUST carry its sections; empty sections means the
+            SchemaVersion::V2 | SchemaVersion::V3 => {
+                // A v2/v3 receipt MUST carry its sections; empty sections means the
                 // section metadata was dropped — it cannot silently disappear.
                 if document.sections.is_empty() {
                     return Err(CliError::Tamper(format!(
                         "a {} receipt must carry section metadata (sections were dropped)",
-                        SchemaVersion::V2_TAG
+                        version.tag()
                     )));
                 }
                 partition_sections(document)?
@@ -589,12 +716,39 @@ mod tests {
         produce_run(&headed_docs(), "What is the wind forecast?", plan).expect("valid headed run")
     }
 
+    // Downgrade a freshly produced (v3) receipt to a FAITHFUL legacy receipt: v2
+    // drops the structure hash (keeps sections); v1 drops both the hash and the
+    // sections. These are exactly the shapes an old read0 wrote, so they verify.
+    fn as_v2(mut file: RunFile) -> RunFile {
+        file.schema = SchemaVersion::V2_TAG.to_string();
+        file.structure_hash = None;
+        file
+    }
+    fn as_v1(mut file: RunFile) -> RunFile {
+        file.schema = SchemaVersion::V1_TAG.to_string();
+        file.structure_hash = None;
+        for doc in &mut file.documents {
+            doc.sections.clear();
+        }
+        file
+    }
+
+    // Re-seal a hand-edited v3 receipt's structure hash, modelling the STRONGEST
+    // attacker — one who recomputes the structure hash after tampering. The deeper
+    // checks (heading-as-span, partition, grounding) must still fire, proving the
+    // structure hash is an added layer that never MASKS them.
+    fn reseal(mut file: RunFile) -> RunFile {
+        file.structure_hash = Some(structural_hash(&file.schema, &file.documents));
+        file
+    }
+
     #[test]
     fn run_receipt_includes_section_metadata() {
-        // The run file is schema v2 and carries the heading-labelled sections that
+        // The run file is schema v3 and carries the heading-labelled sections that
         // partition the body spans (a span COUNT per heading — never a span).
         let file = headed_run();
-        assert_eq!(file.schema, "read0-run-v2");
+        assert_eq!(file.schema, "read0-run-v3");
+        assert!(file.structure_hash.is_some(), "v3 carries a structure hash");
         let doc = &file.documents[0];
         let headings: Vec<&str> = doc.sections.iter().map(|s| s.heading.as_str()).collect();
         assert_eq!(headings, vec!["Overview", "Wind Forecast"]);
@@ -626,9 +780,11 @@ mod tests {
     fn heading_as_span_tamper_is_rejected() {
         // A hand-edited receipt that injects an ATX heading as a body span is
         // rejected before any grounding — a heading can never be re-derived as a
-        // span (so it can never be cited or grounded).
+        // span (so it can never be cited or grounded). Re-sealed so the heading-as-
+        // span check fires even against an attacker who recomputes the structure hash.
         let mut file = headed_run();
         file.documents[0].spans[0] = "# Injected Heading".to_string();
+        let file = reseal(file);
         assert!(matches!(verify_file(&file), Err(CliError::Tamper(_))));
         assert!(matches!(replay_file(&file), Err(CliError::Tamper(_))));
     }
@@ -636,19 +792,23 @@ mod tests {
     #[test]
     fn section_body_mismatch_tamper_is_rejected() {
         // A receipt whose section span counts no longer partition the body spans is
-        // rejected — the sections must match the body they describe.
+        // rejected — the sections must match the body they describe. Re-sealed so the
+        // partition check fires even if the attacker recomputes the structure hash.
         let mut file = headed_run();
         file.documents[0].sections[0].span_count = 5; // sum 5+1 != 2 body spans
+        let file = reseal(file);
         assert!(matches!(verify_file(&file), Err(CliError::Tamper(_))));
         assert!(matches!(replay_file(&file), Err(CliError::Tamper(_))));
     }
 
     #[test]
-    fn headingless_document_round_trips_under_v2() {
-        // A headingless document still runs/verifies/replays under the v2 receipt:
-        // its sole section is the default empty-heading section over all spans.
+    fn headingless_document_round_trips_under_v3() {
+        // A headingless document still runs/verifies/replays under the v3 receipt:
+        // its sole section is the default empty-heading section over all spans, and a
+        // structure hash is still bound over that (degenerate) structure.
         let file = produce_run(&docs(), QUESTION, VALID_PLAN).expect("headingless run finalizes");
-        assert_eq!(file.schema, "read0-run-v2");
+        assert_eq!(file.schema, "read0-run-v3");
+        assert!(file.structure_hash.is_some());
         assert_eq!(file.documents[0].sections.len(), 1);
         assert_eq!(file.documents[0].sections[0].heading, "");
         assert_eq!(
@@ -663,7 +823,9 @@ mod tests {
     fn section_count_overflow_tamper_is_rejected_without_panic() {
         // A crafted receipt whose section counts OVERFLOW (so a naive `sum == len`
         // check could wrap past) must return a graceful Tamper, never panic on the
-        // out-of-bounds partition slice.
+        // out-of-bounds partition slice. Re-sealed so execution REACHES the partition
+        // (otherwise the structure-hash check would reject first and the no-panic
+        // property of partition_sections would never actually be exercised).
         let mut file = headed_run();
         file.documents[0].sections = vec![
             SectionDto {
@@ -675,16 +837,21 @@ mod tests {
                 span_count: 6,
             },
         ];
+        let file = reseal(file);
         assert!(matches!(verify_file(&file), Err(CliError::Tamper(_))));
         assert!(matches!(replay_file(&file), Err(CliError::Tamper(_))));
     }
 
     #[test]
-    fn span_text_tamper_still_caught_under_v2() {
-        // The pre-existing tamper check keeps its full strength: editing a body span
-        // so it no longer supports the answer fails verify (no weakening from v2).
+    fn span_text_tamper_still_caught_under_v3() {
+        // The pre-existing GROUNDING re-derivation keeps its full strength: editing a
+        // cited body span so it no longer supports the answer fails verify. Re-sealed
+        // so the structure hash matches — proving grounding catches the tamper even
+        // when the attacker recomputes the structure hash (the evidence binding is
+        // independent of, and not masked by, the structural one).
         let mut file = headed_run();
         file.documents[0].spans[1] = "Winds will be calm and gentle tonight.".to_string();
+        let file = reseal(file);
         assert!(verify_file(&file).is_err());
     }
 
@@ -693,15 +860,11 @@ mod tests {
     #[test]
     fn v1_headingless_receipt_migrates_and_verifies() {
         // A faithful old `read0-run-v1` receipt: the schema tag is v1 and it carries
-        // NO section metadata (the pre-READ-12 shape). It migrates forward — each
-        // document becomes one default empty-heading section over all its spans —
-        // and still verifies and replays, because sections affect reading ORDER only
-        // (the flat rebuild reproduces the same span ids and hashes).
-        let mut file = headed_run();
-        file.schema = SchemaVersion::V1_TAG.to_string();
-        for doc in &mut file.documents {
-            doc.sections.clear();
-        }
+        // NO section metadata and NO structure hash (the pre-READ-12 shape). It
+        // migrates forward — each document becomes one default empty-heading section
+        // over all its spans — and still verifies and replays, because sections affect
+        // reading ORDER only (the flat rebuild reproduces the same span ids and hashes).
+        let file = as_v1(headed_run());
         assert!(
             verify_file(&file).unwrap().passed,
             "a v1 headingless receipt migrates and verifies"
@@ -715,11 +878,13 @@ mod tests {
 
     #[test]
     fn v1_receipt_carrying_sections_is_rejected() {
-        // Ambiguity attack: a receipt tagged v1 but still wearing v2 section
-        // metadata is neither cleanly v1 nor v2. It is rejected, so a v1 tag can
-        // never be used to smuggle (or relabel away the integrity of) sections.
-        let mut file = headed_run(); // v2, with sections
+        // Ambiguity attack: a receipt tagged v1 but still wearing section metadata is
+        // neither cleanly v1 nor v2+. It is rejected, so a v1 tag can never be used to
+        // smuggle (or relabel away the integrity of) sections. The structure hash is
+        // cleared so this isolates the v1+sections case (not the v1+hash case).
+        let mut file = headed_run(); // v3, with sections
         file.schema = SchemaVersion::V1_TAG.to_string();
+        file.structure_hash = None;
         assert!(matches!(verify_file(&file), Err(CliError::Tamper(_))));
         assert!(matches!(replay_file(&file), Err(CliError::Tamper(_))));
     }
@@ -731,9 +896,9 @@ mod tests {
         // fell back to a flat rebuild and still verified (sections affect only order,
         // not hashes) — so sections could DISAPPEAR unnoticed. Now a v2 tag REQUIRES
         // its sections, so the drop is caught.
-        let mut file = headed_run();
+        let mut file = as_v2(headed_run());
         for doc in &mut file.documents {
-            doc.sections.clear(); // still tagged v2
+            doc.sections.clear(); // faithful v2, sections then dropped
         }
         assert!(matches!(verify_file(&file), Err(CliError::Tamper(_))));
         assert!(matches!(replay_file(&file), Err(CliError::Tamper(_))));
@@ -744,7 +909,7 @@ mod tests {
         // An unrecognized schema version is refused cleanly (never accepted by
         // default), on both verify and replay.
         let mut file = headed_run();
-        file.schema = "read0-run-v3".to_string();
+        file.schema = "read0-run-v9".to_string();
         assert!(matches!(
             verify_file(&file),
             Err(CliError::UnsupportedSchema(_))
@@ -753,5 +918,128 @@ mod tests {
             replay_file(&file),
             Err(CliError::UnsupportedSchema(_))
         ));
+    }
+
+    // --- READ-14: structural-integrity hash over the receipt's metadata ---
+
+    #[test]
+    fn v3_receipt_carries_and_verifies_structure_hash() {
+        // read0 writes v3 with a structure hash bound over the schema + structure; it
+        // verifies and replays, and the hash never makes the heading evidence (the
+        // heading text does not appear in the grounded answer).
+        let file = headed_run();
+        assert_eq!(file.schema, "read0-run-v3");
+        assert!(file.structure_hash.is_some());
+        assert!(verify_file(&file).unwrap().passed);
+        replay_file(&file).expect("a v3 receipt replays");
+        assert!(
+            !file.answer.contains("Wind Forecast"),
+            "the heading is bound for integrity but is never grounded evidence"
+        );
+    }
+
+    #[test]
+    fn heading_string_tamper_is_rejected() {
+        // The headline READ-14 capability: editing a section HEADING string — NOT to
+        // a heading-as-span, just a different label that still partitions the body —
+        // passes every READ-12/13 consistency check but breaks the structure hash, so
+        // it is now caught. (Heading metadata is non-evidentiary, but it drives
+        // section ranking, so it must be tamper-evident.)
+        let mut file = headed_run();
+        file.documents[0].sections[1].heading = "Calm Skies".to_string();
+        assert!(matches!(verify_file(&file), Err(CliError::Tamper(_))));
+        assert!(matches!(replay_file(&file), Err(CliError::Tamper(_))));
+    }
+
+    #[test]
+    fn title_tamper_is_rejected() {
+        // Editing a document title (non-evidentiary metadata) breaks the structure
+        // hash and is rejected — previously it would have slipped through unnoticed.
+        let mut file = headed_run();
+        file.documents[0].title = "tampered.txt".to_string();
+        assert!(matches!(verify_file(&file), Err(CliError::Tamper(_))));
+        assert!(matches!(replay_file(&file), Err(CliError::Tamper(_))));
+    }
+
+    #[test]
+    fn uncited_span_tamper_caught_under_v3_not_v2() {
+        // An UNCITED span (span 0 — the plan only reads span 1) edited to a different
+        // single non-heading sentence is invisible to grounding (the plan never reads
+        // it), passes the one-sentence and heading-as-span checks, and keeps the
+        // partition. Under a legacy v2 receipt it slips through; under v3 the
+        // structure hash binds the full span list and catches it.
+        let mut v2 = as_v2(headed_run());
+        v2.documents[0].spans[0] = "The bridge is closed.".to_string();
+        assert!(
+            verify_file(&v2).unwrap().passed,
+            "a legacy v2 receipt does not bind the uncited span (the gap v3 closes)"
+        );
+        let mut v3 = headed_run();
+        v3.documents[0].spans[0] = "The bridge is closed.".to_string();
+        assert!(
+            matches!(verify_file(&v3), Err(CliError::Tamper(_))),
+            "v3 binds the full span structure, so the uncited-span edit is caught"
+        );
+    }
+
+    #[test]
+    fn v3_receipt_with_missing_structure_hash_is_rejected() {
+        // A v3 receipt MUST carry a structure hash; stripping it is rejected (the
+        // binding cannot silently disappear — the same discipline as dropped sections).
+        let mut file = headed_run();
+        file.structure_hash = None;
+        assert!(matches!(verify_file(&file), Err(CliError::Tamper(_))));
+        assert!(matches!(replay_file(&file), Err(CliError::Tamper(_))));
+    }
+
+    #[test]
+    fn v3_structure_hash_tamper_is_rejected() {
+        // A corrupted structure hash (without a matching structure) is rejected.
+        let mut file = headed_run();
+        file.structure_hash = Some(file.structure_hash.unwrap() ^ 0xDEAD_BEEF);
+        assert!(matches!(verify_file(&file), Err(CliError::Tamper(_))));
+        assert!(matches!(replay_file(&file), Err(CliError::Tamper(_))));
+    }
+
+    #[test]
+    fn v2_receipt_carrying_structure_hash_is_rejected() {
+        // Relabel guard: take a v3 receipt, relabel to v2 but KEEP the structure hash.
+        // A pre-v3 tag must not carry the field (it is ambiguous and would let a
+        // downgrade keep a stale binding), so it is rejected.
+        let mut file = headed_run();
+        file.schema = SchemaVersion::V2_TAG.to_string();
+        assert!(matches!(verify_file(&file), Err(CliError::Tamper(_))));
+        assert!(matches!(replay_file(&file), Err(CliError::Tamper(_))));
+    }
+
+    #[test]
+    fn structural_hash_is_deterministic_and_field_sensitive() {
+        // The hash is pure (identical structure → identical hash) and sensitive to
+        // every bound field, so any structural edit changes it.
+        let file = headed_run();
+        let base = structural_hash(&file.schema, &file.documents);
+        assert_eq!(
+            base,
+            structural_hash(&file.schema, &file.documents),
+            "identical structure hashes identically"
+        );
+        let mut heading_edit = file.clone();
+        heading_edit.documents[0].sections[0].heading = "Changed".to_string();
+        assert_ne!(
+            base,
+            structural_hash(&heading_edit.schema, &heading_edit.documents)
+        );
+        let mut title_edit = file.clone();
+        title_edit.documents[0].title = "other.txt".to_string();
+        assert_ne!(
+            base,
+            structural_hash(&title_edit.schema, &title_edit.documents)
+        );
+        let mut span_edit = file.clone();
+        span_edit.documents[0].spans[0] = "Different sentence here.".to_string();
+        assert_ne!(
+            base,
+            structural_hash(&span_edit.schema, &span_edit.documents)
+        );
     }
 }
