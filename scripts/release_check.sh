@@ -1616,6 +1616,40 @@ mkdir "$_int3_dir/tf"; for _f in trace.json report.txt questions.txt manifest.js
 if ./target/debug/cognitive-demo bundle-verify --path "$_int3_dir/tf" >/dev/null 2>&1; then rm -rf "$_int3_dir"; exit 1; fi
 rm -rf "$_int3_dir"
 # ---------------------------------------------------------------------------------------------------
+# INT-4 — integration track milestone freeze. The INT-0 -> INT-3 integration-demo arc (the cognitive-demo crate
+# over the two frozen tracks) is frozen as integration-demo-v0.1. The milestone record
+# (INTEGRATION_DEMO_MILESTONE.md) pins the commit lineage, the frozen dependency tracks, the
+# output-not-authority boundary, the P12 training verdict, and the honest residuals, and is locked here so the
+# freeze cannot silently drift. The pinned commit hashes are auditable against `git log`. Documentation freeze
+# only — no code crate changes, no model, no training; the milestone records training_not_justified. Doctrine:
+# The integration demo shows the prototype. The trace is output, not authority. The report is output, not
+# authority. Questions explain the trace. The bundle demonstrates the prototype. Nothing executes. Nothing
+# becomes evidence. Nothing promotes. Nothing trains.
+# ---------------------------------------------------------------------------------------------------
+test -f INTEGRATION_DEMO_MILESTONE.md
+grep -q 'FROZEN' INTEGRATION_DEMO_MILESTONE.md
+grep -q 'integration-demo-v0.1' INTEGRATION_DEMO_MILESTONE.md
+grep -q 'INT-0' INTEGRATION_DEMO_MILESTONE.md
+grep -q 'INT-3' INTEGRATION_DEMO_MILESTONE.md
+grep -q 'training_not_justified' INTEGRATION_DEMO_MILESTONE.md
+grep -q 'training_justified=false' INTEGRATION_DEMO_MILESTONE.md
+# Full INT-0..INT-3 commit lineage is pinned (cross-checkable against git log).
+grep -q '2330f7c' INTEGRATION_DEMO_MILESTONE.md
+grep -q '92c0692' INTEGRATION_DEMO_MILESTONE.md
+grep -q 'b5bcf66' INTEGRATION_DEMO_MILESTONE.md
+grep -q 'f451c39' INTEGRATION_DEMO_MILESTONE.md
+# The two frozen dependency tracks are referenced as frozen deps (tag + commit).
+grep -q 'reading-track-v0.1' INTEGRATION_DEMO_MILESTONE.md
+grep -q 'hypothesis-track-v0.1' INTEGRATION_DEMO_MILESTONE.md
+grep -q 'f6fa55a' INTEGRATION_DEMO_MILESTONE.md
+grep -q 'bb20acf' INTEGRATION_DEMO_MILESTONE.md
+# The output-not-authority boundary is recorded verbatim (all nine lines).
+for _bl in 'The integration demo shows the prototype.' 'The trace is output, not authority.' 'The report is output, not authority.' 'Questions explain the trace.' 'The bundle demonstrates the prototype.' 'Nothing executes.' 'Nothing becomes evidence.' 'Nothing promotes.' 'Nothing trains.'; do
+  if ! grep -qF "$_bl" INTEGRATION_DEMO_MILESTONE.md; then exit 1; fi
+done
+# The milestone makes NO false training claim (it never asserts training opened).
+if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' INTEGRATION_DEMO_MILESTONE.md; then exit 1; fi
+# ---------------------------------------------------------------------------------------------------
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json

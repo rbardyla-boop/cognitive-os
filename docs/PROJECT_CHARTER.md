@@ -3,6 +3,38 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-19-H — Freeze the integration-demo track (INT-0 → INT-3) as integration-demo-v0.1
+
+**Decision.** Freeze the INT-0 → INT-3 integration-demo arc as a named, auditable milestone
+`integration-demo-v0.1`, recorded in a new freeze doc `INTEGRATION_DEMO_MILESTONE.md` and locked by a milestone
+block in `scripts/release_check.sh`. Documentation freeze only — it adds no behavior and edits no code crate.
+
+**Why.** INT-0 (trace), INT-1 (report CLI), INT-2 (question harness), and INT-3 (repro bundle) now form a
+complete, demonstrable integration arc over the two frozen tracks: the prototype can produce a verified
+reading-derived trace, show the operator what happened, answer fixed audit questions, and package the whole
+thing into a reproducible, re-derivable bundle. Per the build→prove cadence, the arc is frozen before more
+behavior is added — the same discipline that produced `reading-track-v0.1` and `hypothesis-track-v0.1`.
+
+**Boundary recorded.** The milestone doc pins the commit lineage (INT-0 `2330f7c`, INT-1 `92c0692`, INT-2
+`b5bcf66`, INT-3 `f451c39`), references the frozen dependencies (`reading-track-v0.1` @ `f6fa55a`,
+`hypothesis-track-v0.1` @ `bb20acf`), states the demonstrable capability, and records the output-not-authority
+boundary verbatim: *The integration demo shows the prototype. The trace is output, not authority. The report is
+output, not authority. Questions explain the trace. The bundle demonstrates the prototype. Nothing executes.
+Nothing becomes evidence. Nothing promotes. Nothing trains.* The arc-wide discipline is RE-DERIVE, NEVER TRUST:
+every operator surface that accepts a file (report, replay, ask, bundle-verify) verifies by re-deriving the
+canonical artifact and byte-comparing — no record in the crate derives `Deserialize` — so off-wire tampering can
+never be laundered into authority. The milestone makes no false claim: it records P12 `training_justified=false`
+(`training_not_justified`), and the integration crate executes no probe, promotes nothing, mutates no memory, and
+moves no training verdict; P13–P15 stay closed. The `release_check.sh` milestone lock pins the freeze doc's
+existence, the four INT commit hashes (auditable against `git log`), the frozen-dependency references, the nine
+boundary lines verbatim, and the `training_not_justified` verdict, and guards against a false `training_justified
+= true` claim, so the freeze cannot silently drift. Verified by a green byte-silent `release_check.sh`, live
+sabotage probes of the milestone lock (each restored byte-identical), and a read-only adversarial panel.
+The tag `integration-demo-v0.1` is created only after a clean tree and a green gate, on the freeze commit. No
+frozen crate source is touched, the `reading-track-v0.1` (`f6fa55a`) and `hypothesis-track-v0.1` (`bb20acf`) tags
+are unmoved, P12 `training_justified=false`, and P13–P15 closed. Recorded in full in
+[INTEGRATION_DEMO_MILESTONE.md](../INTEGRATION_DEMO_MILESTONE.md). Local only — no remote push.
+
 ## DD-2026-06-19-G — Add the prototype demo bundle / operator repro pack (INT-3)
 
 **Decision.** Extend `crates/cognitive-demo` (the `cognitive-demo` binary) with one reproducible operator pack
