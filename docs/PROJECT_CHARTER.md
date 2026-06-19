@@ -3,6 +3,54 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-19-B — Cognitive OS prototype status snapshot after HYP-5
+
+**Decision.** Record the cumulative status of the Cognitive OS prototype after HYP-5 commits. Documentation
+only — no runtime behavior changes, no Cargo/lock change, no training path opened, no probe execution, no
+evidence promotion, no memory mutation, no verifier change. P13–P15 stay closed.
+
+**Frozen anchors.** The governance milestone `cognitive-os-governance-v0.1` remains frozen. The reading
+milestone `reading-track-v0.1` points at `f6fa55a`. P12 remains the controlling training verdict:
+`training_justified=false`. No LLM training, no probe execution, no observation promotion, and no evidence
+authority expansion have occurred.
+
+**Post-freeze hypothesis chain (all in `crates/hypothesis-layer`, untagged, local only):**
+
+- HYP-0 `f19a998` — hypothesis-only abductive layer.
+- HYP-1 `4b47736` — probe queue / human-review boundary.
+- HYP-2 `cb68a73` — governance review receipt boundary.
+- HYP-3 `6cbb3a8` — approved-probe execution stub / non-execution boundary.
+- HYP-4 `7703e2e` — observation receipt quarantine.
+- HYP-5 `cef91db` — observation promotion gate / still-no-evidence boundary.
+
+**Status table.**
+
+| Track | Status |
+| ----- | ------ |
+| Governance v0.1 | complete / frozen / tagged (`cognitive-os-governance-v0.1`) |
+| Deterministic engine P1–P8 | complete / tested |
+| Reading substrate READ-0–READ-15 | complete / tested / frozen / tagged (`reading-track-v0.1` @ `f6fa55a`) |
+| Codec / model / eval / train gate P9–P12 | complete / tested; training blocked (`training_justified=false`) |
+| Hypothesis track HYP-0–HYP-5 | complete / tested through promotion refusal |
+| Training track P13–P15 | closed until P12 flips |
+
+**Active doctrine.** *Probability proposes. Replay tests. Governance authorizes. Memory records.*
+
+**Authority boundary (current).**
+
+- Hypotheses are not claims.
+- Probe requests are not evidence.
+- Review receipts are not execution.
+- Execution intents do not execute.
+- Observations are quarantined.
+- Promotion requests do not promote.
+- Nothing becomes evidence without a future verifier-backed promotion path.
+
+**Status.** Plain assessment: this is a strong prototype concept — a deterministic cognition substrate with
+reading, verification, replay, bounded autonomy, hypothesis generation, review, execution-intent stubs,
+observation quarantine, and promotion refusal. It is NOT an AI model yet; the model/training track is still
+correctly blocked at P12. `release_check` remains green and silent; no code crates changed for this snapshot.
+
 ## DD-2026-06-19-A — Add the observation promotion gate / still-no-evidence boundary (P17 / HYP-5) in-crate
 
 **Decision.** Add `crates/hypothesis-layer/src/promotion.rs` — a `PromotionRequest` derived from a HYP-4
