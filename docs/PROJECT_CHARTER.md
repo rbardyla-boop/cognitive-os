@@ -3,6 +3,40 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-19-E — Add the end-to-end trace CLI / operator report (INT-1)
+
+**Decision.** Extend `crates/cognitive-demo` (INT-0) with the `cognitive-demo` binary: `trace` writes the
+canonical `CognitiveTrace` JSON, `report` renders a plain operator report, `replay` confirms a byte-identical
+reproduction. It is a thin operator surface over the EXISTING canonical trace — it adds NO new authority and NO
+new cognition, consumes no new dependency, and edits no frozen crate.
+
+**Why.** INT-0 proved the chain internally; the next useful step was to make it usable and inspectable by a human
+operator (one command → a readable report plus the machine JSON) without reading Rust structs or test output —
+not more capability. The doctrine is unchanged: *Reading verifies. Hypothesis proposes. Probe queue classifies.
+Governance reviews. Execution intent records. Observation quarantines. Promotion refuses. Nothing becomes
+evidence. Nothing trains.*
+
+**Boundary recorded.** The load-bearing design is the trust boundary: because `CognitiveTrace` is `Serialize`
+but NOT `Deserialize`, `report`/`replay` never parse a provided file back into authority — the pure
+`verify_trace_json` RE-DERIVES the canonical trace via `CognitiveTrace::demo()` and compares the provided file
+BYTE-FOR-BYTE, refusing any difference (`TraceError::TraceMismatch`); the report is rendered from the re-derived
+canonical trace. So a tampered/stale/foreign `trace.json` can never be laundered into a clean report or a passing
+replay — both refuse it (verified live by the panel and the gate). `to_report()` is pure formatting (no new
+verdict, no frozen API, no authority object), so report prose cannot become authority. `std::fs` is confined to
+the new `src/main.rs` (a thin I/O shell); the trace core and the example stay filesystem-free, so the trace
+result can never depend on disk, and the CLI spawns no process and opens no socket. The report shows all seven
+stages with the ids/hashes needed to audit/replay, prints all nine boundary lines verbatim, and states
+explicitly that nothing executed, nothing became evidence, and training stayed false. `release_check.sh` gates it
+(CLI-core + report signals, the trust-boundary greps, eight INT-1 test-name pins, the unit-count pin raised
+12→20, the fs-confined scan, and an end-to-end binary smoke that proves trace determinism, full report coverage,
+replay acceptance, and tamper rejection by both replay and report) and stays green + byte-silent. Verified by
+three live sabotage probes (each restored byte-identical) and a read-only adversarial panel (four Explore lenses,
+0 real findings, fully dry, no debris). Purely additive: only `crates/cognitive-demo/{Cargo.toml,src/lib.rs}`,
+the new `src/main.rs`, and the gate block; no frozen crate source touched, the `reading-track-v0.1` (`f6fa55a`)
+and `hypothesis-track-v0.1` (`bb20acf`) tags unmoved, P12 `training_justified=false`, and P13–P15 closed.
+Recorded in full in [a.md](../a.md) (the INT-1 checklist entry and the "End-to-End Trace CLI / Operator Report
+(INT-1)" detail section). Local only — no remote push.
+
 ## DD-2026-06-19-D — Add the end-to-end prototype trace demo (INT-0) as the first integration layer
 
 **Decision.** Add a NEW crate `crates/cognitive-demo` (INT-0) that produces ONE deterministic, replayable

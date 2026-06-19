@@ -16,6 +16,14 @@ publish = false
 # verdict is unmoved by the whole flow). No machine-learning or model-execution
 # framework, no vibe engine crate — release_check asserts the dependency boundary,
 # the crate purity, and the trace's own refusals (no execution, no evidence, no training).
+#
+# INT-1 adds an operator CLI (the `cognitive-demo` binary): `trace` writes the canonical JSON,
+# `report` renders a plain operator report, `replay` confirms a byte-identical reproduction. The
+# binary is ONLY an I/O shell — std::fs lives in src/main.rs alone; all logic stays in the pure lib.
+[[bin]]
+name = "cognitive-demo"
+path = "src/main.rs"
+
 [dependencies]
 hypothesis-layer = { path = "../hypothesis-layer" }
 reading-cli = { path = "../reading-cli" }

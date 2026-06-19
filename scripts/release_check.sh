@@ -1323,20 +1323,24 @@ grep -q 'fn trace_does_not_change_training_gate' crates/cognitive-demo/src/lib.r
 grep -q 'fn trace_does_not_change_verifier_receipt' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_records_every_stage_id_and_links_the_chain' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_grants_no_new_authority' crates/cognitive-demo/src/lib.rs
-# Unit-test REALITY pin: exactly the 12 INT-0 tests pass, zero ignored (so gutting/disabling one is caught,
-# independent of the behavioral channel below).
+# Unit-test REALITY pin: exactly the 20 INT-0 (12) + INT-1 (8) tests pass, zero ignored (so gutting/disabling
+# one is caught, independent of the behavioral channels below).
 _int0_unit="$(cargo test --offline --lib --manifest-path crates/cognitive-demo/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 12
+test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 20
 test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
-# Determinism / no side effects: the demo is a pure, in-memory function — no clock, entropy, network, or
-# process spawning in src/, and no floats anywhere in the crate.
-test "$(grep -rlE 'SystemTime|Instant|std::time|thread_rng|getrandom|rand::|use rand|std::net|std::process|tokio|\.await|reqwest' crates/cognitive-demo/src | wc -l)" -eq 0
+# Determinism / no side effects: the trace is a pure, in-memory function — no clock, entropy, or network
+# anywhere in src/, and no floats anywhere in the crate. (`std::process::exit` in the CLI shell is a clean
+# exit code, not nondeterminism, and is intentionally not matched here.)
+test "$(grep -rlE 'SystemTime|Instant|std::time|thread_rng|getrandom|rand::|use rand|std::net|tokio|\.await|reqwest' crates/cognitive-demo/src | wc -l)" -eq 0
 test "$(grep -rE '\bf32\b|\bf64\b' crates/cognitive-demo/src | wc -l)" -eq 0
-# NO PROBE EXECUTION: no executor/process spawn / filesystem write / network anywhere in src OR the example —
-# a live executor (even one driven off the recorded probe text) leaves the deterministic trace unchanged, so
-# the double-run cannot catch it; this recursive scan does. (The example's `std::process::exit` on error is a
-# clean exit code, not an executor, and is intentionally not matched.)
-test "$(grep -rE 'Command::new|process::Command|\.spawn\(|std::fs|File::create|File::open|fs::write|fs::read|OpenOptions|std::net|TcpStream|UdpSocket' crates/cognitive-demo/src crates/cognitive-demo/examples | wc -l)" -eq 0
+# NO PROBE EXECUTION / NO NETWORK anywhere (src + example): no process spawn, no socket — a live executor
+# (even one driven off the recorded probe text) leaves the deterministic trace unchanged, so the double-run
+# cannot catch it; this recursive scan does.
+test "$(grep -rE 'Command::new|process::Command|\.spawn\(|std::net|TcpStream|UdpSocket' crates/cognitive-demo/src crates/cognitive-demo/examples | wc -l)" -eq 0
+# fs is CONFINED to the binary I/O shell (src/main.rs): the trace CORE (lib.rs) and the example are PURE and
+# touch NO filesystem, so the trace RESULT can never depend on disk — only the operator CLI reads/writes files.
+# (INT-1 adds the CLI; the library that builds/verifies the trace stays fs-free.)
+test "$(grep -rE 'std::fs|File::create|File::open|fs::write|fs::read|OpenOptions' crates/cognitive-demo/src/lib.rs crates/cognitive-demo/examples | wc -l)" -eq 0
 # No model is trained or loaded: the demo manifest pulls no ML/inference/training framework.
 test "$(grep -riE 'torch|tensorflow|candle|onnx|tract|\bburn\b|llama|inference' crates/cognitive-demo/Cargo.toml | wc -l)" -eq 0
 # Separation: cognitive-demo INTEGRATES the two frozen tracks (reading-cli + hypothesis-layer in its tree) and
@@ -1378,6 +1382,77 @@ if grep -qE '"(execution_status|observation_status|promotion_status)": "(execute
 if grep -q '"grants_promotion": true' "$_int0_dir/run1.json"; then rm -rf "$_int0_dir"; exit 1; fi
 if grep -q '"training_justified": true' "$_int0_dir/run1.json"; then rm -rf "$_int0_dir"; exit 1; fi
 rm -rf "$_int0_dir"
+# ---------------------------------------------------------------------------------------------------
+# INT-1 — End-to-End Trace CLI / Operator Report (crates/cognitive-demo, the `cognitive-demo` binary). A thin,
+# deterministic operator surface over the INT-0 trace: `trace` writes the canonical CognitiveTrace JSON,
+# `report` renders a plain operator report, `replay` confirms a byte-identical reproduction. It adds NO
+# authority and NO cognition — the binary is ONLY an I/O shell (std::fs lives in src/main.rs alone; the scan
+# above proves the lib + example stay fs-free), and ALL logic stays in the pure library. Because the trace is
+# Serialize-but-not-Deserialize, `report`/`replay` RE-DERIVE the canonical trace and REFUSE any provided file
+# that is not byte-for-byte that trace, so a tampered/foreign trace can never be laundered into a report or a
+# passing replay. Doctrine: Reading verifies. Hypothesis proposes. Probe queue classifies. Governance reviews.
+# Execution intent records. Observation quarantines. Promotion refuses. Nothing becomes evidence. Nothing trains.
+# ---------------------------------------------------------------------------------------------------
+# The pure CLI cores + report surface exist (signals).
+grep -q 'pub fn run_trace' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn run_report' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn run_replay' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn verify_trace_json' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn to_report' crates/cognitive-demo/src/lib.rs
+grep -q 'BOUNDARY_LINES' crates/cognitive-demo/src/lib.rs
+# The report/replay TRUST BOUNDARY is real: verify_trace_json RE-DERIVES the canonical trace and COMPARES it —
+# it does NOT deserialize the provided trace (CognitiveTrace stays Serialize-only, pinned above), so a mismatch
+# is refused (TraceMismatch) and a forged file is never read back as authority.
+grep -q 'CognitiveTrace::demo()' crates/cognitive-demo/src/lib.rs
+grep -q 'TraceMismatch' crates/cognitive-demo/src/lib.rs
+# The 8 INT-1 first-tests exist (a gutted/deleted test drops the unit count pinned above).
+grep -q 'fn trace_command_writes_json' crates/cognitive-demo/src/lib.rs
+grep -q 'fn report_command_writes_operator_summary' crates/cognitive-demo/src/lib.rs
+grep -q 'fn report_contains_all_boundary_lines' crates/cognitive-demo/src/lib.rs
+grep -q 'fn replay_reproduces_trace' crates/cognitive-demo/src/lib.rs
+grep -q 'fn report_does_not_change_trace' crates/cognitive-demo/src/lib.rs
+grep -q 'fn cli_does_not_execute_probe' crates/cognitive-demo/src/lib.rs
+grep -q 'fn cli_does_not_change_training_gate' crates/cognitive-demo/src/lib.rs
+grep -q 'fn cli_does_not_change_verifier_receipt' crates/cognitive-demo/src/lib.rs
+# End-to-end BINARY smoke (the operator surface, with real files): build the CLI, then drive the three commands
+# against temp files and prove (a) `trace` is deterministic byte-identical across runs and emits the real
+# canonical content, (b) `report` shows every stage + all nine boundary lines + the explicit refusals and never
+# claims an executed/promoted/granted status, (c) `replay` accepts the canonical trace, and (d) a TAMPERED trace
+# is REFUSED by BOTH replay and report (so the CLI can never hide a failed boundary or launder a forged trace).
+cargo build --offline --quiet --manifest-path crates/cognitive-demo/Cargo.toml --bin cognitive-demo >/dev/null 2>&1
+test -f crates/cognitive-demo/src/main.rs
+_int1_dir="$(mktemp -d)"
+./target/debug/cognitive-demo trace --out "$_int1_dir/t1.json" >/dev/null 2>&1
+./target/debug/cognitive-demo trace --out "$_int1_dir/t2.json" >/dev/null 2>&1
+if ! cmp -s "$_int1_dir/t1.json" "$_int1_dir/t2.json"; then rm -rf "$_int1_dir"; exit 1; fi
+# The CLI trace emits the REAL canonical record (not a stub): the same machine-checkable markers the INT-0
+# example double-run already validated.
+grep -q '"promotion_status": "rejected"' "$_int1_dir/t1.json"
+grep -q '"grants_promotion": false' "$_int1_dir/t1.json"
+grep -q '"execution_status": "requires_operator"' "$_int1_dir/t1.json"
+grep -q '"training_justified": false' "$_int1_dir/t1.json"
+./target/debug/cognitive-demo report --trace "$_int1_dir/t1.json" --out "$_int1_dir/r.txt" >/dev/null 2>&1
+# All seven stages appear in the report.
+for _stage in '[1] READING' '[2] HYPOTHESIS' '[3] PROBE QUEUE' '[4] GOVERNANCE REVIEW' '[5] EXECUTION INTENT' '[6] OBSERVATION' '[7] PROMOTION REQUEST'; do
+  if ! grep -qF "$_stage" "$_int1_dir/r.txt"; then rm -rf "$_int1_dir"; exit 1; fi
+done
+# All nine boundary lines appear, verbatim.
+for _line in 'Reading verifies.' 'Hypothesis proposes.' 'Probe queue classifies.' 'Governance reviews.' 'Execution intent records.' 'Observation quarantines.' 'Promotion refuses.' 'Nothing becomes evidence.' 'Nothing trains.'; do
+  if ! grep -qF "$_line" "$_int1_dir/r.txt"; then rm -rf "$_int1_dir"; exit 1; fi
+done
+# The report states the refusals explicitly, in prose, for a human.
+grep -qF 'Nothing executed.' "$_int1_dir/r.txt"
+grep -qF 'Nothing became evidence.' "$_int1_dir/r.txt"
+grep -qF 'training_justified=false' "$_int1_dir/r.txt"
+# The report never claims an executed/promoted/granted status value (it describes a record, never triggers one).
+if grep -qE '(executed|promoted|granted)$' "$_int1_dir/r.txt"; then rm -rf "$_int1_dir"; exit 1; fi
+# replay accepts the canonical trace...
+./target/debug/cognitive-demo replay --trace "$_int1_dir/t1.json" >/dev/null 2>&1
+# ...and a TAMPERED trace is refused by BOTH replay and report (exit non-zero — a failed boundary is not hideable).
+sed 's/"grants_promotion": false/"grants_promotion": true/' "$_int1_dir/t1.json" > "$_int1_dir/tampered.json"
+if ./target/debug/cognitive-demo replay --trace "$_int1_dir/tampered.json" >/dev/null 2>&1; then rm -rf "$_int1_dir"; exit 1; fi
+if ./target/debug/cognitive-demo report --trace "$_int1_dir/tampered.json" >/dev/null 2>&1; then rm -rf "$_int1_dir"; exit 1; fi
+rm -rf "$_int1_dir"
 # ---------------------------------------------------------------------------------------------------
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json

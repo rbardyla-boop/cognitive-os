@@ -53,6 +53,9 @@ pub enum TraceError {
     VerifierRejected,
     /// The hypothesis did not cite the reading receipt by hash (the provenance invariant).
     CitationMismatch,
+    /// A provided trace JSON is not byte-for-byte the canonical re-derived trace (tampered, stale,
+    /// or foreign) — so it is refused for report/replay rather than laundered into authority.
+    TraceMismatch,
 }
 
 impl std::fmt::Display for TraceError {
@@ -67,6 +70,10 @@ impl std::fmt::Display for TraceError {
             TraceError::CitationMismatch => {
                 write!(f, "the hypothesis did not cite the reading receipt by hash")
             }
+            TraceError::TraceMismatch => write!(
+                f,
+                "the provided trace is not the canonical trace (tampered, stale, or foreign)"
+            ),
         }
     }
 }
@@ -436,6 +443,223 @@ impl CognitiveTrace {
             self.promotion_id,
         ]
     }
+
+    /// Render a PLAIN-TEXT operator report from this trace — a readable view of the same
+    /// machine-checkable record, for a human who should not have to read Rust structs or test
+    /// output. The report is pure PROSE *about* the trace: it computes no new verdict, calls no
+    /// frozen API, and grants no authority — every line is formatted directly from this trace's
+    /// already-recorded fields (read via private access in this module), so the report can never
+    /// disagree with, or be more permissive than, the canonical trace it describes. It shows each
+    /// stage (reading → hypothesis → probe queue → review → intent → observation → promotion) with
+    /// the ids/hashes needed to audit and replay, states explicitly that nothing executed, nothing
+    /// became evidence, and training stayed false, and ends with the frozen authority boundary.
+    pub fn to_report(&self) -> String {
+        let mut out = String::new();
+        out.push_str("COGNITIVE OS — END-TO-END TRACE REPORT\n");
+        out.push_str(&format!("schema: {}\n", self.schema));
+        out.push_str(
+            "(a readable view of one canonical CognitiveTrace; it records, it does not act)\n\n",
+        );
+
+        out.push_str("[1] READING — verifies\n");
+        out.push_str(&format!("    question:        {}\n", self.reading_question));
+        out.push_str(&format!("    answer:          {}\n", self.reading_answer));
+        out.push_str(&format!(
+            "    answer_hash:     {}\n",
+            self.reading_answer_hash
+        ));
+        out.push_str(&format!(
+            "    memory_hash:     {}\n",
+            self.reading_memory_hash
+        ));
+        out.push_str(&format!(
+            "    structure_hash:  {}\n",
+            self.reading_structure_hash
+                .map(|h| h.to_string())
+                .unwrap_or_else(|| "none".to_string())
+        ));
+        out.push_str(&format!(
+            "    integrity:       {}\n",
+            self.reading_integrity
+        ));
+        out.push_str(&format!("    verified:        {}\n\n", self.reading_passed));
+
+        out.push_str("[2] HYPOTHESIS — proposes\n");
+        out.push_str(&format!("    id:              {}\n", self.hypothesis_id));
+        out.push_str(&format!(
+            "    statement:       {}\n",
+            self.hypothesis_statement
+        ));
+        out.push_str(&format!(
+            "    authority:       {}\n",
+            self.hypothesis_authority
+        ));
+        out.push_str(&format!(
+            "    cites receipt:   answer_hash={} memory_hash={} (matches reading: {})\n",
+            self.cited_answer_hash, self.cited_memory_hash, self.hypothesis_cites_receipt
+        ));
+        out.push_str(&format!(
+            "    expected_util:   {}\n\n",
+            self.hypothesis_expected_utility
+        ));
+
+        out.push_str("[3] PROBE QUEUE — classifies\n");
+        out.push_str(&format!("    id:              {}\n", self.probe_id));
+        out.push_str(&format!("    status:          {}\n", self.probe_status));
+        out.push_str(&format!("    reason:          {}\n\n", self.probe_reason));
+
+        out.push_str("[4] GOVERNANCE REVIEW — reviews (a decision, not execution)\n");
+        out.push_str(&format!("    id:              {}\n", self.review_id));
+        out.push_str(&format!("    decision:        {}\n", self.review_decision));
+        out.push_str(&format!("    authority:       {}\n", self.review_authority));
+        out.push_str(&format!("    reason:          {}\n", self.review_reason));
+        out.push_str(&format!(
+            "    integrity_hash:  {}\n\n",
+            self.review_integrity_hash
+        ));
+
+        out.push_str("[5] EXECUTION INTENT — records intent (executes nothing)\n");
+        out.push_str(&format!("    id:              {}\n", self.intent_id));
+        out.push_str(&format!("    status:          {}\n", self.execution_status));
+        out.push_str(&format!("    reason:          {}\n", self.execution_reason));
+        out.push_str(&format!(
+            "    requires_operator:{}\n",
+            self.intent_requires_operator
+        ));
+        out.push_str(&format!(
+            "    integrity_hash:  {}\n\n",
+            self.intent_integrity_hash
+        ));
+
+        out.push_str("[6] OBSERVATION — quarantines (never recorded, never evidence)\n");
+        out.push_str(&format!("    id:              {}\n", self.observation_id));
+        out.push_str(&format!(
+            "    status:          {}\n",
+            self.observation_status
+        ));
+        out.push_str(&format!(
+            "    authority:       {}\n",
+            self.observation_authority
+        ));
+        out.push_str(&format!(
+            "    integrity_hash:  {}\n\n",
+            self.observation_integrity_hash
+        ));
+
+        out.push_str("[7] PROMOTION REQUEST — refuses (promotes nothing)\n");
+        out.push_str(&format!("    id:              {}\n", self.promotion_id));
+        out.push_str(&format!("    target:          {}\n", self.promotion_target));
+        out.push_str(&format!("    status:          {}\n", self.promotion_status));
+        out.push_str(&format!("    reason:          {}\n", self.promotion_reason));
+        out.push_str(&format!("    grants_promotion:{}\n", self.grants_promotion));
+        out.push_str(&format!(
+            "    integrity_hash:  {}\n\n",
+            self.promotion_integrity_hash
+        ));
+
+        out.push_str("VERDICTS\n");
+        out.push_str(&format!(
+            "    starts_from_verified_receipt: {}\n",
+            self.starts_from_verified_receipt
+        ));
+        out.push_str(&format!(
+            "    hypothesis_cites_receipt:     {}\n",
+            self.hypothesis_cites_receipt
+        ));
+        out.push_str(&format!(
+            "    chain_linked:                 {}\n",
+            self.chain_linked
+        ));
+        out.push_str(&format!(
+            "    nothing_executed:             {}\n",
+            self.nothing_executed
+        ));
+        out.push_str(&format!(
+            "    observation_quarantined:      {}\n",
+            self.observation_quarantined
+        ));
+        out.push_str(&format!(
+            "    promotion_refused:            {}\n",
+            self.promotion_refused
+        ));
+        out.push_str(&format!(
+            "    nothing_becomes_evidence:     {}\n",
+            self.nothing_becomes_evidence
+        ));
+        out.push_str(&format!(
+            "    training_gate_unchanged:      {}\n",
+            self.training_gate_unchanged
+        ));
+        out.push_str(&format!(
+            "    training_justified:           {}\n\n",
+            self.training_justified
+        ));
+
+        out.push_str("SUMMARY\n");
+        out.push_str("    Nothing executed. Nothing became evidence. Nothing was promoted.\n");
+        out.push_str(&format!(
+            "    The P12 training verdict stayed false (training_justified={}).\n\n",
+            self.training_justified
+        ));
+
+        out.push_str("BOUNDARY\n");
+        for line in BOUNDARY_LINES {
+            out.push_str(&format!("    {line}\n"));
+        }
+        out
+    }
+}
+
+/// The frozen authority boundary, printed verbatim in every operator report. These nine lines are
+/// the integration surface the whole prototype holds: each layer records or refuses, and nothing
+/// executes, becomes evidence, or trains. Pinned as data so a test can assert every line is present.
+pub const BOUNDARY_LINES: [&str; 9] = [
+    "Reading verifies.",
+    "Hypothesis proposes.",
+    "Probe queue classifies.",
+    "Governance reviews.",
+    "Execution intent records.",
+    "Observation quarantines.",
+    "Promotion refuses.",
+    "Nothing becomes evidence.",
+    "Nothing trains.",
+];
+
+/// The canonical end-to-end trace as pretty JSON — the single deterministic record the whole demo
+/// is about. Pure: it builds the trace via [`CognitiveTrace::demo`] (no I/O) and serializes it.
+/// This is what the `trace` CLI command writes.
+pub fn run_trace() -> Result<String, TraceError> {
+    Ok(CognitiveTrace::demo()?.to_json())
+}
+
+/// Re-derive the canonical trace and confirm the PROVIDED trace JSON is byte-for-byte that trace.
+/// This is the trust boundary for the `report`/`replay` commands: because [`CognitiveTrace`] is
+/// `Serialize` but NOT `Deserialize`, a provided trace is never parsed back into authority — it is
+/// only COMPARED against the freshly, purely re-derived canonical trace. A tampered, stale, or
+/// foreign trace fails to match and is REFUSED ([`TraceError::TraceMismatch`]), so it can never be
+/// laundered into a report or a passing replay. Returns the canonical (trusted) trace on a match.
+pub fn verify_trace_json(provided: &str) -> Result<CognitiveTrace, TraceError> {
+    let canonical = CognitiveTrace::demo()?;
+    if provided == canonical.to_json() {
+        Ok(canonical)
+    } else {
+        Err(TraceError::TraceMismatch)
+    }
+}
+
+/// Render the operator report for a provided trace JSON — but only after [`verify_trace_json`]
+/// confirms it IS the canonical trace, so the report always describes the real, deterministic,
+/// frozen-track-derived trace and never an untrusted file's claims. This is what the `report`
+/// command writes. Pure (no I/O).
+pub fn run_report(trace_json: &str) -> Result<String, TraceError> {
+    Ok(verify_trace_json(trace_json)?.to_report())
+}
+
+/// Confirm a provided trace JSON replays to the byte-identical canonical trace. This is what the
+/// `replay` command checks: it re-derives the canonical trace and requires an exact match, so a
+/// tampered or non-canonical trace is rejected. Pure (no I/O).
+pub fn run_replay(trace_json: &str) -> Result<(), TraceError> {
+    verify_trace_json(trace_json).map(|_| ())
 }
 
 /// The (single) token for a hypothesis authority. `Authority` has exactly one variant, so this
@@ -627,5 +851,149 @@ mod tests {
                 && trace.training_gate_unchanged()
                 && !trace.training_justified()
         );
+    }
+
+    // --- INT-1: the operator CLI / report surface (pure cores; the binary fs shell is gated by the
+    //     release_check INT-1 binary smoke). ---
+
+    #[test]
+    fn trace_command_writes_json() {
+        // The `trace` command's pure core produces the canonical CognitiveTrace JSON — identical to
+        // the trace the demo builds, and valid pretty JSON carrying the recorded fields.
+        let json = run_trace().expect("trace command core produces json");
+        assert_eq!(json, CognitiveTrace::demo().unwrap().to_json());
+        assert!(json.starts_with('{') && json.trim_end().ends_with('}'));
+        assert!(json.contains("\"schema\": \"cognitive-trace-v0.1\""));
+        assert!(json.contains("\"promotion_status\": \"rejected\""));
+        assert!(json.contains("\"training_justified\": false"));
+    }
+
+    #[test]
+    fn report_command_writes_operator_summary() {
+        // The `report` command's pure core verifies the trace, then renders a readable operator
+        // report that walks every stage with its ids/hashes — no Rust structs or test output needed.
+        let json = run_trace().unwrap();
+        let report = run_report(&json).expect("report command core renders a summary");
+        for stage in [
+            "[1] READING",
+            "[2] HYPOTHESIS",
+            "[3] PROBE QUEUE",
+            "[4] GOVERNANCE REVIEW",
+            "[5] EXECUTION INTENT",
+            "[6] OBSERVATION",
+            "[7] PROMOTION REQUEST",
+        ] {
+            assert!(report.contains(stage), "report must show stage {stage}");
+        }
+        // It includes the ids/hashes needed to audit/replay (every stage id appears).
+        let trace = CognitiveTrace::demo().unwrap();
+        for id in trace.stage_ids() {
+            assert!(
+                report.contains(&id.to_string()),
+                "report must include stage id {id}"
+            );
+        }
+        // It states the refusals explicitly, in prose, for a human.
+        assert!(report.contains("Nothing executed."));
+        assert!(report.contains("Nothing became evidence."));
+        assert!(report.contains("training_justified=false"));
+    }
+
+    #[test]
+    fn report_contains_all_boundary_lines() {
+        // The report prints the frozen authority boundary verbatim — all nine lines, in order.
+        let report = run_report(&run_trace().unwrap()).unwrap();
+        for line in BOUNDARY_LINES {
+            assert!(
+                report.contains(line),
+                "report must contain boundary: {line}"
+            );
+        }
+        assert_eq!(BOUNDARY_LINES.len(), 9);
+        assert_eq!(BOUNDARY_LINES[0], "Reading verifies.");
+        assert_eq!(BOUNDARY_LINES[8], "Nothing trains.");
+    }
+
+    #[test]
+    fn replay_reproduces_trace() {
+        // Replay re-derives the canonical trace and confirms a provided trace is BYTE-IDENTICAL.
+        // The canonical trace replays; a tampered trace is REFUSED (TraceMismatch), so replay can
+        // never silently accept a forged record.
+        let json = run_trace().unwrap();
+        assert!(run_replay(&json).is_ok(), "the canonical trace replays");
+        let tampered = json.replace("\"grants_promotion\": false", "\"grants_promotion\": true");
+        assert_ne!(tampered, json, "the tamper actually changed the bytes");
+        assert!(
+            matches!(run_replay(&tampered), Err(TraceError::TraceMismatch)),
+            "a tampered trace must be refused, not replayed"
+        );
+    }
+
+    #[test]
+    fn report_does_not_change_trace() {
+        // Rendering a report is read-only: the canonical trace is byte-identical before and after,
+        // and a forged trace can never be laundered into a report (it is refused).
+        let before = run_trace().unwrap();
+        let _report = run_report(&before).unwrap();
+        let after = run_trace().unwrap();
+        assert_eq!(
+            before, after,
+            "rendering a report does not change the trace"
+        );
+        let forged = before.replace(
+            "\"promotion_status\": \"rejected\"",
+            "\"promotion_status\": \"promoted\"",
+        );
+        assert!(
+            matches!(run_report(&forged), Err(TraceError::TraceMismatch)),
+            "a forged trace cannot be laundered into a report"
+        );
+    }
+
+    #[test]
+    fn cli_does_not_execute_probe() {
+        // The CLI surface runs no probe: the report it renders shows the execution intent in a
+        // non-running state (never `executed`) and asserts nothing executed — the report describes a
+        // record, it never triggers one.
+        let report = run_report(&run_trace().unwrap()).unwrap();
+        assert!(report.contains("EXECUTION INTENT — records intent (executes nothing)"));
+        assert!(report.contains("requires_operator"));
+        assert!(report.contains("Nothing executed."));
+        // The report never claims an executed disposition (the status is requires_operator).
+        assert!(!report.contains("executed_at"));
+        assert!(!report.contains(": executed"));
+        // The pure trace underneath the CLI confirms it structurally.
+        assert!(CognitiveTrace::demo().unwrap().nothing_executed());
+    }
+
+    #[test]
+    fn cli_does_not_change_training_gate() {
+        // Running the CLI cores (trace + report) is orthogonal to P12: the training decision before
+        // and after is identical — still training_not_justified.
+        let before = decide(&[], &[]);
+        let json = run_trace().unwrap();
+        let _report = run_report(&json).unwrap();
+        run_replay(&json).unwrap();
+        let after = decide(&[], &[]);
+        assert_eq!(before, after);
+        assert!(!after.training_justified);
+        assert!(run_report(&json)
+            .unwrap()
+            .contains("training_justified=false"));
+    }
+
+    #[test]
+    fn cli_does_not_change_verifier_receipt() {
+        // Producing the trace/report/replay from a reading receipt leaves that receipt byte-identical
+        // — the CLI reads hashes and re-derives, it never mutates the verifier or executes anything.
+        let (d, q, p) = demo_inputs();
+        let file = produce_run(&d, &q, &p).unwrap();
+        let before = verify_file(&file).unwrap();
+        let json = run_trace().unwrap();
+        let _report = run_report(&json).unwrap();
+        run_replay(&json).unwrap();
+        let after = verify_file(&file).unwrap();
+        assert_eq!(before, after, "the verifier receipt is unchanged");
+        assert!(after.receipt.passed);
     }
 }
