@@ -1248,6 +1248,28 @@ grep -q '"policy_requires_review_observation_not_promoted": true' "$_pr_dir/run1
 grep -q '"policy_evidence_target_not_granted": true' "$_pr_dir/run1.json"
 grep -q '"policy_no_promotion_at_hyp5": true' "$_pr_dir/run1.json"
 rm -rf "$_pr_dir"
+# ---------------------------------------------------------------------------------------------------
+# HYP-6 — hypothesis track milestone freeze. The HYP-0 -> HYP-5 arc is frozen as hypothesis-track-v0.1. The
+# milestone record (HYPOTHESIS_TRACK_MILESTONE.md) pins the commit lineage, the authority boundary that holds
+# across the arc, the P12 training verdict, and the honest residuals, and is locked here so the freeze cannot
+# silently drift. The pinned commit hashes are auditable against `git log`. Documentation freeze only — no
+# code crate changes, no model, no training; the milestone records training_not_justified.
+# ---------------------------------------------------------------------------------------------------
+test -f HYPOTHESIS_TRACK_MILESTONE.md
+grep -q 'FROZEN' HYPOTHESIS_TRACK_MILESTONE.md
+grep -q 'hypothesis-track-v0.1' HYPOTHESIS_TRACK_MILESTONE.md
+grep -q 'HYP-0' HYPOTHESIS_TRACK_MILESTONE.md
+grep -q 'HYP-5' HYPOTHESIS_TRACK_MILESTONE.md
+grep -q 'training_not_justified' HYPOTHESIS_TRACK_MILESTONE.md
+# Full HYP commit lineage (HYP-0..HYP-5) + the charter status snapshot are pinned (cross-checkable against git log).
+grep -q 'f19a998' HYPOTHESIS_TRACK_MILESTONE.md
+grep -q '4b47736' HYPOTHESIS_TRACK_MILESTONE.md
+grep -q 'cb68a73' HYPOTHESIS_TRACK_MILESTONE.md
+grep -q '6cbb3a8' HYPOTHESIS_TRACK_MILESTONE.md
+grep -q '7703e2e' HYPOTHESIS_TRACK_MILESTONE.md
+grep -q 'cef91db' HYPOTHESIS_TRACK_MILESTONE.md
+grep -q 'd899a61' HYPOTHESIS_TRACK_MILESTONE.md
+# ---------------------------------------------------------------------------------------------------
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json

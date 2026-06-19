@@ -3,6 +3,29 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-19-C — Freeze the hypothesis track (HYP-0 → HYP-5) as hypothesis-track-v0.1
+
+**Decision.** Freeze the post-reading hypothesis-track arc HYP-0 → HYP-5 as a named, auditable milestone,
+recorded in `HYPOTHESIS_TRACK_MILESTONE.md` and tagged `hypothesis-track-v0.1`. Documentation freeze only — no
+code crate changes, no runtime behavior change, no Cargo/lock change; the only gate edit is the milestone lock
+that pins the freeze. P13–P15 stay closed; training stays blocked at P12.
+
+**Why.** HYP-0 through HYP-5 now form a complete post-freeze arc — hypothesis → probe queue → review →
+execution intent → observation quarantine → promotion refusal — sitting above the frozen reading track
+(`reading-track-v0.1` @ `f6fa55a`) and governance (`cognitive-os-governance-v0.1`). Before adding more
+capability, the arc is frozen the same way the reading track was at READ-16.
+
+**What is frozen.** The commit lineage (HYP-0 `f19a998`, HYP-1 `4b47736`, HYP-2 `cb68a73`, HYP-3 `6cbb3a8`,
+HYP-4 `7703e2e`, HYP-5 `cef91db`, plus the post-HYP-5 charter snapshot `d899a61` `DD-2026-06-19-B`); the
+authority boundary (*Hypothesis proposes. Probe queue classifies. Governance reviews. Execution intent does not
+execute. Observation is quarantined. Promotion request does not promote. Nothing becomes evidence.*); the
+structural quarantine; the P12 verdict `training_not_justified`; the verification discipline; and the honest
+residuals. The milestone makes no new capability claim: no probe execution exists, no observation is evidence,
+no promotion exists, and training stays closed. `release_check.sh` locks the milestone doc (file presence +
+FROZEN + tag + HYP-0/HYP-5 endpoints + `training_not_justified` + all seven pinned commit hashes) and stays
+green + silent; the tag is created only after a clean tree + green gate. Recorded in full in
+[HYPOTHESIS_TRACK_MILESTONE.md](../HYPOTHESIS_TRACK_MILESTONE.md). Local only — no remote push.
+
 ## DD-2026-06-19-B — Cognitive OS prototype status snapshot after HYP-5
 
 **Decision.** Record the cumulative status of the Cognitive OS prototype after HYP-5 commits. Documentation
