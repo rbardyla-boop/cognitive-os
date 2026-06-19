@@ -3,6 +3,17 @@
 version = 4
 
 [[package]]
+name = "cognitive-demo"
+version = "0.1.0"
+dependencies = [
+ "hypothesis-layer",
+ "reading-cli",
+ "reading-train-gate",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "hypothesis-layer"
 version = "0.1.0"
 dependencies = [

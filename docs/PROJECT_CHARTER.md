@@ -3,6 +3,40 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-19-D — Add the end-to-end prototype trace demo (INT-0) as the first integration layer
+
+**Decision.** Add a NEW crate `crates/cognitive-demo` (INT-0) that produces ONE deterministic, replayable
+`CognitiveTrace` connecting a VERIFIED reading receipt to the full frozen hypothesis chain (hypothesis → probe →
+review → execution intent → observation → promotion-refusal), and records every component id/hash plus
+machine-checkable verdicts in a single auditable artifact. It is the FIRST integration sprint: additive above
+the two frozen tracks, consuming their PUBLIC APIs only — it edits NEITHER frozen crate.
+
+**Why.** The frozen pieces each held a boundary in isolation; the next useful step was not more capability inside
+one layer but a thin demo proving the whole prototype can run one bounded cognitive path end to end WITHOUT
+crossing any authority boundary. This is the project's typed answer to the frontier reasoning-trace idea: the
+trace is a PUBLIC execution record of typed objects (each with its own authority limits, content id, and
+integrity hash), not a private chain-of-thought to be trusted as truth. Custody, replay, and refusal are made
+machine-checkable. Doctrine: *Reading verifies. Hypothesis proposes. Probe queue classifies. Governance reviews.
+Execution intent records. Observation quarantines. Promotion refuses. Nothing becomes evidence. Nothing trains.*
+
+**Boundary recorded.** The canonical flow is the strongest honest case: governance APPROVES the probe, yet the
+execution intent is `requires_operator` (no `executed` state), the observation is `requires_review` /
+`observation_only` (never `recorded`), and the promotion-to-`evidence` REQUEST is `rejected` with
+`grants_promotion=false` — approval is not execution, an observation is not evidence. The trace is inert
+(`Serialize` but NOT `Deserialize`, private fields, minted only by `demo`/`build`, no accessor returning
+claim/evidence authority), so it cannot be forged or mutated into a later claim. The P12 verdict is read before
+and after the flow and proven unmoved (`training_justified=false`). INT-0 grants no new authority, executes no
+probe, promotes nothing, mutates no memory, and leaves the verifier receipt byte-identical. `release_check.sh`
+gates it (encapsulation pin + API-exercise greps + 12 name-pinned tests + a 12-passed/0-ignored reality pin +
+purity + no-probe-execution scan + separation + a determinism double-run + a precise no-grant guard that catches
+a real grant but never false-positives on the legitimate `promotion_target: evidence` REQUEST) and stays green +
+byte-silent. Verified by three live sabotage probes (each restored byte-identical) and a read-only adversarial
+panel (four Explore lenses, 0 real findings, fully dry, no debris). Purely additive: only `crates/cognitive-demo/`,
+the workspace member add, and the gate block change; no frozen crate source is touched, the `reading-track-v0.1`
+(`f6fa55a`) and `hypothesis-track-v0.1` (`bb20acf`) tags are unmoved, and P13–P15 stay closed. Recorded in full
+in [a.md](../a.md) (the INT-0 checklist entry and the "End-to-End Prototype Trace Demo (INT-0)" detail section).
+Local only — no remote push.
+
 ## DD-2026-06-19-C — Freeze the hypothesis track (HYP-0 → HYP-5) as hypothesis-track-v0.1
 
 **Decision.** Freeze the post-reading hypothesis-track arc HYP-0 → HYP-5 as a named, auditable milestone,

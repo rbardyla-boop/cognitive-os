@@ -1,0 +1,24 @@
+[package]
+name = "cognitive-demo"
+version = "0.1.0"
+edition = "2021"
+description = "INT-0 — end-to-end prototype trace demo: one deterministic, replayable, verifier-checked trace that connects the frozen reading receipt to the frozen hypothesis/probe/review/intent/observation/promotion-refusal chain. It grants no authority, executes no probe, promotes nothing, and trains nothing."
+license = "MIT OR Apache-2.0"
+publish = false
+
+# INT-0 is the FIRST integration layer: a thin, deterministic demo that CONSUMES the
+# already-frozen reading track (reading-cli @ reading-track-v0.1) and hypothesis track
+# (hypothesis-layer @ hypothesis-track-v0.1) through their PUBLIC APIs and records ONE
+# auditable end-to-end trace. It adds no capability: it reads receipt hashes, proposes,
+# classifies, reviews, records intent, quarantines, and REFUSES promotion — and nothing
+# else. It depends on reading-cli (the read0 pipeline, for a verifier-approved receipt),
+# hypothesis-layer (the proposer chain), and reading-train-gate (to RECORD that the P12
+# verdict is unmoved by the whole flow). No machine-learning or model-execution
+# framework, no vibe engine crate — release_check asserts the dependency boundary,
+# the crate purity, and the trace's own refusals (no execution, no evidence, no training).
+[dependencies]
+hypothesis-layer = { path = "../hypothesis-layer" }
+reading-cli = { path = "../reading-cli" }
+reading-train-gate = { path = "../reading-train-gate" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
