@@ -3,6 +3,49 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-19-F — Add the trace question harness / operator interrogation surface (INT-2)
+
+**Decision.** Extend `crates/cognitive-demo` (the `cognitive-demo` binary) with a deterministic, FINITE,
+enum-backed audit-question surface over the INT-0/INT-1 canonical trace: `questions` lists the closed set and
+`ask --trace PATH --question SLUG [--out PATH]` answers exactly one of eight enumerated questions (what-read,
+what-was-proven, what-was-hypothesized, what-probe-was-requested, was-anything-executed,
+did-anything-become-evidence, why-was-promotion-refused, did-training-open). It is a thin interrogation surface
+over the EXISTING canonical trace — NO LLM, NO natural-language parser, NO new authority and NO new cognition,
+no new dependency, no new file, no Cargo.toml change, and it edits no frozen crate.
+
+**Why.** INT-1 made the trace inspectable as a report; the next useful step was to let an operator ask fixed,
+machine-checkable questions about what happened, what did not, and why authority was refused — without reading
+Rust structs and without a chatbot. The doctrine is unchanged and sharpened for this surface: *Trace questions
+explain the trace. They do not create authority. They do not execute. They do not promote. They do not train.*
+
+**Boundary recorded.** The surface is CLOSED by construction: a question is a `TraceQuestion` enum variant
+(`ALL: [TraceQuestion; 8]`); `TraceQuestion::from_slug` does EXACT-match only (no fuzzy/prefix/case/trim),
+returning `None` on any miss; `run_ask` fails closed TWICE and in order — an unknown slug is
+`TraceError::UnknownQuestion`, refused WITHOUT consulting any trace (prose can never become a question), and only
+then is the trace re-derived and verified before any answer. The trust boundary is INT-1's, applied to `ask`:
+because `CognitiveTrace` is `Serialize` but NOT `Deserialize`, `run_ask` answers ONLY the trace returned by
+`verify_trace_json`, which RE-DERIVES the canonical trace via the pure `CognitiveTrace::demo()` and byte-compares
+the provided file, refusing any tampered/stale/foreign input (`TraceError::TraceMismatch`) BEFORE answering — so
+a forged trace can never be laundered into an answer (a tampered trace is refused for every question). Answers
+are not authority: the private `CognitiveTrace::answer` + eight `answer_*` renderers FORMAT only the trace's
+already-recorded fields (no new verdict, no frozen API, no authority object), distinguish the stages (proof vs
+hypothesis vs review vs intent vs observation vs promotion), include the relevant ids/hashes, never show an
+affirmative `executed`/`promoted`/`granted`/`recorded` status, and end with the five-line INT-2 boundary; the
+only filesystem access is the pre-existing `main.rs` I/O shell, so the surface stays pure. `release_check.sh`
+gates it (surface signals, the fail-closed/re-derive pins, twelve INT-2 test-name pins, the unit-count pin raised
+20→32, and an end-to-end binary smoke that proves the questions listing, the real receipt hash in `what-read`,
+the verbatim five-line boundary, the no-authority guard, and refusal of BOTH an unknown question and a tampered
+trace) and stays green + byte-silent. One self-found gap (the boundary smoke pinned only two of five lines, and
+the test only lines [0]/[4]) was folded before sabotage by adding a verbatim five-line loop to the gate and
+pinning all five literals. Verified by three live sabotage probes (fail-open tamper-refusal, fail-open unknown
+question, and a coordinated boundary drift that kept the unit suite green but still failed the gate via the
+five-line loop — each restored byte-identical) and a read-only adversarial panel (four Explore lenses, 0 real
+findings, fully dry, no debris, each driving the compiled binary). Purely additive: only
+`crates/cognitive-demo/src/{lib.rs,main.rs}` and the gate block; no frozen crate source touched, the
+`reading-track-v0.1` (`f6fa55a`) and `hypothesis-track-v0.1` (`bb20acf`) tags unmoved, P12 `training_justified=false`,
+and P13–P15 closed. Recorded in full in [a.md](../a.md) (the INT-2 checklist entry and the "End-to-End Trace
+Question Harness / Operator Interrogation Surface (INT-2)" detail section). Local only — no remote push.
+
 ## DD-2026-06-19-E — Add the end-to-end trace CLI / operator report (INT-1)
 
 **Decision.** Extend `crates/cognitive-demo` (INT-0) with the `cognitive-demo` binary: `trace` writes the

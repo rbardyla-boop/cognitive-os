@@ -1323,10 +1323,10 @@ grep -q 'fn trace_does_not_change_training_gate' crates/cognitive-demo/src/lib.r
 grep -q 'fn trace_does_not_change_verifier_receipt' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_records_every_stage_id_and_links_the_chain' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_grants_no_new_authority' crates/cognitive-demo/src/lib.rs
-# Unit-test REALITY pin: exactly the 20 INT-0 (12) + INT-1 (8) tests pass, zero ignored (so gutting/disabling
-# one is caught, independent of the behavioral channels below).
+# Unit-test REALITY pin: exactly the 32 = INT-0 (12) + INT-1 (8) + INT-2 (12) tests pass, zero ignored (so
+# gutting/disabling one is caught, independent of the behavioral channels below).
 _int0_unit="$(cargo test --offline --lib --manifest-path crates/cognitive-demo/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 20
+test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 32
 test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
 # Determinism / no side effects: the trace is a pure, in-memory function — no clock, entropy, or network
 # anywhere in src/, and no floats anywhere in the crate. (`std::process::exit` in the CLI shell is a clean
@@ -1453,6 +1453,84 @@ sed 's/"grants_promotion": false/"grants_promotion": true/' "$_int1_dir/t1.json"
 if ./target/debug/cognitive-demo replay --trace "$_int1_dir/tampered.json" >/dev/null 2>&1; then rm -rf "$_int1_dir"; exit 1; fi
 if ./target/debug/cognitive-demo report --trace "$_int1_dir/tampered.json" >/dev/null 2>&1; then rm -rf "$_int1_dir"; exit 1; fi
 rm -rf "$_int1_dir"
+# ---------------------------------------------------------------------------------------------------
+# INT-2 — Trace Question Harness / Operator Interrogation Surface (crates/cognitive-demo, the
+# `cognitive-demo` binary's `ask` + `questions` commands). A deterministic, FINITE, enum-backed question
+# surface over the canonical trace so an operator can ask what happened, what did not, and why authority
+# was refused — with NO LLM, NO natural-language parser, NO new authority. A question is a `TraceQuestion`
+# enum variant (an unknown slug fails closed → UnknownQuestion); an answer is PROSE formatted from the
+# trace's own recorded fields; and `ask` RE-DERIVES the canonical trace and REFUSES any tampered/foreign
+# input BEFORE answering, so a question can never become authority and a tampered trace can never be
+# answered. Doctrine: Trace questions explain the trace. They do not create authority. They do not
+# execute. They do not promote. They do not train.
+# ---------------------------------------------------------------------------------------------------
+# The interrogation surface exists (signals): the closed enum, its fail-closed parser, the two pure cores,
+# and the INT-2 boundary data.
+grep -q 'enum TraceQuestion' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn from_slug' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn run_ask' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn list_questions' crates/cognitive-demo/src/lib.rs
+grep -q 'ASK_BOUNDARY_LINES' crates/cognitive-demo/src/lib.rs
+grep -q 'UnknownQuestion' crates/cognitive-demo/src/lib.rs
+# The fail-closed + re-derive ordering is real: run_ask parses the question via from_slug (UnknownQuestion
+# on miss) and then verify_trace_json RE-DERIVES + byte-compares (TraceMismatch on a tampered file) — it
+# never deserializes the provided trace (CognitiveTrace stays Serialize-only, pinned far above).
+grep -q 'TraceQuestion::from_slug' crates/cognitive-demo/src/lib.rs
+# The 12 INT-2 tests exist (a gutted/deleted test drops the unit count pinned above).
+grep -q 'fn questions_command_lists_finite_question_set' crates/cognitive-demo/src/lib.rs
+grep -q 'fn ask_refuses_unknown_question' crates/cognitive-demo/src/lib.rs
+grep -q 'fn ask_refuses_tampered_trace' crates/cognitive-demo/src/lib.rs
+grep -q 'fn ask_what_read_reports_receipt_hash' crates/cognitive-demo/src/lib.rs
+grep -q 'fn ask_what_proven_reports_verified_reading_result' crates/cognitive-demo/src/lib.rs
+grep -q 'fn ask_hypothesis_distinguishes_hypothesis_from_claim' crates/cognitive-demo/src/lib.rs
+grep -q 'fn ask_execution_question_returns_no_execution' crates/cognitive-demo/src/lib.rs
+grep -q 'fn ask_evidence_question_returns_no_evidence' crates/cognitive-demo/src/lib.rs
+grep -q 'fn ask_training_question_returns_training_false' crates/cognitive-demo/src/lib.rs
+grep -q 'fn ask_does_not_change_trace_or_training_gate' crates/cognitive-demo/src/lib.rs
+grep -q 'fn ask_answer_preserves_authority_boundary' crates/cognitive-demo/src/lib.rs
+grep -q 'fn ask_answer_is_not_authority' crates/cognitive-demo/src/lib.rs
+# End-to-end BINARY smoke for the interrogation surface (real files; the CLI was built in the INT-1 smoke):
+# drive `questions` + `ask` against a freshly written canonical trace and prove (a) `questions` lists the
+# finite set, (b) each answer is derived from the canonical trace (carries its real hashes) and ends with
+# the INT-2 boundary, (c) the no/refusal answers never claim an executed/promoted/granted status, and
+# (d) an UNKNOWN question and a TAMPERED trace are BOTH refused (exit non-zero, fail closed).
+_int2_dir="$(mktemp -d)"
+./target/debug/cognitive-demo trace --out "$_int2_dir/t.json" >/dev/null 2>&1
+./target/debug/cognitive-demo questions > "$_int2_dir/q.txt" 2>/dev/null
+for _slug in what-read what-was-proven what-was-hypothesized what-probe-was-requested was-anything-executed did-anything-become-evidence why-was-promotion-refused did-training-open; do
+  if ! grep -qF "$_slug" "$_int2_dir/q.txt"; then rm -rf "$_int2_dir"; exit 1; fi
+done
+# `what-read` carries the canonical receipt's real answer_hash and ends with the INT-2 boundary.
+_int2_ah="$(grep -oE '"reading_answer_hash": [0-9]+' "$_int2_dir/t.json" | grep -oE '[0-9]+')"
+./target/debug/cognitive-demo ask --trace "$_int2_dir/t.json" --question what-read > "$_int2_dir/a_read.txt" 2>/dev/null
+grep -qF "$_int2_ah" "$_int2_dir/a_read.txt"
+grep -qF 'READING' "$_int2_dir/a_read.txt"
+# All five INT-2 boundary lines appear in the answer, verbatim (a drift in any line trips here).
+for _bl in 'Trace questions explain the trace.' 'They do not create authority.' 'They do not execute.' 'They do not promote.' 'They do not train.'; do
+  if ! grep -qF "$_bl" "$_int2_dir/a_read.txt"; then rm -rf "$_int2_dir"; exit 1; fi
+done
+# The execution / evidence / promotion / training answers say No / refuse explicitly.
+./target/debug/cognitive-demo ask --trace "$_int2_dir/t.json" --question was-anything-executed > "$_int2_dir/a_exec.txt" 2>/dev/null
+grep -qF 'Nothing executed.' "$_int2_dir/a_exec.txt"
+grep -qF 'requires_operator' "$_int2_dir/a_exec.txt"
+./target/debug/cognitive-demo ask --trace "$_int2_dir/t.json" --question did-anything-become-evidence > "$_int2_dir/a_evid.txt" 2>/dev/null
+grep -qF 'Nothing became evidence.' "$_int2_dir/a_evid.txt"
+grep -qF 'rejected' "$_int2_dir/a_evid.txt"
+./target/debug/cognitive-demo ask --trace "$_int2_dir/t.json" --question why-was-promotion-refused > "$_int2_dir/a_promo.txt" 2>/dev/null
+grep -qF 'did not occur' "$_int2_dir/a_promo.txt"
+./target/debug/cognitive-demo ask --trace "$_int2_dir/t.json" --question did-training-open > "$_int2_dir/a_train.txt" 2>/dev/null
+grep -qF 'training_justified' "$_int2_dir/a_train.txt"
+# NO-AUTHORITY guard over every answer: no answer line may end in an affirmative executed/promoted/granted/
+# recorded status, and no grant may read true (the answers describe a record, they never affirm authority).
+cat "$_int2_dir"/a_*.txt > "$_int2_dir/all_answers.txt"
+if grep -qE ': (executed|promoted|granted|recorded)$' "$_int2_dir/all_answers.txt"; then rm -rf "$_int2_dir"; exit 1; fi
+if grep -qE 'grants_promotion:[[:space:]]*true' "$_int2_dir/all_answers.txt"; then rm -rf "$_int2_dir"; exit 1; fi
+# An UNKNOWN question fails closed (no answer, non-zero exit).
+if ./target/debug/cognitive-demo ask --trace "$_int2_dir/t.json" --question explain-everything >/dev/null 2>&1; then rm -rf "$_int2_dir"; exit 1; fi
+# A TAMPERED trace is refused BEFORE answering (non-zero exit — a tampered trace can never be answered).
+sed 's/"grants_promotion": false/"grants_promotion": true/' "$_int2_dir/t.json" > "$_int2_dir/tampered.json"
+if ./target/debug/cognitive-demo ask --trace "$_int2_dir/tampered.json" --question did-anything-become-evidence >/dev/null 2>&1; then rm -rf "$_int2_dir"; exit 1; fi
+rm -rf "$_int2_dir"
 # ---------------------------------------------------------------------------------------------------
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json

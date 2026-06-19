@@ -3,19 +3,27 @@
 //! A thin, deterministic command surface so a human can inspect the end-to-end cognitive trace
 //! without reading Rust structs or test output:
 //!
-//!   cognitive-demo trace  [--out PATH]              # write the canonical CognitiveTrace JSON
-//!   cognitive-demo report --trace PATH [--out PATH] # write a plain operator report
-//!   cognitive-demo replay --trace PATH              # confirm the trace replays byte-identically
+//!   cognitive-demo trace  [--out PATH]                       # write the canonical CognitiveTrace JSON
+//!   cognitive-demo report --trace PATH [--out PATH]          # write a plain operator report
+//!   cognitive-demo replay --trace PATH                       # confirm the trace replays byte-identically
+//!   cognitive-demo ask    --trace PATH --question SLUG [...]  # answer one enumerated audit question
+//!   cognitive-demo questions                                 # list the finite audit-question set
+//!
+//! INT-2 adds the interrogation surface: `questions` lists the finite, enumerated audit-question set,
+//! and `ask` answers exactly one of those questions about a provided trace — there is no free-form /
+//! natural-language path (an unknown slug fails closed), and `ask` re-derives the canonical trace and
+//! refuses a tampered file before answering, exactly like `report`/`replay`.
 //!
 //! This binary is ONLY an I/O shell: it parses argv and reads/writes files, then delegates ALL
-//! logic to the pure [`cognitive_demo`] library (`run_trace` / `run_report` / `run_replay`). It
+//! logic to the pure [`cognitive_demo`] library (`run_trace` / `run_report` / `run_replay` /
+//! `run_ask` / `list_questions`). It
 //! holds no executor, spawns no process, opens no socket, and consults no clock or entropy — the
 //! trace it serves is a pure function of fixed inputs, and `report`/`replay` re-derive the
 //! canonical trace and REFUSE any provided file that is not byte-for-byte that trace, so a tampered
 //! or foreign trace can never be laundered into a report or a passing replay. `std::fs` lives ONLY
 //! here (never in the library or the example), which the release gate enforces.
 
-use cognitive_demo::{run_replay, run_report, run_trace};
+use cognitive_demo::{list_questions, run_ask, run_replay, run_report, run_trace};
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -46,6 +54,21 @@ fn dispatch(args: &[String]) -> Result<(), String> {
             let content = read_trace(args)?;
             run_replay(&content).map_err(|e| e.to_string())?;
             println!("replay: OK — the trace is the byte-identical canonical trace");
+            Ok(())
+        }
+        Some("ask") => {
+            // Answer ONE enumerated audit question. The slug is checked against the closed enum
+            // (unknown → fail closed) and the trace is re-derived/verified before any answer.
+            let content = read_trace(args)?;
+            let question = flag_value(args, "--question").ok_or(
+                "this command requires --question <slug> (see `cognitive-demo questions`)",
+            )?;
+            let answer = run_ask(&content, question).map_err(|e| e.to_string())?;
+            emit(&answer, flag_value(args, "--out"))
+        }
+        Some("questions") => {
+            // List the finite, enumerated audit-question set (no trace needed — this is the menu).
+            print!("{}", list_questions());
             Ok(())
         }
         _ => Err(usage()),
@@ -83,6 +106,6 @@ fn flag_value<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
 
 fn usage() -> String {
     "usage: cognitive-demo <trace [--out PATH] | report --trace PATH [--out PATH] | \
-     replay --trace PATH>"
+     replay --trace PATH | ask --trace PATH --question SLUG [--out PATH] | questions>"
         .to_string()
 }

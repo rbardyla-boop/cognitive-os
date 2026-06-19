@@ -56,6 +56,10 @@ pub enum TraceError {
     /// A provided trace JSON is not byte-for-byte the canonical re-derived trace (tampered, stale,
     /// or foreign) — so it is refused for report/replay rather than laundered into authority.
     TraceMismatch,
+    /// The `ask` surface was given a question slug that is not in the finite, enumerated
+    /// [`TraceQuestion`] set — there is no free-form / natural-language path, so an unrecognized slug
+    /// fails closed rather than being interpreted.
+    UnknownQuestion(String),
 }
 
 impl std::fmt::Display for TraceError {
@@ -73,6 +77,10 @@ impl std::fmt::Display for TraceError {
             TraceError::TraceMismatch => write!(
                 f,
                 "the provided trace is not the canonical trace (tampered, stale, or foreign)"
+            ),
+            TraceError::UnknownQuestion(slug) => write!(
+                f,
+                "unknown question '{slug}' — run `cognitive-demo questions` for the finite set"
             ),
         }
     }
@@ -662,6 +670,327 @@ pub fn run_replay(trace_json: &str) -> Result<(), TraceError> {
     verify_trace_json(trace_json).map(|_| ())
 }
 
+// --- INT-2: the operator interrogation surface (a finite, enumerated audit-question harness over the
+//     canonical trace). `ask` answers ONE enumerated question; `questions` lists the closed set. There
+//     is NO free-form / natural-language path: a question is a [`TraceQuestion`] variant, an answer is
+//     PROSE formatted from the trace's own recorded fields, and the trace is re-derived and confirmed
+//     canonical BEFORE any answer is produced — so a question can never become authority and a tampered
+//     trace can never be answered. ---
+
+/// The INT-2 authority boundary, printed at the foot of every `ask` answer: an answer EXPLAINS the
+/// trace, it does not act. Pinned as data so a test can assert every line is present in each answer.
+pub const ASK_BOUNDARY_LINES: [&str; 5] = [
+    "Trace questions explain the trace.",
+    "They do not create authority.",
+    "They do not execute.",
+    "They do not promote.",
+    "They do not train.",
+];
+
+/// The finite, enumerated set of audit questions an operator may ask about a [`CognitiveTrace`]. The
+/// set is CLOSED — there is no free-form or natural-language path. An unrecognized slug maps to no
+/// variant ([`TraceQuestion::from_slug`] returns `None`) and the `ask` surface fails closed
+/// ([`TraceError::UnknownQuestion`]), so prose can never be accepted as a question and a question can
+/// never grant authority. Each variant maps to one fixed answer derived only from the trace's fields.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TraceQuestion {
+    /// What the reading stage read and verified.
+    WhatRead,
+    /// What was actually proven (exactly one thing: the reading receipt passed verification).
+    WhatWasProven,
+    /// What was hypothesized (a proposal, not a claim).
+    WhatWasHypothesized,
+    /// What probe was requested (a queued record, not an execution).
+    WhatProbeWasRequested,
+    /// Whether anything executed (no — approval is not execution).
+    WasAnythingExecuted,
+    /// Whether anything became evidence (no — the observation is quarantined, promotion refused).
+    DidAnythingBecomeEvidence,
+    /// Why the promotion was refused.
+    WhyWasPromotionRefused,
+    /// Whether training opened (no — the P12 verdict stayed false).
+    DidTrainingOpen,
+}
+
+impl TraceQuestion {
+    /// Every question, in canonical (chain) order. Pinned as data so a test can assert the set is
+    /// finite and a `questions` listing covers it exactly.
+    pub const ALL: [TraceQuestion; 8] = [
+        TraceQuestion::WhatRead,
+        TraceQuestion::WhatWasProven,
+        TraceQuestion::WhatWasHypothesized,
+        TraceQuestion::WhatProbeWasRequested,
+        TraceQuestion::WasAnythingExecuted,
+        TraceQuestion::DidAnythingBecomeEvidence,
+        TraceQuestion::WhyWasPromotionRefused,
+        TraceQuestion::DidTrainingOpen,
+    ];
+
+    /// The stable CLI slug for this question (e.g. `what-read`). Exhaustive match with no wildcard —
+    /// a future variant forces a slug here (E0004) rather than silently defaulting.
+    pub fn slug(self) -> &'static str {
+        match self {
+            TraceQuestion::WhatRead => "what-read",
+            TraceQuestion::WhatWasProven => "what-was-proven",
+            TraceQuestion::WhatWasHypothesized => "what-was-hypothesized",
+            TraceQuestion::WhatProbeWasRequested => "what-probe-was-requested",
+            TraceQuestion::WasAnythingExecuted => "was-anything-executed",
+            TraceQuestion::DidAnythingBecomeEvidence => "did-anything-become-evidence",
+            TraceQuestion::WhyWasPromotionRefused => "why-was-promotion-refused",
+            TraceQuestion::DidTrainingOpen => "did-training-open",
+        }
+    }
+
+    /// A one-line description of what the question asks (shown by `questions`). Exhaustive match.
+    pub fn describe(self) -> &'static str {
+        match self {
+            TraceQuestion::WhatRead => "what the reading stage read and verified",
+            TraceQuestion::WhatWasProven => "what was actually proven (only the reading receipt)",
+            TraceQuestion::WhatWasHypothesized => "what was hypothesized (a proposal, not a claim)",
+            TraceQuestion::WhatProbeWasRequested => "what probe was requested (a queued record)",
+            TraceQuestion::WasAnythingExecuted => "whether anything executed (no)",
+            TraceQuestion::DidAnythingBecomeEvidence => "whether anything became evidence (no)",
+            TraceQuestion::WhyWasPromotionRefused => "why the promotion was refused",
+            TraceQuestion::DidTrainingOpen => "whether training opened (no)",
+        }
+    }
+
+    /// Parse a slug into a question. Fails CLOSED: any string that is not EXACTLY a known slug is
+    /// `None` (no fuzzy match, no partial match, no free-form acceptance), so `ask` refuses it.
+    pub fn from_slug(slug: &str) -> Option<TraceQuestion> {
+        TraceQuestion::ALL.into_iter().find(|q| q.slug() == slug)
+    }
+}
+
+/// The `questions` command: list the finite, enumerated audit-question set (slug + one-line
+/// description). This IS the closed menu — there is no other way to phrase a question. Pure.
+pub fn list_questions() -> String {
+    let mut out = String::from(
+        "cognitive-demo — audit questions (finite, enumerated; ask one with `ask --question <slug>`):\n",
+    );
+    for q in TraceQuestion::ALL {
+        out.push_str(&format!("    {:<30} {}\n", q.slug(), q.describe()));
+    }
+    out
+}
+
+/// Answer ONE enumerated audit question about a provided trace JSON — but only after the trace is
+/// re-derived and confirmed canonical. The flow fails closed TWICE: an unrecognized question slug is
+/// refused ([`TraceError::UnknownQuestion`]) WITHOUT consulting any trace, and a non-canonical trace
+/// is refused ([`TraceError::TraceMismatch`]) BEFORE any answer is produced. The returned answer is
+/// PROSE about the recorded trace (formatted from its own fields, via the same private access the
+/// report uses), never a new verdict and never an authority object. This is what the `ask` command
+/// emits. Pure (no I/O).
+pub fn run_ask(trace_json: &str, question_slug: &str) -> Result<String, TraceError> {
+    // Fail closed on an unknown question BEFORE touching the trace: the question menu is the enum.
+    let question = TraceQuestion::from_slug(question_slug)
+        .ok_or_else(|| TraceError::UnknownQuestion(question_slug.to_string()))?;
+    // Re-derive the canonical trace and refuse any tampered/stale/foreign input before answering.
+    let trace = verify_trace_json(trace_json)?;
+    Ok(trace.answer(question))
+}
+
+impl CognitiveTrace {
+    /// Render the plain-text answer to one enumerated audit question, formatted DIRECTLY from this
+    /// trace's already-recorded fields (read via private access in this module). It computes no new
+    /// verdict, calls no frozen API, and returns no authority object; every answer preserves the
+    /// authority boundary it is about (a hypothesis is a proposal not proof, an approval is not
+    /// execution, an observation is not evidence, a refused promotion promoted nothing, and training
+    /// stayed closed) and ends with the INT-2 boundary footer. Sound by construction: `ask` only ever
+    /// answers the canonical trace (a tampered one is refused upstream), so the fixed yes/no headers
+    /// describe the only trace that can reach here. Pure.
+    fn answer(&self, question: TraceQuestion) -> String {
+        let mut out = match question {
+            TraceQuestion::WhatRead => self.answer_what_read(),
+            TraceQuestion::WhatWasProven => self.answer_what_was_proven(),
+            TraceQuestion::WhatWasHypothesized => self.answer_what_was_hypothesized(),
+            TraceQuestion::WhatProbeWasRequested => self.answer_what_probe_was_requested(),
+            TraceQuestion::WasAnythingExecuted => self.answer_was_anything_executed(),
+            TraceQuestion::DidAnythingBecomeEvidence => self.answer_did_anything_become_evidence(),
+            TraceQuestion::WhyWasPromotionRefused => self.answer_why_was_promotion_refused(),
+            TraceQuestion::DidTrainingOpen => self.answer_did_training_open(),
+        };
+        out.push_str("\nBOUNDARY\n");
+        for line in ASK_BOUNDARY_LINES {
+            out.push_str(&format!("    {line}\n"));
+        }
+        out
+    }
+
+    fn answer_what_read(&self) -> String {
+        let structure = self
+            .reading_structure_hash
+            .map(|h| h.to_string())
+            .unwrap_or_else(|| "none".to_string());
+        let mut out = String::from("READING — verifies\n");
+        out.push_str(
+            "This is a verified reading receipt: the only object in the trace that was PROVEN.\n",
+        );
+        out.push_str(&format!("    question:        {}\n", self.reading_question));
+        out.push_str(&format!("    answer:          {}\n", self.reading_answer));
+        out.push_str(&format!(
+            "    answer_hash:     {}\n",
+            self.reading_answer_hash
+        ));
+        out.push_str(&format!(
+            "    memory_hash:     {}\n",
+            self.reading_memory_hash
+        ));
+        out.push_str(&format!("    structure_hash:  {structure}\n"));
+        out.push_str(&format!(
+            "    integrity:       {}\n",
+            self.reading_integrity
+        ));
+        out.push_str(&format!("    verified:        {}\n", self.reading_passed));
+        out
+    }
+
+    fn answer_what_was_proven(&self) -> String {
+        let mut out =
+            String::from("PROVEN — exactly one thing: the reading receipt passed verification.\n");
+        out.push_str(
+            "The read0 verifier accepted the answer as grounded, supported, and replay-matched.\n",
+        );
+        out.push_str(&format!("    proven answer:   {}\n", self.reading_answer));
+        out.push_str(&format!(
+            "    answer_hash:     {}\n",
+            self.reading_answer_hash
+        ));
+        out.push_str(&format!(
+            "    memory_hash:     {}\n",
+            self.reading_memory_hash
+        ));
+        out.push_str(&format!("    verified:        {}\n", self.reading_passed));
+        out.push_str("Nothing downstream is proof:\n");
+        out.push_str("    - the hypothesis only PROPOSES (it is not a claim),\n");
+        out.push_str("    - the governance review only DECIDES (approval is not execution),\n");
+        out.push_str("    - the observation is QUARANTINED (it is not evidence),\n");
+        out.push_str("    - the promotion request was REFUSED (nothing was promoted).\n");
+        out
+    }
+
+    fn answer_what_was_hypothesized(&self) -> String {
+        let mut out =
+            String::from("HYPOTHESIS — proposes (a proposal, NOT a claim and NOT proof)\n");
+        out.push_str(&format!("    id:              {}\n", self.hypothesis_id));
+        out.push_str(&format!(
+            "    statement:       {}\n",
+            self.hypothesis_statement
+        ));
+        out.push_str(&format!(
+            "    authority:       {}\n",
+            self.hypothesis_authority
+        ));
+        out.push_str(&format!(
+            "    cites receipt:   answer_hash={} memory_hash={} (matches reading: {})\n",
+            self.cited_answer_hash, self.cited_memory_hash, self.hypothesis_cites_receipt
+        ));
+        out.push_str(&format!(
+            "    expected_util:   {}\n",
+            self.hypothesis_expected_utility
+        ));
+        out.push_str("A hypothesis only proposes a test to run later; it asserts nothing as true and grants no authority.\n");
+        out
+    }
+
+    fn answer_what_probe_was_requested(&self) -> String {
+        let mut out = String::from(
+            "PROBE REQUEST — classifies (a queued record, NOT an execution and NOT evidence)\n",
+        );
+        out.push_str(&format!("    id:              {}\n", self.probe_id));
+        out.push_str(&format!("    status:          {}\n", self.probe_status));
+        out.push_str(&format!("    reason:          {}\n", self.probe_reason));
+        out.push_str(
+            "A queued probe records WHAT a human could test later; this layer runs nothing.\n",
+        );
+        out
+    }
+
+    fn answer_was_anything_executed(&self) -> String {
+        let mut out = String::from("WAS ANYTHING EXECUTED?  No.\n");
+        out.push_str("Governance APPROVED the probe — but approval is a decision recorded for a human, not execution.\n");
+        out.push_str(&format!(
+            "    review decision:    {} (by {})\n",
+            self.review_decision, self.review_authority
+        ));
+        out.push_str(&format!("    execution intent:   id={}\n", self.intent_id));
+        out.push_str(&format!(
+            "    execution status:   {} (a non-running state; never `executed`)\n",
+            self.execution_status
+        ));
+        out.push_str(&format!(
+            "    requires_operator:  {}\n",
+            self.intent_requires_operator
+        ));
+        out.push_str(&format!(
+            "    nothing_executed:   {}\n",
+            self.nothing_executed
+        ));
+        out.push_str("No probe ran. Nothing executed.\n");
+        out
+    }
+
+    fn answer_did_anything_become_evidence(&self) -> String {
+        let mut out = String::from("DID ANYTHING BECOME EVIDENCE?  No.\n");
+        out.push_str(&format!(
+            "    observation:        id={} status={} ({})\n",
+            self.observation_id, self.observation_status, self.observation_authority
+        ));
+        out.push_str(&format!(
+            "    promotion request:  id={} target={} (the REQUEST)\n",
+            self.promotion_id, self.promotion_target
+        ));
+        out.push_str(&format!(
+            "    promotion outcome:  {}\n",
+            self.promotion_status
+        ));
+        out.push_str(&format!(
+            "    grants_promotion:   {}\n",
+            self.grants_promotion
+        ));
+        out.push_str(&format!(
+            "    nothing_becomes_evidence: {}\n",
+            self.nothing_becomes_evidence
+        ));
+        out.push_str("The observation stayed quarantined and the promotion to evidence was refused. Nothing became evidence.\n");
+        out
+    }
+
+    fn answer_why_was_promotion_refused(&self) -> String {
+        let mut out = String::from("WHY WAS PROMOTION REFUSED?\n");
+        out.push_str(&format!("    promotion id:    {}\n", self.promotion_id));
+        out.push_str(&format!(
+            "    requested target: {} (the REQUEST — to become evidence)\n",
+            self.promotion_target
+        ));
+        out.push_str(&format!("    outcome:         {}\n", self.promotion_status));
+        out.push_str(&format!("    reason:          {}\n", self.promotion_reason));
+        out.push_str(&format!(
+            "    grants_promotion: {}\n",
+            self.grants_promotion
+        ));
+        out.push_str("An observation that only `requires_review` cannot be promoted to evidence: the request was\n");
+        out.push_str("rejected and grants nothing. The promotion did not occur.\n");
+        out
+    }
+
+    fn answer_did_training_open(&self) -> String {
+        let mut out = String::from("DID TRAINING OPEN?  No.\n");
+        out.push_str(&format!(
+            "    training_justified:      {} (P12 verdict — still false)\n",
+            self.training_justified
+        ));
+        out.push_str(&format!(
+            "    training_gate_unchanged: {}\n",
+            self.training_gate_unchanged
+        ));
+        out.push_str(
+            "The P12 training verdict stayed false; nothing in this trace opens a training path.\n",
+        );
+        out
+    }
+}
+
 /// The (single) token for a hypothesis authority. `Authority` has exactly one variant, so this
 /// match is exhaustive with no wildcard — a future authority variant forces an explicit token
 /// here (E0004) rather than silently serializing as something else.
@@ -995,5 +1324,202 @@ mod tests {
         let after = verify_file(&file).unwrap();
         assert_eq!(before, after, "the verifier receipt is unchanged");
         assert!(after.receipt.passed);
+    }
+
+    // --- INT-2: the operator interrogation surface (`ask` + `questions`). The answers are pure prose
+    //     about the SAME canonical trace; the binary `ask`/`questions` commands are gated by the
+    //     release_check INT-2 smoke. ---
+
+    #[test]
+    fn questions_command_lists_finite_question_set() {
+        // The question set is finite and enum-backed; `questions` lists every slug, each slug
+        // round-trips through from_slug, and the set is CLOSED — a near-miss / free-form string is not
+        // accepted (no fuzzy or partial match).
+        assert_eq!(TraceQuestion::ALL.len(), 8);
+        let listing = list_questions();
+        for q in TraceQuestion::ALL {
+            assert!(
+                listing.contains(q.slug()),
+                "questions must list {}",
+                q.slug()
+            );
+            assert_eq!(
+                TraceQuestion::from_slug(q.slug()),
+                Some(q),
+                "slug round-trips"
+            );
+        }
+        assert_eq!(TraceQuestion::from_slug("what_read"), None);
+        assert_eq!(TraceQuestion::from_slug("what-read "), None);
+        assert_eq!(TraceQuestion::from_slug("tell me what you read"), None);
+        assert_eq!(TraceQuestion::from_slug(""), None);
+    }
+
+    #[test]
+    fn ask_refuses_unknown_question() {
+        // An unknown question fails CLOSED — UnknownQuestion, never an answer — and does so without
+        // even requiring a valid trace (the question menu is the enum, checked first).
+        let json = run_trace().unwrap();
+        assert!(matches!(
+            run_ask(&json, "explain-everything"),
+            Err(TraceError::UnknownQuestion(_))
+        ));
+        // Even with a valid trace, only EXACT enum slugs answer; a plausible-looking miss is refused.
+        assert!(run_ask(&json, "what-was-promoted").is_err());
+    }
+
+    #[test]
+    fn ask_refuses_tampered_trace() {
+        // A tampered trace is refused BEFORE any answer is produced: run_ask re-derives the canonical
+        // trace and byte-compares, so a forged file maps to TraceMismatch, not a (laundered) answer.
+        let json = run_trace().unwrap();
+        let tampered = json.replace("\"grants_promotion\": false", "\"grants_promotion\": true");
+        assert_ne!(tampered, json, "the tamper changed the bytes");
+        assert!(matches!(
+            run_ask(&tampered, "did-anything-become-evidence"),
+            Err(TraceError::TraceMismatch)
+        ));
+        // A wholly foreign trace is likewise refused.
+        assert!(matches!(
+            run_ask("{\"not\":\"a trace\"}", "what-read"),
+            Err(TraceError::TraceMismatch)
+        ));
+    }
+
+    #[test]
+    fn ask_what_read_reports_receipt_hash() {
+        // `what-read` reports the verified reading receipt, including its answer/memory hashes — the
+        // exact values recorded in the trace (so the operator can audit/replay).
+        let trace = CognitiveTrace::demo().unwrap();
+        let answer = run_ask(&run_trace().unwrap(), "what-read").unwrap();
+        assert!(answer.contains("READING"));
+        assert!(answer.contains("answer_hash"));
+        assert!(answer.contains(&trace.reading_answer_hash().to_string()));
+        assert!(answer.contains(&trace.reading_memory_hash().to_string()));
+        assert!(answer.contains("verified:"));
+    }
+
+    #[test]
+    fn ask_what_proven_reports_verified_reading_result() {
+        // `what-was-proven` reports that EXACTLY the reading receipt was proven (verified), and is
+        // explicit that nothing downstream is proof (the hypothesis proposes, the observation is
+        // quarantined, etc.).
+        let trace = CognitiveTrace::demo().unwrap();
+        let answer = run_ask(&run_trace().unwrap(), "what-was-proven").unwrap();
+        assert!(answer.contains("PROVEN"));
+        assert!(trace.reading_passed());
+        assert!(answer.contains(&trace.reading_answer_hash().to_string()));
+        assert!(answer.contains("PROPOSES"));
+        assert!(answer.contains("QUARANTINED"));
+    }
+
+    #[test]
+    fn ask_hypothesis_distinguishes_hypothesis_from_claim() {
+        // `what-was-hypothesized` makes the hypothesis/claim distinction explicit: it is a proposal
+        // with `hypothesis_only` authority, NOT a claim and NOT proof, and it cites the receipt by hash.
+        let answer = run_ask(&run_trace().unwrap(), "what-was-hypothesized").unwrap();
+        assert!(answer.contains("HYPOTHESIS"));
+        assert!(answer.contains("hypothesis_only"));
+        assert!(answer.contains("NOT a claim"));
+        assert!(answer.contains("proposes") || answer.contains("proposal"));
+        let trace = CognitiveTrace::demo().unwrap();
+        assert!(answer.contains(&trace.cited_answer_hash().to_string()));
+    }
+
+    #[test]
+    fn ask_execution_question_returns_no_execution() {
+        // `was-anything-executed` answers No: the approved review yields a non-running execution intent
+        // (`requires_operator`, never `executed`) and the answer never shows an executed status.
+        let answer = run_ask(&run_trace().unwrap(), "was-anything-executed").unwrap();
+        assert!(answer.contains("No"));
+        assert!(answer.contains("requires_operator"));
+        assert!(answer.contains("Nothing executed."));
+        assert!(!answer.contains(": executed"));
+        assert!(CognitiveTrace::demo().unwrap().nothing_executed());
+    }
+
+    #[test]
+    fn ask_evidence_question_returns_no_evidence() {
+        // `did-anything-become-evidence` answers No: the observation is quarantined and the promotion
+        // was refused (grants_promotion=false), so nothing became evidence.
+        let answer = run_ask(&run_trace().unwrap(), "did-anything-become-evidence").unwrap();
+        assert!(answer.contains("No"));
+        assert!(answer.contains("Nothing became evidence."));
+        assert!(answer.contains("rejected"));
+        let trace = CognitiveTrace::demo().unwrap();
+        assert!(!trace.grants_promotion());
+        assert!(trace.nothing_becomes_evidence());
+    }
+
+    #[test]
+    fn ask_training_question_returns_training_false() {
+        // `did-training-open` answers No: the P12 verdict stayed false (and unchanged).
+        let answer = run_ask(&run_trace().unwrap(), "did-training-open").unwrap();
+        assert!(answer.contains("No"));
+        assert!(answer.contains("training_justified"));
+        let trace = CognitiveTrace::demo().unwrap();
+        assert!(!trace.training_justified());
+        assert!(trace.training_gate_unchanged());
+    }
+
+    #[test]
+    fn ask_does_not_change_trace_or_training_gate() {
+        // Asking every question is read-only: the canonical trace is byte-identical before and after,
+        // and the P12 decision is unmoved (still training_not_justified).
+        let before = run_trace().unwrap();
+        let before_gate = decide(&[], &[]);
+        for q in TraceQuestion::ALL {
+            let _answer = run_ask(&before, q.slug()).unwrap();
+        }
+        let after = run_trace().unwrap();
+        let after_gate = decide(&[], &[]);
+        assert_eq!(before, after, "asking questions does not change the trace");
+        assert_eq!(before_gate, after_gate);
+        assert!(!after_gate.training_justified);
+    }
+
+    #[test]
+    fn ask_answer_preserves_authority_boundary() {
+        // EVERY answer ends with the INT-2 authority boundary (the answer explains; it does not act),
+        // and every enumerated question produces an answer (the set is fully covered).
+        let json = run_trace().unwrap();
+        for q in TraceQuestion::ALL {
+            let answer = run_ask(&json, q.slug()).unwrap();
+            for line in ASK_BOUNDARY_LINES {
+                assert!(
+                    answer.contains(line),
+                    "answer to {} must contain boundary: {line}",
+                    q.slug()
+                );
+            }
+        }
+        assert_eq!(ASK_BOUNDARY_LINES.len(), 5);
+        assert_eq!(ASK_BOUNDARY_LINES[0], "Trace questions explain the trace.");
+        assert_eq!(ASK_BOUNDARY_LINES[1], "They do not create authority.");
+        assert_eq!(ASK_BOUNDARY_LINES[2], "They do not execute.");
+        assert_eq!(ASK_BOUNDARY_LINES[3], "They do not promote.");
+        assert_eq!(ASK_BOUNDARY_LINES[4], "They do not train.");
+    }
+
+    #[test]
+    fn ask_answer_is_not_authority() {
+        // No answer ever shows an affirmative executed/promoted/granted/recorded STATUS, no grant reads
+        // true, and no answer claims an execution/promotion occurred — `ask` output describes the
+        // trace, it is not authority.
+        let json = run_trace().unwrap();
+        for q in TraceQuestion::ALL {
+            let answer = run_ask(&json, q.slug()).unwrap();
+            for line in answer.lines() {
+                let l = line.trim_end();
+                assert!(!l.ends_with(": executed"), "no executed status: {line}");
+                assert!(!l.ends_with(": promoted"), "no promoted status: {line}");
+                assert!(!l.ends_with(": granted"), "no granted status: {line}");
+                assert!(!l.ends_with(": recorded"), "no recorded status: {line}");
+            }
+            assert!(!answer.contains("promotion occurred"));
+            assert!(!answer.contains("was promoted to evidence"));
+            assert!(!answer.contains("grants_promotion: true"));
+            assert!(!answer.contains("grants_promotion:true"));
+        }
     }
 }
