@@ -1323,10 +1323,10 @@ grep -q 'fn trace_does_not_change_training_gate' crates/cognitive-demo/src/lib.r
 grep -q 'fn trace_does_not_change_verifier_receipt' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_records_every_stage_id_and_links_the_chain' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_grants_no_new_authority' crates/cognitive-demo/src/lib.rs
-# Unit-test REALITY pin: exactly the 32 = INT-0 (12) + INT-1 (8) + INT-2 (12) tests pass, zero ignored (so
-# gutting/disabling one is caught, independent of the behavioral channels below).
+# Unit-test REALITY pin: exactly the 44 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) tests pass, zero
+# ignored (so gutting/disabling one is caught, independent of the behavioral channels below).
 _int0_unit="$(cargo test --offline --lib --manifest-path crates/cognitive-demo/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 32
+test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 44
 test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
 # Determinism / no side effects: the trace is a pure, in-memory function — no clock, entropy, or network
 # anywhere in src/, and no floats anywhere in the crate. (`std::process::exit` in the CLI shell is a clean
@@ -1531,6 +1531,90 @@ if ./target/debug/cognitive-demo ask --trace "$_int2_dir/t.json" --question expl
 sed 's/"grants_promotion": false/"grants_promotion": true/' "$_int2_dir/t.json" > "$_int2_dir/tampered.json"
 if ./target/debug/cognitive-demo ask --trace "$_int2_dir/tampered.json" --question did-anything-become-evidence >/dev/null 2>&1; then rm -rf "$_int2_dir"; exit 1; fi
 rm -rf "$_int2_dir"
+# ---------------------------------------------------------------------------------------------------
+# INT-3 — Prototype Demo Bundle / Operator Repro Pack (crates/cognitive-demo, the `cognitive-demo` binary's
+# `bundle` + `bundle-verify` commands). One reproducible operator pack over the canonical trace: `bundle` writes
+# a fixed set of files (trace.json, report.txt, questions.txt, manifest.json) PURELY derived from the canonical
+# trace; `bundle-verify` RE-DERIVES every file and byte-compares, trusting NOTHING on disk. The manifest hashes
+# every content file and records a replay proof + the six-line boundary. It adds NO authority and NO cognition —
+# the bundle is a DEMONSTRATION: it creates no evidence, executes nothing, promotes nothing, trains nothing. The
+# only filesystem I/O is the binary shell (src/main.rs); the library that derives/verifies the bundle stays pure,
+# which the fs-confined scan above proves. Doctrine: The bundle demonstrates the prototype. It does not create
+# evidence. It does not create authority. It does not execute. It does not promote. It does not train.
+# ---------------------------------------------------------------------------------------------------
+# The bundle surface exists (signals): the pure builder, the re-deriving verifier, the questions transcript, and
+# the bundle data (file set + boundary), plus the two refusal error variants.
+grep -q 'pub fn canonical_bundle' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn verify_bundle' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn run_questions_doc' crates/cognitive-demo/src/lib.rs
+grep -q 'BUNDLE_BOUNDARY_LINES' crates/cognitive-demo/src/lib.rs
+grep -q 'BUNDLE_FILES' crates/cognitive-demo/src/lib.rs
+grep -q 'BundleMismatch' crates/cognitive-demo/src/lib.rs
+grep -q 'BundleMissingFile' crates/cognitive-demo/src/lib.rs
+grep -q 'struct BundleManifest' crates/cognitive-demo/src/lib.rs
+# Re-derive (not trust): verify_bundle compares against canonical_bundle, which builds from run_trace (the pure
+# CognitiveTrace::demo path) — it does NOT parse/deserialize the provided files (CognitiveTrace + the manifest
+# stay Serialize-only, pinned far above).
+grep -q 'let canonical = canonical_bundle()' crates/cognitive-demo/src/lib.rs
+# The 12 INT-3 tests exist (a gutted/deleted test drops the unit count pinned above).
+grep -q 'fn bundle_command_writes_all_expected_files' crates/cognitive-demo/src/lib.rs
+grep -q 'fn bundle_manifest_hashes_all_files' crates/cognitive-demo/src/lib.rs
+grep -q 'fn bundle_verify_rejects_tampered_trace' crates/cognitive-demo/src/lib.rs
+grep -q 'fn bundle_verify_rejects_tampered_report' crates/cognitive-demo/src/lib.rs
+grep -q 'fn bundle_verify_rejects_tampered_questions' crates/cognitive-demo/src/lib.rs
+grep -q 'fn bundle_verify_rejects_tampered_manifest' crates/cognitive-demo/src/lib.rs
+grep -q 'fn bundle_verify_rejects_missing_file' crates/cognitive-demo/src/lib.rs
+grep -q 'fn bundle_verify_rederives_canonical_trace' crates/cognitive-demo/src/lib.rs
+grep -q 'fn bundle_does_not_change_training_gate' crates/cognitive-demo/src/lib.rs
+grep -q 'fn bundle_does_not_change_verifier_receipt' crates/cognitive-demo/src/lib.rs
+grep -q 'fn bundle_boundary_lines_present' crates/cognitive-demo/src/lib.rs
+grep -q 'fn bundle_output_is_not_authority' crates/cognitive-demo/src/lib.rs
+# End-to-end BINARY smoke (real files; the CLI was built in the INT-1 smoke): write a bundle, prove it is the
+# full 4-file pack with a hashing manifest + boundary, is byte-identical across runs, verifies clean, and that a
+# TAMPER of EACH file (trace/report/questions/manifest), a MISSING file, and a FOREIGN bundle are ALL refused.
+_int3_dir="$(mktemp -d)"
+./target/debug/cognitive-demo bundle --out "$_int3_dir/pack" >/dev/null 2>&1
+# All four files are present.
+for _f in trace.json report.txt questions.txt manifest.json; do
+  if [ ! -f "$_int3_dir/pack/$_f" ]; then rm -rf "$_int3_dir"; exit 1; fi
+done
+# The manifest hashes every CONTENT file (names each + records a content_hash) and carries the six boundary lines.
+grep -q '"name": "trace.json"' "$_int3_dir/pack/manifest.json"
+grep -q '"name": "report.txt"' "$_int3_dir/pack/manifest.json"
+grep -q '"name": "questions.txt"' "$_int3_dir/pack/manifest.json"
+test "$(grep -c '"content_hash"' "$_int3_dir/pack/manifest.json")" -ge 3
+# The hashes are CONTENT-DEPENDENT, not a constant stand-in: three distinct content files yield distinct hashes.
+test "$(grep -oE '"content_hash": "[0-9a-f]+"' "$_int3_dir/pack/manifest.json" | sort -u | wc -l)" -ge 2
+for _bl in 'The bundle demonstrates the prototype.' 'It does not create evidence.' 'It does not create authority.' 'It does not execute.' 'It does not promote.' 'It does not train.'; do
+  if ! grep -qF "$_bl" "$_int3_dir/pack/manifest.json"; then rm -rf "$_int3_dir"; exit 1; fi
+done
+# Determinism: a second bundle is byte-identical, file for file (a pure function of fixed inputs).
+./target/debug/cognitive-demo bundle --out "$_int3_dir/pack2" >/dev/null 2>&1
+for _f in trace.json report.txt questions.txt manifest.json; do
+  if ! cmp -s "$_int3_dir/pack/$_f" "$_int3_dir/pack2/$_f"; then rm -rf "$_int3_dir"; exit 1; fi
+done
+# NO-AUTHORITY guard over the bundle files: no content file shows an affirmative executed/promoted/granted status
+# or a true grant, and the trace records training stays false (the precise status grep avoids the legitimate
+# `"promotion_target": "evidence"` REQUEST).
+if grep -rqE '"(execution_status|observation_status|promotion_status)": "(executed|promoted|granted|recorded)"' "$_int3_dir/pack"; then rm -rf "$_int3_dir"; exit 1; fi
+if grep -rq '"grants_promotion": true' "$_int3_dir/pack"; then rm -rf "$_int3_dir"; exit 1; fi
+grep -q '"training_justified": false' "$_int3_dir/pack/trace.json"
+# bundle-verify accepts the canonical pack...
+./target/debug/cognitive-demo bundle-verify --path "$_int3_dir/pack" >/dev/null 2>&1
+# ...and refuses a TAMPER of EACH file, a MISSING file, and a FOREIGN bundle (exit non-zero — no tamper passes).
+cp -r "$_int3_dir/pack" "$_int3_dir/tt"; sed -i 's/"grants_promotion": false/"grants_promotion": true/' "$_int3_dir/tt/trace.json"
+if ./target/debug/cognitive-demo bundle-verify --path "$_int3_dir/tt" >/dev/null 2>&1; then rm -rf "$_int3_dir"; exit 1; fi
+cp -r "$_int3_dir/pack" "$_int3_dir/tr"; printf '\nINJECTED\n' >> "$_int3_dir/tr/report.txt"
+if ./target/debug/cognitive-demo bundle-verify --path "$_int3_dir/tr" >/dev/null 2>&1; then rm -rf "$_int3_dir"; exit 1; fi
+cp -r "$_int3_dir/pack" "$_int3_dir/tq"; sed -i 's/did not occur/DID occur/' "$_int3_dir/tq/questions.txt"
+if ./target/debug/cognitive-demo bundle-verify --path "$_int3_dir/tq" >/dev/null 2>&1; then rm -rf "$_int3_dir"; exit 1; fi
+cp -r "$_int3_dir/pack" "$_int3_dir/tm"; sed -i 's/cognitive-bundle-v0.1/cognitive-bundle-v9.9/' "$_int3_dir/tm/manifest.json"
+if ./target/debug/cognitive-demo bundle-verify --path "$_int3_dir/tm" >/dev/null 2>&1; then rm -rf "$_int3_dir"; exit 1; fi
+cp -r "$_int3_dir/pack" "$_int3_dir/tx"; rm "$_int3_dir/tx/questions.txt"
+if ./target/debug/cognitive-demo bundle-verify --path "$_int3_dir/tx" >/dev/null 2>&1; then rm -rf "$_int3_dir"; exit 1; fi
+mkdir "$_int3_dir/tf"; for _f in trace.json report.txt questions.txt manifest.json; do echo foreign > "$_int3_dir/tf/$_f"; done
+if ./target/debug/cognitive-demo bundle-verify --path "$_int3_dir/tf" >/dev/null 2>&1; then rm -rf "$_int3_dir"; exit 1; fi
+rm -rf "$_int3_dir"
 # ---------------------------------------------------------------------------------------------------
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json

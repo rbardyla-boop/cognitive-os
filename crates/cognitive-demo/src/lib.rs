@@ -60,6 +60,12 @@ pub enum TraceError {
     /// [`TraceQuestion`] set — there is no free-form / natural-language path, so an unrecognized slug
     /// fails closed rather than being interpreted.
     UnknownQuestion(String),
+    /// A required bundle file was absent from the provided bundle (named by the missing filename) —
+    /// so the bundle cannot be verified and is refused.
+    BundleMissingFile(String),
+    /// A provided bundle file (named) did not byte-match the re-derived canonical bundle file
+    /// (tampered, stale, or foreign) — so it is refused rather than trusted over the re-derivation.
+    BundleMismatch(String),
 }
 
 impl std::fmt::Display for TraceError {
@@ -81,6 +87,13 @@ impl std::fmt::Display for TraceError {
             TraceError::UnknownQuestion(slug) => write!(
                 f,
                 "unknown question '{slug}' — run `cognitive-demo questions` for the finite set"
+            ),
+            TraceError::BundleMissingFile(name) => {
+                write!(f, "the bundle is missing required file '{name}'")
+            }
+            TraceError::BundleMismatch(name) => write!(
+                f,
+                "bundle file '{name}' is not the canonical file (tampered, stale, or foreign)"
             ),
         }
     }
@@ -1000,6 +1013,164 @@ fn authority_token(authority: Authority) -> &'static str {
     }
 }
 
+// --- INT-3: the operator repro bundle (a reproducible DEMONSTRATION pack over the canonical trace).
+//     `canonical_bundle` derives a fixed set of files purely from the trace; `verify_bundle` re-derives
+//     that same set and byte-compares a provided bundle, trusting NOTHING on disk. The bundle shows what
+//     the prototype can do — it creates no evidence and no authority, executes nothing, promotes nothing,
+//     trains nothing. The filesystem I/O (writing/reading the pack) lives only in the binary shell. ---
+
+/// The bundle's canonical file names (content files first, then the manifest). `bundle` writes exactly
+/// these and `bundle-verify` re-derives exactly these. Pinned as data so a test/gate asserts the set.
+pub const BUNDLE_TRACE_FILE: &str = "trace.json";
+pub const BUNDLE_REPORT_FILE: &str = "report.txt";
+pub const BUNDLE_QUESTIONS_FILE: &str = "questions.txt";
+pub const BUNDLE_MANIFEST_FILE: &str = "manifest.json";
+
+/// All bundle file names, in write order. The manifest is last because it hashes the content files.
+pub const BUNDLE_FILES: [&str; 4] = [
+    BUNDLE_TRACE_FILE,
+    BUNDLE_REPORT_FILE,
+    BUNDLE_QUESTIONS_FILE,
+    BUNDLE_MANIFEST_FILE,
+];
+
+/// The six-line INT-3 bundle boundary, embedded in the manifest and printed as the bundle summary.
+/// Pinned as data so a test can assert every line is present.
+pub const BUNDLE_BOUNDARY_LINES: [&str; 6] = [
+    "The bundle demonstrates the prototype.",
+    "It does not create evidence.",
+    "It does not create authority.",
+    "It does not execute.",
+    "It does not promote.",
+    "It does not train.",
+];
+
+/// One manifest entry: a content file and its deterministic content hash.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct BundleFileEntry {
+    name: String,
+    content_hash: String,
+}
+
+/// The replay proof recorded in the manifest: the canonical trace's own content hash plus a plain
+/// statement of what it proves. Re-derivable — `verify_bundle` recomputes it as part of the manifest.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct BundleReplayProof {
+    canonical_trace_hash: String,
+    replay: String,
+}
+
+/// The bundle manifest: schema, the hash algorithm (named honestly — it is Rust's `DefaultHasher`,
+/// NOT a cryptographic digest), a hash of every CONTENT file, the replay proof, and the six-line
+/// boundary. It is `Serialize` but NOT `Deserialize` (like every record here): it is re-derived and
+/// byte-compared, never parsed back into authority. It does NOT hash itself (no fixpoint).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct BundleManifest {
+    schema: String,
+    hash_algorithm: String,
+    files: Vec<BundleFileEntry>,
+    replay_proof: BundleReplayProof,
+    boundary: Vec<String>,
+}
+
+/// A deterministic, dependency-free content hash of a bundle file's bytes (Rust's `DefaultHasher`,
+/// hex-encoded). This is a DEMONSTRABLE digest for the manifest; the load-bearing integrity check is
+/// `verify_bundle`'s byte-for-byte re-derivation of every file, of which this hash is only a part.
+fn bundle_content_hash(content: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    content.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+/// The canonical interrogation transcript for the bundle's `questions.txt`: the finite question menu
+/// followed by every enumerated question and its answer, all derived from the canonical trace. Pure.
+pub fn run_questions_doc() -> Result<String, TraceError> {
+    let trace_json = run_trace()?;
+    let mut out = list_questions();
+    for q in TraceQuestion::ALL {
+        out.push_str(&format!("\n=== {} ===\n", q.slug()));
+        out.push_str(&run_ask(&trace_json, q.slug())?);
+    }
+    Ok(out)
+}
+
+/// Build the canonical manifest JSON from the already-derived content files. Pure and deterministic
+/// (fixed field order, fixed file order); `serde_json::to_string_pretty` yields identical bytes on
+/// every run, so the manifest re-derives byte-for-byte.
+fn bundle_manifest(content_files: &[(&'static str, String)]) -> String {
+    let files: Vec<BundleFileEntry> = content_files
+        .iter()
+        .map(|(name, content)| BundleFileEntry {
+            name: (*name).to_string(),
+            content_hash: bundle_content_hash(content),
+        })
+        .collect();
+    let trace_json = content_files
+        .iter()
+        .find(|(name, _)| *name == BUNDLE_TRACE_FILE)
+        .map(|(_, content)| content.as_str())
+        .unwrap_or_default();
+    let manifest = BundleManifest {
+        schema: "cognitive-bundle-v0.1".to_string(),
+        hash_algorithm: "rust-default-hasher-u64-hex".to_string(),
+        files,
+        replay_proof: BundleReplayProof {
+            canonical_trace_hash: bundle_content_hash(trace_json),
+            replay: "trace.json re-derives byte-identically from CognitiveTrace::demo()"
+                .to_string(),
+        },
+        boundary: BUNDLE_BOUNDARY_LINES
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+    };
+    serde_json::to_string_pretty(&manifest).expect("BundleManifest serializes")
+}
+
+/// The full canonical repro bundle as (filename, content) pairs in write order, INCLUDING the
+/// manifest. Pure: every file is derived from the canonical trace via the frozen-track-backed
+/// `CognitiveTrace::demo()`. This is exactly what `bundle` writes and what `bundle-verify` re-derives
+/// and compares against — so the bundle is a reproducible DEMONSTRATION, never trusted as authority.
+pub fn canonical_bundle() -> Result<Vec<(&'static str, String)>, TraceError> {
+    let trace_json = run_trace()?;
+    let report = run_report(&trace_json)?;
+    let questions = run_questions_doc()?;
+    let content: Vec<(&'static str, String)> = vec![
+        (BUNDLE_TRACE_FILE, trace_json),
+        (BUNDLE_REPORT_FILE, report),
+        (BUNDLE_QUESTIONS_FILE, questions),
+    ];
+    let manifest = bundle_manifest(&content);
+    let mut files = content;
+    files.push((BUNDLE_MANIFEST_FILE, manifest));
+    Ok(files)
+}
+
+/// Verify a provided bundle (its files as (name, content) pairs read from disk) WITHOUT trusting it:
+/// re-derive the canonical bundle purely and require every canonical file to be present and
+/// byte-identical. A missing file is [`TraceError::BundleMissingFile`]; any tampered/stale/foreign
+/// file (including the manifest) is [`TraceError::BundleMismatch`]. Returns `Ok(())` only on a full,
+/// exact match — so a tampered bundle can never pass and no bundle file is ever trusted over the
+/// re-derived canonical. Pure (no I/O).
+pub fn verify_bundle(provided: &[(String, String)]) -> Result<(), TraceError> {
+    let canonical = canonical_bundle()?;
+    for (name, content) in &canonical {
+        match provided
+            .iter()
+            .find(|(provided_name, _)| provided_name == name)
+        {
+            None => return Err(TraceError::BundleMissingFile((*name).to_string())),
+            Some((_, provided_content)) => {
+                if provided_content != content {
+                    return Err(TraceError::BundleMismatch((*name).to_string()));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1521,5 +1692,245 @@ mod tests {
             assert!(!answer.contains("grants_promotion: true"));
             assert!(!answer.contains("grants_promotion:true"));
         }
+    }
+
+    // --- INT-3: the operator repro bundle (`bundle` + `bundle-verify`). The pure cores
+    //     (canonical_bundle / verify_bundle) are tested here; the binary fs I/O is gated by the
+    //     release_check INT-3 smoke. ---
+
+    /// The canonical bundle as owned (name, content) pairs — the shape `verify_bundle` consumes.
+    fn canonical_bundle_owned() -> Vec<(String, String)> {
+        canonical_bundle()
+            .unwrap()
+            .into_iter()
+            .map(|(name, content)| (name.to_string(), content))
+            .collect()
+    }
+
+    #[test]
+    fn bundle_command_writes_all_expected_files() {
+        // The canonical bundle is exactly the four expected files, in write order, each non-empty, and
+        // the content files are the REAL canonical artifacts (trace / report / questions transcript).
+        let files = canonical_bundle().unwrap();
+        let names: Vec<&str> = files.iter().map(|(name, _)| *name).collect();
+        assert_eq!(names, BUNDLE_FILES.to_vec());
+        for (name, content) in &files {
+            assert!(!content.is_empty(), "{name} must have content");
+        }
+        let trace_json = run_trace().unwrap();
+        assert_eq!(files[0].1, trace_json);
+        assert_eq!(files[1].1, run_report(&trace_json).unwrap());
+        assert_eq!(files[2].1, run_questions_doc().unwrap());
+    }
+
+    #[test]
+    fn bundle_manifest_hashes_all_files() {
+        // The manifest names AND records the exact content hash of every CONTENT file (not itself).
+        let files = canonical_bundle().unwrap();
+        let manifest = files
+            .iter()
+            .find(|(name, _)| *name == BUNDLE_MANIFEST_FILE)
+            .unwrap()
+            .1
+            .clone();
+        for (name, content) in files
+            .iter()
+            .filter(|(name, _)| *name != BUNDLE_MANIFEST_FILE)
+        {
+            assert!(manifest.contains(name), "manifest must name {name}");
+            assert!(
+                manifest.contains(&bundle_content_hash(content)),
+                "manifest must record the content hash of {name}"
+            );
+        }
+        // The manifest does NOT hash itself (no fixpoint) — its own name is absent from the file list.
+        assert!(!manifest.contains("\"name\": \"manifest.json\""));
+    }
+
+    #[test]
+    fn bundle_verify_rejects_tampered_trace() {
+        // A tampered trace.json fails re-derivation byte-comparison (the manifest is untouched, so the
+        // trace itself is caught first).
+        let mut b = canonical_bundle_owned();
+        let i = b
+            .iter()
+            .position(|(name, _)| name == BUNDLE_TRACE_FILE)
+            .unwrap();
+        b[i].1 = b[i]
+            .1
+            .replace("\"grants_promotion\": false", "\"grants_promotion\": true");
+        assert!(
+            matches!(verify_bundle(&b), Err(TraceError::BundleMismatch(ref f)) if f == BUNDLE_TRACE_FILE)
+        );
+    }
+
+    #[test]
+    fn bundle_verify_rejects_tampered_report() {
+        // A tampered report.txt is refused — bundle prose cannot become authority by editing the file.
+        let mut b = canonical_bundle_owned();
+        let i = b
+            .iter()
+            .position(|(name, _)| name == BUNDLE_REPORT_FILE)
+            .unwrap();
+        b[i].1.push_str("\nINJECTED: promotion granted.\n");
+        assert!(
+            matches!(verify_bundle(&b), Err(TraceError::BundleMismatch(ref f)) if f == BUNDLE_REPORT_FILE)
+        );
+    }
+
+    #[test]
+    fn bundle_verify_rejects_tampered_questions() {
+        // A tampered questions.txt is refused (here the promotion answer is flipped to claim it occurred).
+        let mut b = canonical_bundle_owned();
+        let i = b
+            .iter()
+            .position(|(name, _)| name == BUNDLE_QUESTIONS_FILE)
+            .unwrap();
+        b[i].1 = b[i].1.replace("did not occur", "DID occur");
+        assert!(
+            matches!(verify_bundle(&b), Err(TraceError::BundleMismatch(ref f)) if f == BUNDLE_QUESTIONS_FILE)
+        );
+    }
+
+    #[test]
+    fn bundle_verify_rejects_tampered_manifest() {
+        // The manifest is itself re-derived and byte-compared — editing it (here the schema) is refused,
+        // so a forged manifest can never vouch for a forged bundle.
+        let mut b = canonical_bundle_owned();
+        let i = b
+            .iter()
+            .position(|(name, _)| name == BUNDLE_MANIFEST_FILE)
+            .unwrap();
+        b[i].1 = b[i]
+            .1
+            .replace("cognitive-bundle-v0.1", "cognitive-bundle-v9.9");
+        assert!(
+            matches!(verify_bundle(&b), Err(TraceError::BundleMismatch(ref f)) if f == BUNDLE_MANIFEST_FILE)
+        );
+    }
+
+    #[test]
+    fn bundle_verify_rejects_missing_file() {
+        // A bundle missing a required file is refused (BundleMissingFile), never silently accepted.
+        let mut b = canonical_bundle_owned();
+        b.retain(|(name, _)| name != BUNDLE_QUESTIONS_FILE);
+        assert!(
+            matches!(verify_bundle(&b), Err(TraceError::BundleMissingFile(ref f)) if f == BUNDLE_QUESTIONS_FILE)
+        );
+    }
+
+    #[test]
+    fn bundle_verify_rederives_canonical_trace() {
+        // Verification is by RE-DERIVATION, not trust: the pristine canonical bundle passes, the
+        // bundle's trace.json equals the freshly re-derived canonical trace, and a bundle with the
+        // canonical file NAMES but foreign content is refused.
+        let b = canonical_bundle_owned();
+        assert!(verify_bundle(&b).is_ok());
+        let trace = b
+            .iter()
+            .find(|(name, _)| name == BUNDLE_TRACE_FILE)
+            .unwrap()
+            .1
+            .clone();
+        assert_eq!(trace, run_trace().unwrap());
+        let foreign: Vec<(String, String)> = BUNDLE_FILES
+            .iter()
+            .map(|name| (name.to_string(), "foreign".to_string()))
+            .collect();
+        assert!(verify_bundle(&foreign).is_err());
+    }
+
+    #[test]
+    fn bundle_does_not_change_training_gate() {
+        // Building AND verifying the bundle is orthogonal to P12: the training decision is unmoved, and
+        // the bundle manifest itself states training does not open.
+        let before = decide(&[], &[]);
+        let b = canonical_bundle_owned();
+        verify_bundle(&b).unwrap();
+        let after = decide(&[], &[]);
+        assert_eq!(before, after);
+        assert!(!after.training_justified);
+        let manifest = b
+            .iter()
+            .find(|(name, _)| name == BUNDLE_MANIFEST_FILE)
+            .unwrap()
+            .1
+            .clone();
+        assert!(manifest.contains("It does not train."));
+    }
+
+    #[test]
+    fn bundle_does_not_change_verifier_receipt() {
+        // Building/verifying the bundle leaves the reading receipt byte-identical — the bundle reads
+        // hashes and re-derives, it never mutates the verifier or executes anything.
+        let (d, q, p) = demo_inputs();
+        let file = produce_run(&d, &q, &p).unwrap();
+        let before = verify_file(&file).unwrap();
+        let b = canonical_bundle_owned();
+        verify_bundle(&b).unwrap();
+        let after = verify_file(&file).unwrap();
+        assert_eq!(before, after, "the verifier receipt is unchanged");
+        assert!(after.receipt.passed);
+    }
+
+    #[test]
+    fn bundle_boundary_lines_present() {
+        // The bundle carries the six-line INT-3 boundary verbatim (in the manifest), and the const is
+        // pinned line-for-line.
+        let b = canonical_bundle().unwrap();
+        let manifest = b
+            .iter()
+            .find(|(name, _)| *name == BUNDLE_MANIFEST_FILE)
+            .unwrap()
+            .1
+            .clone();
+        for line in BUNDLE_BOUNDARY_LINES {
+            assert!(
+                manifest.contains(line),
+                "bundle must contain boundary: {line}"
+            );
+        }
+        assert_eq!(BUNDLE_BOUNDARY_LINES.len(), 6);
+        assert_eq!(
+            BUNDLE_BOUNDARY_LINES[0],
+            "The bundle demonstrates the prototype."
+        );
+        assert_eq!(BUNDLE_BOUNDARY_LINES[1], "It does not create evidence.");
+        assert_eq!(BUNDLE_BOUNDARY_LINES[2], "It does not create authority.");
+        assert_eq!(BUNDLE_BOUNDARY_LINES[3], "It does not execute.");
+        assert_eq!(BUNDLE_BOUNDARY_LINES[4], "It does not promote.");
+        assert_eq!(BUNDLE_BOUNDARY_LINES[5], "It does not train.");
+    }
+
+    #[test]
+    fn bundle_output_is_not_authority() {
+        // No bundle file shows an affirmative executed/promoted/granted status or a true grant; the
+        // bundle DEMONSTRATES, creating no authority and no evidence, and records training stays false.
+        let b = canonical_bundle().unwrap();
+        for (name, content) in &b {
+            assert!(
+                !content.contains("\"execution_status\": \"executed\""),
+                "{name} must not show an executed status"
+            );
+            assert!(
+                !content.contains("\"promotion_status\": \"promoted\""),
+                "{name} must not show a promoted status"
+            );
+            assert!(
+                !content.contains("\"observation_status\": \"recorded\""),
+                "{name} must not show a recorded observation"
+            );
+            assert!(
+                !content.contains("\"grants_promotion\": true"),
+                "{name} must not grant a promotion"
+            );
+        }
+        let trace = b
+            .iter()
+            .find(|(name, _)| *name == BUNDLE_TRACE_FILE)
+            .unwrap()
+            .1
+            .clone();
+        assert!(trace.contains("\"training_justified\": false"));
     }
 }

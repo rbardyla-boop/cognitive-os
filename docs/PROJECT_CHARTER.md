@@ -3,6 +3,52 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-19-G — Add the prototype demo bundle / operator repro pack (INT-3)
+
+**Decision.** Extend `crates/cognitive-demo` (the `cognitive-demo` binary) with one reproducible operator pack
+over the canonical trace and a re-deriving verifier: `bundle --out DIR` writes four files (`trace.json`,
+`report.txt`, `questions.txt`, `manifest.json`) PURELY derived from the canonical trace; `bundle-verify --path
+DIR` re-derives the pack and refuses any tampered/missing/foreign file. It is a thin demonstration surface over
+the EXISTING canonical trace — NO new authority and NO new cognition, no new dependency, no new file, no
+Cargo.toml change, and it edits no frozen crate.
+
+**Why.** INT-0/1/2 built the trace, made it inspectable (a report), and made it interrogable (the question
+harness); the next useful step was to make it PORTABLE — one command that produces a reproducible pack showing
+what the prototype can do, and a second that verifies the pack — without the files becoming evidence or
+authority. The doctrine is sharpened for this surface: *The bundle demonstrates the prototype. It does not create
+evidence. It does not create authority. It does not execute. It does not promote. It does not train.*
+
+**Boundary recorded.** The load-bearing design is the re-derivation trust boundary, now applied to a multi-file
+pack. `verify_bundle` does NOT trust the files: it re-derives the canonical bundle via `canonical_bundle()`
+(which builds from `run_trace` / `CognitiveTrace::demo()`) and byte-compares each provided file; a missing file
+is `TraceError::BundleMissingFile` and any tampered/stale/foreign file (INCLUDING the manifest) is
+`TraceError::BundleMismatch`. It never parses/deserializes a provided file into trusted state and never checks
+the manifest's own recorded hash against the file. `CognitiveTrace` and the new `BundleManifest`/`BundleFileEntry`/
+`BundleReplayProof` derive `Serialize` but NOT `Deserialize`, so no bundle file is read back into authority — a
+tampered bundle can never pass, and the manifest (itself re-derived and byte-compared) can never vouch for a
+forged pack. The manifest is honest: `bundle_content_hash` is Rust's `DefaultHasher` (deterministic,
+dependency-free), named `rust-default-hasher-u64-hex` (NOT a crypto digest); it hashes the three content files
+with distinct content-dependent hashes and does not hash itself (no fixpoint); the load-bearing integrity check
+is the full byte-for-byte re-derivation, of which the hash is a demonstrable part. Purity is structural: the
+filesystem I/O (`write_bundle`/`read_bundle`) lives only in `src/main.rs`; the library that derives/verifies the
+bundle is filesystem-free, so the bundle content can never depend on disk, and the pack is a pure function of
+fixed inputs (two bundles are byte-identical). The bundle creates no authority and no evidence — no file shows an
+affirmative `executed`/`promoted`/`granted`/`recorded` status or a true grant, the trace records
+`training_justified=false`, and the verifier receipt is unmoved. `release_check.sh` gates it (surface signals,
+the re-derive pin, twelve INT-3 test-name pins, the unit-count pin raised 32→44, and a binary smoke that proves
+the four files, the manifest hashing + distinct hashes + six verbatim boundary lines, determinism, the
+no-authority guard, and refusal of a tamper of EACH file + a missing file + a foreign bundle) and stays green +
+byte-silent. One self-found gap (the hash test is self-referential, so a constant/fake hash would slip it and the
+count check) was folded before sabotage by adding a distinct-hash gate check. Verified by three live sabotage
+probes (verify trusts the files; a constant fake hash that kept the suite green but failed the gate via the
+distinct-hash check; a coordinated boundary drift that kept the suite green but failed the gate via the verbatim
+six-line manifest loop — each restored byte-identical) and a read-only adversarial panel (four Explore lenses, 0
+real findings, fully dry, no debris, each driving the compiled binary). Purely additive: only
+`crates/cognitive-demo/src/{lib.rs,main.rs}` and the gate block; no frozen crate source touched, the
+`reading-track-v0.1` (`f6fa55a`) and `hypothesis-track-v0.1` (`bb20acf`) tags unmoved, P12 `training_justified=false`,
+and P13–P15 closed. Recorded in full in [a.md](../a.md) (the INT-3 checklist entry and the "Prototype Demo Bundle
+/ Operator Repro Pack (INT-3)" detail section). Local only — no remote push.
+
 ## DD-2026-06-19-F — Add the trace question harness / operator interrogation surface (INT-2)
 
 **Decision.** Extend `crates/cognitive-demo` (the `cognitive-demo` binary) with a deterministic, FINITE,
