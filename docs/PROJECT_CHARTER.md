@@ -3,6 +3,53 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-19-I — Add the multi-trace scenario pack (MTRACE-0), variation without authority expansion
+
+**Decision.** Extend `crates/cognitive-demo` (the `cognitive-demo` binary) with a small deterministic scenario
+pack: `scenarios` lists a finite scenario set, `scenario-pack --out DIR` writes one bundle subdirectory per
+scenario plus a `pack-manifest.json`, and `scenario-verify --path DIR` re-derives the whole pack and refuses any
+tamper. The four scenarios (`happy-boundary`, `review-rejected`, `review-deferred`, `high-risk-blocked`) run the
+SAME frozen hypothesis chain under different review/observation/promotion outcomes, each proving the SAME
+authority boundary. It adds NO capability and NO model behavior, no new dependency, no new file, no Cargo.toml
+change, and it edits no frozen crate.
+
+**Why.** The integration-demo-v0.1 freeze proves ONE canonical path. The next useful step was to prove the same
+boundaries hold across several deterministic paths — variation WITHOUT authority expansion — before adding any
+new behavior. The doctrine is sharpened for this surface: *Scenarios vary the path. They do not vary the
+authority. Nothing executes. Nothing becomes evidence. Nothing promotes. Nothing trains.*
+
+**Boundary recorded.** A `Scenario` enum varies ONLY the probe's risk/reversibility and the governance decision
+(`Scenario::risk`/`reversibility`/`review_decision` passed into the new `CognitiveTrace::build_scenario`, which
+`build()` now delegates to with `HappyBoundary`); everything else — reading verification, receipt citation, chain
+linkage, verdict computation — is identical and read from the frozen crates. Every scenario preserves the full
+boundary: execution never `executed` (`nothing_executed`), observation never `recorded` and `observation_only`
+(`observation_quarantined`), promotion `rejected` with `grants_promotion=false`
+(`promotion_refused`/`nothing_becomes_evidence`), and `training_justified=false` with the verifier receipt
+unmoved. A rejected/deferred review yields a `blocked` (never executable) intent (the frozen `from_review` maps
+Rejected/Deferred → Blocked); a blocked probe has no approval path (the frozen layer refuses to approve it).
+Verification is by RE-DERIVATION: `scenario_bundle`/`scenario_pack_manifest` are pure, and
+`verify_scenario_bundle`/`verify_scenario_pack_manifest` re-derive and byte-compare via the shared `compare_bundle`
+core — `CognitiveTrace`, `BundleManifest`, and `ScenarioPackManifest` all derive `Serialize` but NOT
+`Deserialize`, so no file is parsed back into authority and a tampered/missing/foreign scenario is refused. The
+load-bearing risk — that parameterizing `build()` (and making `canonical_bundle`/`run_questions_doc`/`verify_bundle`
+delegate to shared cores) could drift the frozen canonical trace — did NOT occur: all 44 frozen tests pass and
+the happy-boundary scenario is byte-identical to `CognitiveTrace::demo()`. One self-found gap (the happy==demo
+test is self-referential, so a silent happy-boundary risk/reversibility drift with an unchanged path would slip
+it and the status greps) was folded before sabotage by pinning the frozen canonical `hypothesis_id`
+(`16880898425785712701`, a stable FNV id) literally in the gate. `release_check.sh` gates it (surface signals,
+the re-derive pins, twelve MTRACE-0 test-name pins, the unit-count pin raised 44→56, the `hypothesis_id`
+freeze-pin, and a binary smoke proving the four-subdir pack, determinism, distinguishable statuses, the
+no-authority guard, and refusal of a tampered scenario trace/manifest/pack-manifest + a missing file + a foreign
+scenario) and stays green + byte-silent. Verified by three live sabotage probes (a rejected review approving; a
+verify that trusts files; a silent happy-boundary canonical drift that kept the suite green but failed the gate
+via the freeze-pin — each restored byte-identical) and a read-only adversarial panel (four Explore lenses, 0 real
+findings, fully dry, no debris, each driving the compiled binary). Purely additive: only
+`crates/cognitive-demo/src/{lib.rs,main.rs}` and the gate block; no frozen crate source touched, the
+`reading-track-v0.1` (`f6fa55a`), `hypothesis-track-v0.1` (`bb20acf`), and `integration-demo-v0.1` (`95b586d`)
+tags unmoved, P12 `training_justified=false`, and P13–P15 closed. Recorded in full in [a.md](../a.md) (the
+MTRACE-0 checklist entry and the "Multi-Trace Scenario Pack / Variation Without Authority Expansion (MTRACE-0)"
+detail section). Local only — no remote push.
+
 ## DD-2026-06-19-H — Freeze the integration-demo track (INT-0 → INT-3) as integration-demo-v0.1
 
 **Decision.** Freeze the INT-0 → INT-3 integration-demo arc as a named, auditable milestone

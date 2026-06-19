@@ -1323,10 +1323,10 @@ grep -q 'fn trace_does_not_change_training_gate' crates/cognitive-demo/src/lib.r
 grep -q 'fn trace_does_not_change_verifier_receipt' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_records_every_stage_id_and_links_the_chain' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_grants_no_new_authority' crates/cognitive-demo/src/lib.rs
-# Unit-test REALITY pin: exactly the 44 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) tests pass, zero
-# ignored (so gutting/disabling one is caught, independent of the behavioral channels below).
+# Unit-test REALITY pin: exactly the 56 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12)
+# tests pass, zero ignored (so gutting/disabling one is caught, independent of the behavioral channels below).
 _int0_unit="$(cargo test --offline --lib --manifest-path crates/cognitive-demo/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 44
+test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 56
 test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
 # Determinism / no side effects: the trace is a pure, in-memory function — no clock, entropy, or network
 # anywhere in src/, and no floats anywhere in the crate. (`std::process::exit` in the CLI shell is a clean
@@ -1552,10 +1552,13 @@ grep -q 'BUNDLE_FILES' crates/cognitive-demo/src/lib.rs
 grep -q 'BundleMismatch' crates/cognitive-demo/src/lib.rs
 grep -q 'BundleMissingFile' crates/cognitive-demo/src/lib.rs
 grep -q 'struct BundleManifest' crates/cognitive-demo/src/lib.rs
-# Re-derive (not trust): verify_bundle compares against canonical_bundle, which builds from run_trace (the pure
-# CognitiveTrace::demo path) — it does NOT parse/deserialize the provided files (CognitiveTrace + the manifest
-# stay Serialize-only, pinned far above).
-grep -q 'let canonical = canonical_bundle()' crates/cognitive-demo/src/lib.rs
+# Re-derive (not trust): verify_bundle compares the provided files against the RE-DERIVED canonical_bundle
+# (which builds from the pure CognitiveTrace::demo path) via the shared compare_bundle core — it does NOT
+# parse/deserialize the provided files (CognitiveTrace + the manifest stay Serialize-only, pinned far above).
+grep -q 'compare_bundle(&canonical_bundle()?' crates/cognitive-demo/src/lib.rs
+# compare_bundle is the re-derive-not-trust comparator: it returns BundleMismatch on any byte difference and
+# BundleMissingFile on an absent file, never trusting provided content over the re-derivation.
+grep -q 'fn compare_bundle(' crates/cognitive-demo/src/lib.rs
 # The 12 INT-3 tests exist (a gutted/deleted test drops the unit count pinned above).
 grep -q 'fn bundle_command_writes_all_expected_files' crates/cognitive-demo/src/lib.rs
 grep -q 'fn bundle_manifest_hashes_all_files' crates/cognitive-demo/src/lib.rs
@@ -1649,6 +1652,106 @@ for _bl in 'The integration demo shows the prototype.' 'The trace is output, not
 done
 # The milestone makes NO false training claim (it never asserts training opened).
 if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' INTEGRATION_DEMO_MILESTONE.md; then exit 1; fi
+# ---------------------------------------------------------------------------------------------------
+# MTRACE-0 — Multi-Trace Scenario Pack (crates/cognitive-demo, the `cognitive-demo` binary's `scenarios` +
+# `scenario-pack` + `scenario-verify` commands). The SAME deterministic pipeline is run under several finite,
+# enum-backed scenarios that vary ONLY the probe risk and the governance decision, producing several
+# CognitiveTrace bundles — each proving the SAME authority boundary (no execution / no evidence / no promotion /
+# no training) under a different review/observation/promotion outcome. `scenario_bundle`/`scenario_pack_manifest`
+# are PURELY derived; `verify_scenario_bundle`/`verify_scenario_pack_manifest` RE-DERIVE and byte-compare,
+# trusting nothing on disk. The happy-boundary scenario IS the frozen canonical demo trace, byte-for-byte.
+# Doctrine: Scenarios vary the path. They do not vary the authority. Nothing executes. Nothing becomes evidence.
+# Nothing promotes. Nothing trains.
+# ---------------------------------------------------------------------------------------------------
+# The scenario surface exists (signals): the finite enum, the parameterized builder, the scenario trace/bundle/
+# pack builders, the re-deriving verifiers, and the boundary data.
+grep -q 'pub enum Scenario' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn build_scenario' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn scenario_trace' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn scenario_bundle' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn verify_scenario_bundle' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn scenario_pack_manifest' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn verify_scenario_pack_manifest' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn list_scenarios' crates/cognitive-demo/src/lib.rs
+grep -q 'MTRACE_BOUNDARY_LINES' crates/cognitive-demo/src/lib.rs
+# Re-derive (not trust): the scenario verifiers compare against the freshly re-derived scenario bundle / pack
+# manifest via the same compare_bundle core (pinned above) and a byte-compare — they parse/trust no file.
+grep -q 'compare_bundle(&scenario_bundle(scenario)?' crates/cognitive-demo/src/lib.rs
+grep -q 'provided == scenario_pack_manifest()?' crates/cognitive-demo/src/lib.rs
+# The happy-boundary scenario IS the frozen canonical demo (the parameterized builder preserves it) — pinned by
+# the named test below and by the canonical-marker greps far above.
+grep -q 'fn happy_boundary_scenario_equals_canonical_demo' crates/cognitive-demo/src/lib.rs
+# The 12 MTRACE-0 tests exist (a gutted/deleted test drops the unit count pinned above).
+grep -q 'fn scenario_pack_lists_all_scenarios' crates/cognitive-demo/src/lib.rs
+grep -q 'fn each_scenario_replays' crates/cognitive-demo/src/lib.rs
+grep -q 'fn each_scenario_bundle_verifies' crates/cognitive-demo/src/lib.rs
+grep -q 'fn review_rejected_scenario_blocks_intent' crates/cognitive-demo/src/lib.rs
+grep -q 'fn review_deferred_scenario_blocks_intent' crates/cognitive-demo/src/lib.rs
+grep -q 'fn high_risk_scenario_blocks_probe' crates/cognitive-demo/src/lib.rs
+grep -q 'fn no_scenario_executes' crates/cognitive-demo/src/lib.rs
+grep -q 'fn no_scenario_promotes' crates/cognitive-demo/src/lib.rs
+grep -q 'fn no_scenario_changes_training_gate' crates/cognitive-demo/src/lib.rs
+grep -q 'fn tampered_scenario_bundle_is_refused' crates/cognitive-demo/src/lib.rs
+grep -q 'fn scenarios_are_distinguishable' crates/cognitive-demo/src/lib.rs
+# End-to-end BINARY smoke (real files; the CLI was built in the INT-1 smoke): write the scenario pack, prove it
+# is 4 scenario subdirs (4 files each) + a pack manifest, is byte-identical across runs, the scenarios are
+# DISTINGUISHABLE (a requires_operator AND blocked execution status; a blocked probe), every file preserves the
+# no-authority boundary, scenario-verify accepts the pristine pack, and a TAMPER of a scenario trace / a scenario
+# manifest / the pack manifest, a MISSING file, and a FOREIGN scenario are ALL refused.
+_mt_dir="$(mktemp -d)"
+./target/debug/cognitive-demo scenarios > "$_mt_dir/list.txt" 2>/dev/null
+for _s in happy-boundary review-rejected review-deferred high-risk-blocked; do
+  if ! grep -qF "$_s" "$_mt_dir/list.txt"; then rm -rf "$_mt_dir"; exit 1; fi
+done
+./target/debug/cognitive-demo scenario-pack --out "$_mt_dir/pack" >/dev/null 2>&1
+# All four scenario subdirs with all four files, plus the pack manifest.
+for _s in happy-boundary review-rejected review-deferred high-risk-blocked; do
+  for _f in trace.json report.txt questions.txt manifest.json; do
+    if [ ! -f "$_mt_dir/pack/$_s/$_f" ]; then rm -rf "$_mt_dir"; exit 1; fi
+  done
+done
+test -f "$_mt_dir/pack/pack-manifest.json"
+# The pack manifest names every scenario and carries the six boundary lines verbatim.
+for _s in happy-boundary review-rejected review-deferred high-risk-blocked; do
+  if ! grep -qF "$_s" "$_mt_dir/pack/pack-manifest.json"; then rm -rf "$_mt_dir"; exit 1; fi
+done
+for _bl in 'Scenarios vary the path.' 'They do not vary the authority.' 'Nothing executes.' 'Nothing becomes evidence.' 'Nothing promotes.' 'Nothing trains.'; do
+  if ! grep -qF "$_bl" "$_mt_dir/pack/pack-manifest.json"; then rm -rf "$_mt_dir"; exit 1; fi
+done
+# Determinism: a second pack is byte-identical, file for file.
+./target/debug/cognitive-demo scenario-pack --out "$_mt_dir/pack2" >/dev/null 2>&1
+if ! diff -rq "$_mt_dir/pack" "$_mt_dir/pack2" >/dev/null 2>&1; then rm -rf "$_mt_dir"; exit 1; fi
+# Scenarios are DISTINGUISHABLE by status: happy-boundary is requires_operator (never executed), the review
+# scenarios are blocked, and the high-risk probe is blocked.
+grep -q '"execution_status": "requires_operator"' "$_mt_dir/pack/happy-boundary/trace.json"
+grep -q '"execution_status": "blocked"' "$_mt_dir/pack/review-rejected/trace.json"
+grep -q '"execution_status": "blocked"' "$_mt_dir/pack/review-deferred/trace.json"
+grep -q '"probe_status": "blocked"' "$_mt_dir/pack/high-risk-blocked/trace.json"
+# FREEZE PIN: the happy-boundary scenario IS the frozen canonical trace, so its FNV-derived hypothesis id is the
+# frozen value. A drift in the happy-boundary risk/reversibility would change this id even though the path and
+# statuses are unchanged — so this catches a silent canonical-trace drift that the status greps above cannot. The
+# id is a STABLE FNV hash from the frozen hypothesis-layer (not a DefaultHasher value), safe to pin literally.
+grep -q '"hypothesis_id": 16880898425785712701' "$_mt_dir/pack/happy-boundary/trace.json"
+# NO-AUTHORITY guard over the WHOLE pack: no file shows an affirmative executed/promoted/granted/recorded status
+# or a true grant, and training stays false everywhere.
+if grep -rqE '"(execution_status|observation_status|promotion_status)": "(executed|promoted|granted|recorded)"' "$_mt_dir/pack"; then rm -rf "$_mt_dir"; exit 1; fi
+if grep -rq '"grants_promotion": true' "$_mt_dir/pack"; then rm -rf "$_mt_dir"; exit 1; fi
+if grep -rq '"training_justified": true' "$_mt_dir/pack"; then rm -rf "$_mt_dir"; exit 1; fi
+# scenario-verify accepts the pristine pack...
+./target/debug/cognitive-demo scenario-verify --path "$_mt_dir/pack" >/dev/null 2>&1
+# ...and refuses a TAMPER of a scenario trace, a scenario manifest, the pack manifest, a MISSING file, and a
+# FOREIGN scenario (each exit non-zero — no tampered scenario passes).
+cp -r "$_mt_dir/pack" "$_mt_dir/tt"; sed -i 's/"review_decision": "rejected"/"review_decision": "approved"/' "$_mt_dir/tt/review-rejected/trace.json"
+if ./target/debug/cognitive-demo scenario-verify --path "$_mt_dir/tt" >/dev/null 2>&1; then rm -rf "$_mt_dir"; exit 1; fi
+cp -r "$_mt_dir/pack" "$_mt_dir/tm"; sed -i 's/cognitive-bundle-v0.1/forged/' "$_mt_dir/tm/happy-boundary/manifest.json"
+if ./target/debug/cognitive-demo scenario-verify --path "$_mt_dir/tm" >/dev/null 2>&1; then rm -rf "$_mt_dir"; exit 1; fi
+cp -r "$_mt_dir/pack" "$_mt_dir/tp"; sed -i 's/cognitive-scenario-pack-v0.1/forged/' "$_mt_dir/tp/pack-manifest.json"
+if ./target/debug/cognitive-demo scenario-verify --path "$_mt_dir/tp" >/dev/null 2>&1; then rm -rf "$_mt_dir"; exit 1; fi
+cp -r "$_mt_dir/pack" "$_mt_dir/tx"; rm "$_mt_dir/tx/review-deferred/questions.txt"
+if ./target/debug/cognitive-demo scenario-verify --path "$_mt_dir/tx" >/dev/null 2>&1; then rm -rf "$_mt_dir"; exit 1; fi
+mkdir -p "$_mt_dir/tf"; cp -r "$_mt_dir/pack/." "$_mt_dir/tf/"; for _f in trace.json report.txt questions.txt manifest.json; do echo foreign > "$_mt_dir/tf/high-risk-blocked/$_f"; done
+if ./target/debug/cognitive-demo scenario-verify --path "$_mt_dir/tf" >/dev/null 2>&1; then rm -rf "$_mt_dir"; exit 1; fi
+rm -rf "$_mt_dir"
 # ---------------------------------------------------------------------------------------------------
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json

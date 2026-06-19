@@ -220,6 +220,22 @@ impl CognitiveTrace {
         question: &str,
         plan: &str,
     ) -> Result<CognitiveTrace, TraceError> {
+        // The canonical INT-0 trace IS the `happy-boundary` scenario (a low-risk, reversible probe that
+        // governance approves). It is preserved byte-for-byte by delegating to the scenario builder.
+        Self::build_scenario(documents, question, plan, Scenario::HappyBoundary)
+    }
+
+    /// Build the end-to-end trace under a [`Scenario`] — the SAME deterministic pipeline, varying ONLY
+    /// the probe's risk profile and the governance decision, never the authority boundaries. Each
+    /// downstream object is still DERIVED only from its predecessor and read from the frozen crates'
+    /// real outputs; every scenario preserves no-execution / no-evidence / no-promotion / no-training.
+    /// (`Scenario::HappyBoundary` reproduces the canonical [`CognitiveTrace::demo`] trace exactly.)
+    pub fn build_scenario(
+        documents: &[(String, String)],
+        question: &str,
+        plan: &str,
+        scenario: Scenario,
+    ) -> Result<CognitiveTrace, TraceError> {
         // P12 verdict BEFORE the flow — the whole trace must leave it unmoved.
         let training_before = decide(&[], &[]);
 
@@ -243,8 +259,8 @@ impl CognitiveTrace {
             prior: 500,
             uncertainty: 600,
             test_cost: 50,
-            risk: 100,
-            reversibility: 900,
+            risk: scenario.risk(),
+            reversibility: scenario.reversibility(),
             evidence_inputs: vec![cite.clone()],
             probe_description: "Re-read the maintenance log span for Bridge B.".to_string(),
         };
@@ -264,7 +280,7 @@ impl CognitiveTrace {
         let review = ReviewReceipt::decide(
             &probe,
             ReviewerAuthority::Governance,
-            ReviewDecision::Approved,
+            scenario.review_decision(),
         )
         .map_err(TraceError::Review)?;
         let intent = ProbeExecutionIntent::from_review(&review);
@@ -1086,19 +1102,15 @@ fn bundle_content_hash(content: &str) -> String {
 /// The canonical interrogation transcript for the bundle's `questions.txt`: the finite question menu
 /// followed by every enumerated question and its answer, all derived from the canonical trace. Pure.
 pub fn run_questions_doc() -> Result<String, TraceError> {
-    let trace_json = run_trace()?;
-    let mut out = list_questions();
-    for q in TraceQuestion::ALL {
-        out.push_str(&format!("\n=== {} ===\n", q.slug()));
-        out.push_str(&run_ask(&trace_json, q.slug())?);
-    }
-    Ok(out)
+    Ok(CognitiveTrace::demo()?.questions_doc())
 }
 
-/// Build the canonical manifest JSON from the already-derived content files. Pure and deterministic
-/// (fixed field order, fixed file order); `serde_json::to_string_pretty` yields identical bytes on
-/// every run, so the manifest re-derives byte-for-byte.
-fn bundle_manifest(content_files: &[(&'static str, String)]) -> String {
+/// Build a manifest JSON from the already-derived content files, with the given replay-proof text.
+/// Pure and deterministic (fixed field order, fixed file order); `serde_json::to_string_pretty` yields
+/// identical bytes on every run, so the manifest re-derives byte-for-byte. (The `canonical_trace_hash`
+/// field names this bundle's OWN deterministic trace hash — for a scenario bundle that is the scenario
+/// trace, which is canonical for its scenario.)
+fn bundle_manifest_with(content_files: &[(&'static str, String)], replay: &str) -> String {
     let files: Vec<BundleFileEntry> = content_files
         .iter()
         .map(|(name, content)| BundleFileEntry {
@@ -1117,8 +1129,7 @@ fn bundle_manifest(content_files: &[(&'static str, String)]) -> String {
         files,
         replay_proof: BundleReplayProof {
             canonical_trace_hash: bundle_content_hash(trace_json),
-            replay: "trace.json re-derives byte-identically from CognitiveTrace::demo()"
-                .to_string(),
+            replay: replay.to_string(),
         },
         boundary: BUNDLE_BOUNDARY_LINES
             .iter()
@@ -1133,18 +1144,10 @@ fn bundle_manifest(content_files: &[(&'static str, String)]) -> String {
 /// `CognitiveTrace::demo()`. This is exactly what `bundle` writes and what `bundle-verify` re-derives
 /// and compares against — so the bundle is a reproducible DEMONSTRATION, never trusted as authority.
 pub fn canonical_bundle() -> Result<Vec<(&'static str, String)>, TraceError> {
-    let trace_json = run_trace()?;
-    let report = run_report(&trace_json)?;
-    let questions = run_questions_doc()?;
-    let content: Vec<(&'static str, String)> = vec![
-        (BUNDLE_TRACE_FILE, trace_json),
-        (BUNDLE_REPORT_FILE, report),
-        (BUNDLE_QUESTIONS_FILE, questions),
-    ];
-    let manifest = bundle_manifest(&content);
-    let mut files = content;
-    files.push((BUNDLE_MANIFEST_FILE, manifest));
-    Ok(files)
+    Ok(trace_bundle(
+        &CognitiveTrace::demo()?,
+        "trace.json re-derives byte-identically from CognitiveTrace::demo()",
+    ))
 }
 
 /// Verify a provided bundle (its files as (name, content) pairs read from disk) WITHOUT trusting it:
@@ -1154,8 +1157,33 @@ pub fn canonical_bundle() -> Result<Vec<(&'static str, String)>, TraceError> {
 /// exact match — so a tampered bundle can never pass and no bundle file is ever trusted over the
 /// re-derived canonical. Pure (no I/O).
 pub fn verify_bundle(provided: &[(String, String)]) -> Result<(), TraceError> {
-    let canonical = canonical_bundle()?;
-    for (name, content) in &canonical {
+    compare_bundle(&canonical_bundle()?, provided)
+}
+
+/// Build the four-file repro bundle for ANY trace, with the given replay-proof text. Pure: every file
+/// is derived from the trace itself (`to_json` / `to_report` / `questions_doc`) plus a manifest hashing
+/// the three content files. This is the shared core of the canonical bundle and every scenario bundle.
+fn trace_bundle(trace: &CognitiveTrace, replay: &str) -> Vec<(&'static str, String)> {
+    let content: Vec<(&'static str, String)> = vec![
+        (BUNDLE_TRACE_FILE, trace.to_json()),
+        (BUNDLE_REPORT_FILE, trace.to_report()),
+        (BUNDLE_QUESTIONS_FILE, trace.questions_doc()),
+    ];
+    let manifest = bundle_manifest_with(&content, replay);
+    let mut files = content;
+    files.push((BUNDLE_MANIFEST_FILE, manifest));
+    files
+}
+
+/// Require every CANONICAL (re-derived) file to be present in `provided` and byte-identical. A missing
+/// file is [`TraceError::BundleMissingFile`]; any tampered/stale/foreign file (including the manifest)
+/// is [`TraceError::BundleMismatch`]. The shared comparison core of [`verify_bundle`] and
+/// [`verify_scenario_bundle`] — it trusts nothing on disk, it only compares against the re-derivation.
+fn compare_bundle(
+    canonical: &[(&'static str, String)],
+    provided: &[(String, String)],
+) -> Result<(), TraceError> {
+    for (name, content) in canonical {
         match provided
             .iter()
             .find(|(provided_name, _)| provided_name == name)
@@ -1169,6 +1197,245 @@ pub fn verify_bundle(provided: &[(String, String)]) -> Result<(), TraceError> {
         }
     }
     Ok(())
+}
+
+// --- MTRACE-0: the multi-trace scenario pack. The SAME deterministic pipeline is run under several
+//     scenarios that vary the probe risk and the governance decision, producing several CognitiveTrace
+//     bundles — each proving the SAME authority boundary (no execution / no evidence / no promotion /
+//     no training) under a different review/observation/promotion outcome. Scenarios vary the path;
+//     they do not vary the authority. ---
+
+/// The six-line MTRACE-0 boundary, embedded in the scenario-pack manifest. Pinned as data so a test
+/// can assert every line is present.
+pub const MTRACE_BOUNDARY_LINES: [&str; 6] = [
+    "Scenarios vary the path.",
+    "They do not vary the authority.",
+    "Nothing executes.",
+    "Nothing becomes evidence.",
+    "Nothing promotes.",
+    "Nothing trains.",
+];
+
+/// The scenario-pack manifest file name (lists every scenario; re-derived and byte-compared on verify).
+pub const PACK_MANIFEST_FILE: &str = "pack-manifest.json";
+
+/// A deterministic scenario over the SAME authority chain. It varies ONLY the probe's risk profile and
+/// the governance decision — never the authority boundaries — so each scenario produces a distinct
+/// path (different review/intent/observation statuses and ids) that still proves no execution, no
+/// evidence, no promotion, and no training. The set is finite and enum-backed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Scenario {
+    /// Governance approves; intent `requires_operator`; observation `requires_review`; promotion
+    /// rejected. This IS the canonical [`CognitiveTrace::demo`] trace, byte-for-byte.
+    HappyBoundary,
+    /// Governance rejects a queued probe; intent `blocked`; observation `rejected`; promotion rejected.
+    ReviewRejected,
+    /// Governance defers a queued probe; intent `blocked`; observation `rejected`; promotion rejected.
+    ReviewDeferred,
+    /// The probe is classified `blocked` (high-risk AND irreversible): there is no approval path
+    /// (approving a blocked probe is refused by the frozen layer), so nothing can execute.
+    HighRiskBlocked,
+}
+
+impl Scenario {
+    /// Every scenario, in canonical order. Pinned as data so a test/the pack can assert the full set.
+    pub const ALL: [Scenario; 4] = [
+        Scenario::HappyBoundary,
+        Scenario::ReviewRejected,
+        Scenario::ReviewDeferred,
+        Scenario::HighRiskBlocked,
+    ];
+
+    /// The stable slug for this scenario. Exhaustive match — a new variant forces a slug here.
+    pub fn slug(self) -> &'static str {
+        match self {
+            Scenario::HappyBoundary => "happy-boundary",
+            Scenario::ReviewRejected => "review-rejected",
+            Scenario::ReviewDeferred => "review-deferred",
+            Scenario::HighRiskBlocked => "high-risk-blocked",
+        }
+    }
+
+    /// A one-line description of the scenario's path (shown by `scenarios`). Exhaustive match.
+    pub fn describe(self) -> &'static str {
+        match self {
+            Scenario::HappyBoundary => {
+                "governance approves; intent requires_operator; observation requires_review; promotion rejected"
+            }
+            Scenario::ReviewRejected => {
+                "governance rejects; intent blocked; observation rejected; promotion rejected"
+            }
+            Scenario::ReviewDeferred => {
+                "governance defers; intent blocked; observation rejected; promotion rejected"
+            }
+            Scenario::HighRiskBlocked => {
+                "probe classified blocked (high-risk AND irreversible); no approval path; no execution"
+            }
+        }
+    }
+
+    /// Parse a slug into a scenario. Fails CLOSED: any string that is not EXACTLY a known slug is `None`.
+    pub fn from_slug(slug: &str) -> Option<Scenario> {
+        Scenario::ALL.into_iter().find(|s| s.slug() == slug)
+    }
+
+    /// The governance decision applied in this scenario. A `blocked` probe (high-risk-blocked) can only
+    /// be rejected or deferred — never approved (the frozen layer refuses) — so it uses Rejected.
+    /// Exhaustive, no wildcard: a new scenario must choose its decision explicitly.
+    fn review_decision(self) -> ReviewDecision {
+        match self {
+            Scenario::HappyBoundary => ReviewDecision::Approved,
+            Scenario::ReviewRejected => ReviewDecision::Rejected,
+            Scenario::ReviewDeferred => ReviewDecision::Deferred,
+            Scenario::HighRiskBlocked => ReviewDecision::Rejected,
+        }
+    }
+
+    /// The probe risk for this scenario. Only high-risk-blocked is at/above the frozen `HIGH_RISK`
+    /// threshold (700); the others reuse the canonical low risk so their probe stays queued.
+    fn risk(self) -> i64 {
+        match self {
+            Scenario::HappyBoundary => 100,
+            Scenario::ReviewRejected => 100,
+            Scenario::ReviewDeferred => 100,
+            Scenario::HighRiskBlocked => 800,
+        }
+    }
+
+    /// The probe reversibility for this scenario. Only high-risk-blocked is at/below the frozen
+    /// `LOW_REVERSIBILITY` threshold (300); the others reuse the canonical high reversibility.
+    fn reversibility(self) -> i64 {
+        match self {
+            Scenario::HappyBoundary => 900,
+            Scenario::ReviewRejected => 900,
+            Scenario::ReviewDeferred => 900,
+            Scenario::HighRiskBlocked => 100,
+        }
+    }
+}
+
+impl CognitiveTrace {
+    /// The interrogation transcript for THIS trace: the finite question menu followed by every
+    /// enumerated question and its answer (about this trace). Pure — formats only recorded fields.
+    /// (`CognitiveTrace::demo().questions_doc()` is exactly the canonical INT-2/INT-3 questions doc.)
+    pub fn questions_doc(&self) -> String {
+        let mut out = list_questions();
+        for q in TraceQuestion::ALL {
+            out.push_str(&format!("\n=== {} ===\n", q.slug()));
+            out.push_str(&self.answer(q));
+        }
+        out
+    }
+}
+
+/// The deterministic trace for a scenario: run the fixed [`demo_inputs`] through the pipeline under the
+/// scenario's risk profile and governance decision. `Scenario::HappyBoundary` reproduces the canonical
+/// [`CognitiveTrace::demo`] trace byte-for-byte. Pure and replayable.
+pub fn scenario_trace(scenario: Scenario) -> Result<CognitiveTrace, TraceError> {
+    let (documents, question, plan) = demo_inputs();
+    CognitiveTrace::build_scenario(&documents, &question, &plan, scenario)
+}
+
+/// The four-file repro bundle for a scenario (trace.json / report.txt / questions.txt / manifest.json),
+/// purely derived from the scenario's trace. Re-derivable and byte-comparable — exactly like the
+/// canonical bundle, but for this scenario's path.
+pub fn scenario_bundle(scenario: Scenario) -> Result<Vec<(&'static str, String)>, TraceError> {
+    let replay = format!(
+        "trace.json re-derives byte-identically from CognitiveTrace::build_scenario(\"{}\")",
+        scenario.slug()
+    );
+    Ok(trace_bundle(&scenario_trace(scenario)?, &replay))
+}
+
+/// Verify a provided scenario bundle WITHOUT trusting it: re-derive the scenario's canonical bundle and
+/// byte-compare every file. A missing file is [`TraceError::BundleMissingFile`]; any tampered/stale/
+/// foreign file (including the manifest) is [`TraceError::BundleMismatch`]. Pure (no I/O).
+pub fn verify_scenario_bundle(
+    scenario: Scenario,
+    provided: &[(String, String)],
+) -> Result<(), TraceError> {
+    compare_bundle(&scenario_bundle(scenario)?, provided)
+}
+
+/// One row of the scenario-pack manifest: the scenario's identity plus the distinguishing statuses and
+/// its trace hash, and the boundary verdicts that hold for it (always no-grant / no-execution / no-
+/// training). `Serialize` but NOT `Deserialize` — re-derived and byte-compared, never parsed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct ScenarioEntry {
+    slug: String,
+    description: String,
+    review_decision: String,
+    probe_status: String,
+    execution_status: String,
+    observation_status: String,
+    promotion_status: String,
+    grants_promotion: bool,
+    nothing_executed: bool,
+    nothing_becomes_evidence: bool,
+    training_justified: bool,
+    trace_hash: String,
+}
+
+/// The scenario-pack manifest: every scenario row plus the six-line boundary. `Serialize` but NOT
+/// `Deserialize` — re-derived and byte-compared on verify, never parsed back into authority.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct ScenarioPackManifest {
+    schema: String,
+    scenarios: Vec<ScenarioEntry>,
+    boundary: Vec<String>,
+}
+
+/// The deterministic scenario-pack manifest JSON: one row per scenario (its distinguishing statuses +
+/// trace hash + the always-holding no-grant/no-execution/no-training verdicts) plus the boundary. Pure.
+pub fn scenario_pack_manifest() -> Result<String, TraceError> {
+    let mut scenarios = Vec::new();
+    for scenario in Scenario::ALL {
+        let trace = scenario_trace(scenario)?;
+        scenarios.push(ScenarioEntry {
+            slug: scenario.slug().to_string(),
+            description: scenario.describe().to_string(),
+            review_decision: trace.review_decision().to_string(),
+            probe_status: trace.probe_status.clone(),
+            execution_status: trace.execution_status().to_string(),
+            observation_status: trace.observation_status().to_string(),
+            promotion_status: trace.promotion_status().to_string(),
+            grants_promotion: trace.grants_promotion(),
+            nothing_executed: trace.nothing_executed(),
+            nothing_becomes_evidence: trace.nothing_becomes_evidence(),
+            training_justified: trace.training_justified(),
+            trace_hash: bundle_content_hash(&trace.to_json()),
+        });
+    }
+    let manifest = ScenarioPackManifest {
+        schema: "cognitive-scenario-pack-v0.1".to_string(),
+        scenarios,
+        boundary: MTRACE_BOUNDARY_LINES
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+    };
+    Ok(serde_json::to_string_pretty(&manifest).expect("ScenarioPackManifest serializes"))
+}
+
+/// Verify a provided scenario-pack manifest by RE-DERIVING the canonical one and byte-comparing. A
+/// mismatch (tampered/stale/foreign) is refused ([`TraceError::BundleMismatch`]). Pure (no I/O).
+pub fn verify_scenario_pack_manifest(provided: &str) -> Result<(), TraceError> {
+    if provided == scenario_pack_manifest()? {
+        Ok(())
+    } else {
+        Err(TraceError::BundleMismatch(PACK_MANIFEST_FILE.to_string()))
+    }
+}
+
+/// The `scenarios` command: list the finite scenario set (slug + one-line path description). Pure.
+pub fn list_scenarios() -> String {
+    let mut out = String::from(
+        "cognitive-demo — deterministic scenarios (each proves the SAME authority boundary):\n",
+    );
+    for s in Scenario::ALL {
+        out.push_str(&format!("    {:<20} {}\n", s.slug(), s.describe()));
+    }
+    out
 }
 
 #[cfg(test)]
@@ -1932,5 +2199,267 @@ mod tests {
             .1
             .clone();
         assert!(trace.contains("\"training_justified\": false"));
+    }
+
+    // --- MTRACE-0: the multi-trace scenario pack. Each scenario varies the path (review/observation/
+    //     promotion outcome) but NOT the authority boundary. The binary fs I/O is gated by the
+    //     release_check MTRACE-0 smoke. ---
+
+    /// A scenario bundle as owned (name, content) pairs — the shape `verify_scenario_bundle` consumes.
+    fn scenario_bundle_owned(scenario: Scenario) -> Vec<(String, String)> {
+        scenario_bundle(scenario)
+            .unwrap()
+            .into_iter()
+            .map(|(name, content)| (name.to_string(), content))
+            .collect()
+    }
+
+    #[test]
+    fn happy_boundary_scenario_equals_canonical_demo() {
+        // The happy-boundary scenario IS the frozen canonical demo trace, byte-for-byte — the refactor
+        // (parameterizing the builder) preserved the integration-demo-v0.1 trace exactly.
+        let happy = scenario_trace(Scenario::HappyBoundary).unwrap();
+        let demo = CognitiveTrace::demo().unwrap();
+        assert_eq!(happy, demo);
+        assert_eq!(happy.to_json(), demo.to_json());
+        assert_eq!(happy.execution_status(), "requires_operator");
+        assert_eq!(happy.observation_status(), "requires_review");
+    }
+
+    #[test]
+    fn scenario_pack_lists_all_scenarios() {
+        // The scenario set is finite and enum-backed; the listing and the pack manifest name every
+        // scenario, each slug round-trips, and the set is closed (a near-miss is not accepted).
+        assert_eq!(Scenario::ALL.len(), 4);
+        let listing = list_scenarios();
+        let manifest = scenario_pack_manifest().unwrap();
+        for s in Scenario::ALL {
+            assert!(listing.contains(s.slug()), "listing must name {}", s.slug());
+            assert!(
+                manifest.contains(s.slug()),
+                "pack manifest must name {}",
+                s.slug()
+            );
+            assert_eq!(Scenario::from_slug(s.slug()), Some(s));
+        }
+        assert_eq!(Scenario::from_slug("happy"), None);
+        assert_eq!(Scenario::from_slug(""), None);
+        // The pack manifest carries the six MTRACE-0 boundary lines verbatim.
+        for line in MTRACE_BOUNDARY_LINES {
+            assert!(
+                manifest.contains(line),
+                "pack manifest must contain boundary: {line}"
+            );
+        }
+    }
+
+    #[test]
+    fn each_scenario_replays() {
+        // Every scenario trace is a pure function of fixed inputs: building it twice yields an identical
+        // record AND identical serialized bytes (replay).
+        for s in Scenario::ALL {
+            let a = scenario_trace(s).unwrap();
+            let b = scenario_trace(s).unwrap();
+            assert_eq!(a, b, "{} replays to an identical record", s.slug());
+            assert_eq!(
+                a.to_json(),
+                b.to_json(),
+                "{} replays byte-identically",
+                s.slug()
+            );
+        }
+    }
+
+    #[test]
+    fn each_scenario_bundle_verifies() {
+        // Every scenario's pristine bundle verifies by re-derivation (it is not trusted — it matches the
+        // freshly re-derived canonical scenario bundle).
+        for s in Scenario::ALL {
+            let bundle = scenario_bundle_owned(s);
+            assert!(
+                verify_scenario_bundle(s, &bundle).is_ok(),
+                "{} bundle must verify",
+                s.slug()
+            );
+            // A scenario bundle is NOT accepted as a DIFFERENT scenario's bundle (the paths differ).
+            for other in Scenario::ALL {
+                if other != s {
+                    assert!(
+                        verify_scenario_bundle(other, &bundle).is_err(),
+                        "{} bundle must not verify as {}",
+                        s.slug(),
+                        other.slug()
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn review_rejected_scenario_blocks_intent() {
+        // A rejected review yields a BLOCKED (never executable) intent — a rejected review can never
+        // produce executable intent.
+        let trace = scenario_trace(Scenario::ReviewRejected).unwrap();
+        assert_eq!(trace.review_decision(), "rejected");
+        assert_eq!(trace.execution_status(), "blocked");
+        assert_ne!(trace.execution_status(), "executed");
+        assert!(trace.nothing_executed());
+        assert_eq!(trace.observation_status(), "rejected");
+    }
+
+    #[test]
+    fn review_deferred_scenario_blocks_intent() {
+        // A deferred review likewise yields a BLOCKED intent — deferral is not execution.
+        let trace = scenario_trace(Scenario::ReviewDeferred).unwrap();
+        assert_eq!(trace.review_decision(), "deferred");
+        assert_eq!(trace.execution_status(), "blocked");
+        assert_ne!(trace.execution_status(), "executed");
+        assert!(trace.nothing_executed());
+        assert_eq!(trace.observation_status(), "rejected");
+    }
+
+    #[test]
+    fn high_risk_scenario_blocks_probe() {
+        // A high-risk AND irreversible probe is classified BLOCKED and has NO approval path: the frozen
+        // layer refuses to approve a blocked probe for ANY authority, so nothing can execute.
+        let trace = scenario_trace(Scenario::HighRiskBlocked).unwrap();
+        assert_eq!(trace.probe_status, "blocked");
+        assert_eq!(trace.execution_status(), "blocked");
+        assert!(trace.nothing_executed());
+        // No approval path: rebuilding the same blocked probe, approving it is refused.
+        let (d, q, p) = demo_inputs();
+        let file = produce_run(&d, &q, &p).unwrap();
+        let cite = EvidenceRef {
+            answer_hash: file.answer_hash,
+            memory_hash: file.memory_hash,
+            source_label: "bridge-run".to_string(),
+        };
+        let spec = HypothesisSpec {
+            statement: "Bridge B reopened because the storm weakened.".to_string(),
+            prior: 500,
+            uncertainty: 600,
+            test_cost: 50,
+            risk: 800,
+            reversibility: 100,
+            evidence_inputs: vec![cite],
+            probe_description: "Re-read the maintenance log span for Bridge B.".to_string(),
+        };
+        let packet = propose(spec).unwrap();
+        let probe = ProbeRequest::from_hypothesis(&packet);
+        assert!(
+            ReviewReceipt::decide(
+                &probe,
+                ReviewerAuthority::Governance,
+                ReviewDecision::Approved
+            )
+            .is_err(),
+            "a blocked probe must have no approval path"
+        );
+    }
+
+    #[test]
+    fn no_scenario_executes() {
+        // Across EVERY scenario, nothing executes: the execution status is never `executed` and the
+        // nothing_executed verdict holds.
+        for s in Scenario::ALL {
+            let trace = scenario_trace(s).unwrap();
+            assert!(trace.nothing_executed(), "{} executes nothing", s.slug());
+            assert_ne!(trace.execution_status(), "executed", "{}", s.slug());
+        }
+    }
+
+    #[test]
+    fn no_scenario_promotes() {
+        // Across EVERY scenario, nothing is promoted and nothing becomes evidence: the promotion is
+        // rejected and grants nothing, regardless of the path.
+        for s in Scenario::ALL {
+            let trace = scenario_trace(s).unwrap();
+            assert!(
+                !trace.grants_promotion(),
+                "{} grants no promotion",
+                s.slug()
+            );
+            assert_eq!(trace.promotion_status(), "rejected", "{}", s.slug());
+            assert!(trace.nothing_becomes_evidence(), "{}", s.slug());
+        }
+    }
+
+    #[test]
+    fn no_scenario_changes_training_gate() {
+        // Building EVERY scenario (and the whole pack manifest) is orthogonal to P12: the training
+        // decision is unmoved and every scenario records training_justified=false.
+        let before = decide(&[], &[]);
+        for s in Scenario::ALL {
+            let trace = scenario_trace(s).unwrap();
+            assert!(!trace.training_justified(), "{}", s.slug());
+            assert!(trace.training_gate_unchanged(), "{}", s.slug());
+        }
+        let _pack = scenario_pack_manifest().unwrap();
+        let after = decide(&[], &[]);
+        assert_eq!(before, after);
+        assert!(!after.training_justified);
+    }
+
+    #[test]
+    fn tampered_scenario_bundle_is_refused() {
+        // A tampered or incomplete scenario bundle is refused (never trusted over the re-derivation):
+        // every content file is re-derived and byte-compared, and a missing file is reported.
+        let s = Scenario::ReviewRejected;
+        let mut b = scenario_bundle_owned(s);
+        let i = b.iter().position(|(n, _)| n == BUNDLE_TRACE_FILE).unwrap();
+        b[i].1 = b[i].1.replace(
+            "\"review_decision\": \"rejected\"",
+            "\"review_decision\": \"approved\"",
+        );
+        assert!(matches!(
+            verify_scenario_bundle(s, &b),
+            Err(TraceError::BundleMismatch(_))
+        ));
+        let mut b2 = scenario_bundle_owned(s);
+        let j = b2
+            .iter()
+            .position(|(n, _)| n == BUNDLE_MANIFEST_FILE)
+            .unwrap();
+        b2[j].1 = b2[j].1.replace("cognitive-bundle-v0.1", "forged");
+        assert!(matches!(
+            verify_scenario_bundle(s, &b2),
+            Err(TraceError::BundleMismatch(ref f)) if f == BUNDLE_MANIFEST_FILE
+        ));
+        let mut b3 = scenario_bundle_owned(s);
+        b3.retain(|(n, _)| n != BUNDLE_QUESTIONS_FILE);
+        assert!(matches!(
+            verify_scenario_bundle(s, &b3),
+            Err(TraceError::BundleMissingFile(ref f)) if f == BUNDLE_QUESTIONS_FILE
+        ));
+        let tampered_pack = scenario_pack_manifest()
+            .unwrap()
+            .replace("cognitive-scenario-pack-v0.1", "forged");
+        assert!(verify_scenario_pack_manifest(&tampered_pack).is_err());
+    }
+
+    #[test]
+    fn scenarios_are_distinguishable() {
+        // The four scenario traces are pairwise distinct (distinguishable by ids/statuses), and the pack
+        // manifest records the distinct paths — variation is real, not cosmetic — while every row still
+        // preserves the boundary (no grant, nothing executes, training stays false).
+        let traces: Vec<String> = Scenario::ALL
+            .iter()
+            .map(|s| scenario_trace(*s).unwrap().to_json())
+            .collect();
+        for a in 0..traces.len() {
+            for b in (a + 1)..traces.len() {
+                assert_ne!(
+                    traces[a], traces[b],
+                    "scenarios {a} and {b} must be distinguishable"
+                );
+            }
+        }
+        let pack = scenario_pack_manifest().unwrap();
+        assert!(pack.contains("requires_operator"));
+        assert!(pack.contains("\"execution_status\": \"blocked\""));
+        assert!(pack.contains("\"review_decision\": \"deferred\""));
+        assert!(pack.contains("\"review_decision\": \"rejected\""));
+        assert!(!pack.contains("\"grants_promotion\": true"));
+        assert!(!pack.contains("\"training_justified\": true"));
     }
 }

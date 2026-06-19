@@ -24,7 +24,8 @@
 //!
 //! This binary is ONLY an I/O shell: it parses argv and reads/writes files, then delegates ALL
 //! logic to the pure [`cognitive_demo`] library (`run_trace` / `run_report` / `run_replay` /
-//! `run_ask` / `list_questions` / `canonical_bundle` / `verify_bundle`). It
+//! `run_ask` / `list_questions` / `canonical_bundle` / `verify_bundle` / `scenario_bundle` /
+//! `verify_scenario_bundle` / `scenario_pack_manifest`). It
 //! holds no executor, spawns no process, opens no socket, and consults no clock or entropy — the
 //! trace it serves is a pure function of fixed inputs, and `report`/`replay` re-derive the
 //! canonical trace and REFUSE any provided file that is not byte-for-byte that trace, so a tampered
@@ -32,8 +33,10 @@
 //! here (never in the library or the example), which the release gate enforces.
 
 use cognitive_demo::{
-    canonical_bundle, list_questions, run_ask, run_replay, run_report, run_trace, verify_bundle,
-    BUNDLE_BOUNDARY_LINES, BUNDLE_FILES,
+    canonical_bundle, list_questions, list_scenarios, run_ask, run_replay, run_report, run_trace,
+    scenario_bundle, scenario_pack_manifest, verify_bundle, verify_scenario_bundle,
+    verify_scenario_pack_manifest, Scenario, BUNDLE_BOUNDARY_LINES, BUNDLE_FILES,
+    MTRACE_BOUNDARY_LINES, PACK_MANIFEST_FILE,
 };
 
 fn main() {
@@ -97,6 +100,34 @@ fn dispatch(args: &[String]) -> Result<(), String> {
             let provided = read_bundle(dir)?;
             verify_bundle(&provided).map_err(|e| e.to_string())?;
             print!("{}", bundle_verify_summary());
+            Ok(())
+        }
+        Some("scenarios") => {
+            // List the finite scenario set (no inputs needed — this is the menu).
+            print!("{}", list_scenarios());
+            Ok(())
+        }
+        Some("scenario-pack") => {
+            // Write one bundle subdirectory per scenario plus the scenario-pack manifest (pure derivation).
+            let out_dir = flag_value(args, "--out").ok_or("this command requires --out <dir>")?;
+            let file_count = write_scenario_pack(out_dir)?;
+            print!("{}", scenario_pack_summary(out_dir, file_count));
+            Ok(())
+        }
+        Some("scenario-verify") => {
+            // Verify every scenario bundle AND the pack manifest by RE-DERIVING each and byte-comparing.
+            let dir = flag_value(args, "--path").ok_or("this command requires --path <dir>")?;
+            for scenario in Scenario::ALL {
+                let sub = format!("{dir}/{}", scenario.slug());
+                let provided = read_bundle(&sub)?;
+                verify_scenario_bundle(scenario, &provided)
+                    .map_err(|e| format!("{}: {e}", scenario.slug()))?;
+            }
+            let pack_path = format!("{dir}/{PACK_MANIFEST_FILE}");
+            let pack = std::fs::read_to_string(&pack_path)
+                .map_err(|e| format!("cannot read {pack_path}: {e}"))?;
+            verify_scenario_pack_manifest(&pack).map_err(|e| e.to_string())?;
+            print!("{}", scenario_verify_summary());
             Ok(())
         }
         _ => Err(usage()),
@@ -184,9 +215,56 @@ fn bundle_verify_summary() -> String {
     out
 }
 
+/// Write the scenario pack: one bundle subdirectory per scenario (each with the four bundle files) plus
+/// the scenario-pack manifest. Returns the number of bundle files written. The bundle CONTENT is a pure
+/// derivation from the frozen tracks; this shell only places the bytes on disk.
+fn write_scenario_pack(dir: &str) -> Result<usize, String> {
+    std::fs::create_dir_all(dir).map_err(|e| format!("cannot create {dir}: {e}"))?;
+    let mut file_count = 0;
+    for scenario in Scenario::ALL {
+        let sub = format!("{dir}/{}", scenario.slug());
+        let files = scenario_bundle(scenario).map_err(|e| e.to_string())?;
+        write_bundle(&sub, &files)?;
+        file_count += files.len();
+    }
+    let pack = scenario_pack_manifest().map_err(|e| e.to_string())?;
+    let pack_path = format!("{dir}/{PACK_MANIFEST_FILE}");
+    std::fs::write(&pack_path, &pack).map_err(|e| format!("cannot write {pack_path}: {e}"))?;
+    Ok(file_count)
+}
+
+/// The human summary printed after `scenario-pack` writes the pack: the scenarios and the boundary.
+fn scenario_pack_summary(dir: &str, file_count: usize) -> String {
+    let mut out = format!(
+        "scenario-pack: wrote {} scenarios ({file_count} bundle files) + {PACK_MANIFEST_FILE} to {dir}\n",
+        Scenario::ALL.len()
+    );
+    for s in Scenario::ALL {
+        out.push_str(&format!("    {}/\n", s.slug()));
+    }
+    out.push_str("BOUNDARY\n");
+    for line in MTRACE_BOUNDARY_LINES {
+        out.push_str(&format!("    {line}\n"));
+    }
+    out
+}
+
+/// The success summary printed after `scenario-verify` accepts the whole pack.
+fn scenario_verify_summary() -> String {
+    let mut out = String::from(
+        "scenario-verify: OK — every scenario bundle and the pack manifest re-derive byte-identically\n",
+    );
+    out.push_str("BOUNDARY\n");
+    for line in MTRACE_BOUNDARY_LINES {
+        out.push_str(&format!("    {line}\n"));
+    }
+    out
+}
+
 fn usage() -> String {
     "usage: cognitive-demo <trace [--out PATH] | report --trace PATH [--out PATH] | \
      replay --trace PATH | ask --trace PATH --question SLUG [--out PATH] | questions | \
-     bundle --out DIR | bundle-verify --path DIR>"
+     bundle --out DIR | bundle-verify --path DIR | scenarios | scenario-pack --out DIR | \
+     scenario-verify --path DIR>"
         .to_string()
 }
