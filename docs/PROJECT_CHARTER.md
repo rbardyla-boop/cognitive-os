@@ -3,6 +3,46 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-19-A — Add the observation promotion gate / still-no-evidence boundary (P17 / HYP-5) in-crate
+
+**Decision.** Add `crates/hypothesis-layer/src/promotion.rs` — a `PromotionRequest` derived from a HYP-4
+`ProbeObservationReceipt` that records a REQUEST to promote a quarantined observation toward a
+claim/evidence/memory-note, while refusing to promote anything to evidence until a future verifier-backed path
+exists. Doctrine: *Hypothesis proposes. Probe queue classifies. Governance reviews. HYP-3 records intent. HYP-4
+quarantines observations. HYP-5 records promotion requests. Nothing becomes evidence.* Kept INSIDE the existing
+crate (a new module, no new dependency), so the serde-only quarantine is unchanged.
+
+**Why.** HYP-4 quarantines an observation but cannot record anything (`recorded` is future-reserved); the next
+authority leak is "the observation exists, therefore it is evidence." HYP-5 defines what a future promotion
+REQUEST looks like while still refusing to promote: a request is minted only by `from_observation`, which
+DERIVES the outcome from the observation's disposition and the requested target — a `rejected`/`requires_review`
+observation yields `rejected` (for any target), and the future-reserved `recorded` observation yields
+`requires_verifier` (claim/evidence) or `unsupported` (memory-note). Because HYP-4 makes `recorded`
+unreachable, every real request is `rejected`: at HYP-5 nothing can be promoted. No status grants a promotion.
+
+**Boundary (enforced by the compiler, types, the gate, and a behavioral surface).** A `PromotionRequest` is
+minted only by `from_observation`, has private fields, and derives `Serialize` but not `Deserialize`
+(`PromotionStatus`/`PromotionReason` are output-only, so the request is structurally non-deserializable — a
+`compile_fail` proof, pinned live by cargo's doctest report; `PromotionTarget` is the deserializable input).
+The reason/status derivation is exhaustive with no wildcard (E0004 on a new `ObservationStatus` or reason), and
+`grants_promotion` matches every status with no wildcard returning `false` (E0004 on a future promoting
+variant), so "still no evidence" cannot silently regress. The gate also pins the SOLE minting path with a
+construction-literal count (`PromotionRequest {` appears exactly 5 times): since the crate is
+`#![forbid(unsafe_code)]`, the type has no `Deserialize`, and its fields are private, a struct literal is the
+only way to construct one, so a backdoor minting path of any return-type shape raises the count and fails. The
+request binds its fields with an `integrity_hash`, cites its provenance, and reuses the forbidden-uses
+quarantine so it can never become evidence. Verified by three read-only adversarial panel rounds: round one's
+five substantive lenses clean, the still-no-evidence lens raising a backdoor-constructor finding (reproduced
+first-hand, judged insider-forgery-scope, but the previously-ungated correct-if 1 was folded into a
+sole-minting-path pin); round two's five lenses clean, the gate-vacuity lens showing the first pin was evadable
+by a composite return type (reproduced first-hand and replaced with the robust construction-literal pin); round
+three fully dry. Three live sabotage probes (forge a grant, make the request deserializable, inject a process
+spawn) each failed the gate, restored byte-identical; a read-only panel agent's stray `test_alias` binary was
+removed. No LLM, no training, no probe execution, no actual promotion; P12 still owns weights, P13–P15 stay
+closed. `release_check` green + silent. Recorded in full in [a.md](../a.md) under "Observation Promotion Gate /
+Still-No-Evidence Boundary (P17 / HYP-5)". Additive: HYP-0 through HYP-4 and all prior crates/docs 0-diff. Local
+only — no remote push.
+
 ## DD-2026-06-18-E — Add the observation receipt quarantine (P16 / HYP-4) in-crate
 
 **Decision.** Add `crates/hypothesis-layer/src/observation.rs` — a `ProbeObservationReceipt` derived from a

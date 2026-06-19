@@ -54,6 +54,12 @@ pub use observation::{
     ObservationAuthority, ObservationError, ObservationStatus, ProbeObservationReceipt,
 };
 
+/// HYP-5: the observation promotion gate / still-no-evidence boundary, built on the HYP-4 observation.
+mod promotion;
+pub use promotion::{
+    PromotionError, PromotionReason, PromotionRequest, PromotionStatus, PromotionTarget,
+};
+
 /// Probability-like fields are fixed-point per-mille in `0..=SCALE` (no floats, so
 /// scoring is deterministic and replayable across platforms — matching the engine's
 /// integer discipline).

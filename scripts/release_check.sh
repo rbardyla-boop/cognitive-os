@@ -856,13 +856,13 @@ test "$(grep -c 'compile_fail' crates/hypothesis-layer/src/probe.rs)" -ge 2
 # grep-visible tokens yet drops out of the doctest suite, letting the type be made Deserialize undetected).
 # So we ALSO pin the doctest REALITY from cargo itself — it reports every live doctest and labels the
 # compile_fail ones — so commenting out or deleting any compile_fail proof lowers these counts and fails
-# here. Crate-wide: exactly 16 live doctests, 8 `compile fail`, one per inert type (HypothesisPacket,
+# here. Crate-wide: exactly 18 live doctests, 9 `compile fail`, one per inert type (HypothesisPacket,
 # RecommendedProbe, ProbeRequest, ProbeQueue, ReviewReceipt, ReviewLog, ProbeExecutionIntent,
-# ProbeObservationReceipt). (Residual: a decoy compile_fail deliberately planted on the same type while the
-# real one is commented out is review-evident insider forgery, beyond regression scope.)
+# ProbeObservationReceipt, PromotionRequest). (Residual: a decoy compile_fail deliberately planted on the
+# same type while the real one is commented out is review-evident insider forgery, beyond regression scope.)
 _doc_out="$(cargo test --offline --doc --manifest-path crates/hypothesis-layer/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_doc_out" | grep -oE 'running [0-9]+ tests' | grep -oE '[0-9]+')" -eq 16
-test "$(printf '%s\n' "$_doc_out" | grep -c 'compile fail')" -eq 8
+test "$(printf '%s\n' "$_doc_out" | grep -oE 'running [0-9]+ tests' | grep -oE '[0-9]+')" -eq 18
+test "$(printf '%s\n' "$_doc_out" | grep -c 'compile fail')" -eq 9
 printf '%s\n' "$_doc_out" | grep -q 'HypothesisPacket (line.*compile fail'
 printf '%s\n' "$_doc_out" | grep -q 'RecommendedProbe (line.*compile fail'
 printf '%s\n' "$_doc_out" | grep -q 'ProbeRequest (line.*compile fail'
@@ -871,13 +871,14 @@ printf '%s\n' "$_doc_out" | grep -q 'ReviewReceipt (line.*compile fail'
 printf '%s\n' "$_doc_out" | grep -q 'ReviewLog (line.*compile fail'
 printf '%s\n' "$_doc_out" | grep -q 'ProbeExecutionIntent (line.*compile fail'
 printf '%s\n' "$_doc_out" | grep -q 'ProbeObservationReceipt (line.*compile fail'
+printf '%s\n' "$_doc_out" | grep -q 'PromotionRequest (line.*compile fail'
 # Likewise, the UNIT tests must actually RUN, not be silently disabled: an `#[ignore]` (or a cfg-out /
 # commented-out `#[test]`) skips a test without failing `cargo test`, so a test-name grep cannot tell an
 # enforced policy from a disabled one. We pin the test reality from cargo: the crate's library unit tests
 # must report EXACTLY the expected passed count and ZERO ignored — ignoring or removing any test lowers the
 # passed count and/or raises the ignored count and fails here. (Update the count when adding/removing tests.)
 _unit_out="$(cargo test --offline --lib --manifest-path crates/hypothesis-layer/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_unit_out" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 62
+test "$(printf '%s\n' "$_unit_out" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 75
 test "$(printf '%s\n' "$_unit_out" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
 test "$(awk '/pub struct ProbeRequest \{/,/^\}/' crates/hypothesis-layer/src/probe.rs | grep -cE '^[[:space:]]+pub ')" -eq 0
 test "$(awk '/pub struct ProbeQueue \{/,/^\}/' crates/hypothesis-layer/src/probe.rs | grep -cE '^[[:space:]]+pub ')" -eq 0
@@ -1145,6 +1146,108 @@ grep -q '"policy_blocked_rejected": true' "$_or_dir/run1.json"
 grep -q '"policy_requires_operator_requires_review": true' "$_or_dir/run1.json"
 grep -q '"policy_no_recorded_at_hyp4": true' "$_or_dir/run1.json"
 rm -rf "$_or_dir"
+# ---------------------------------------------------------------------------------------------------
+# HYP-5 / Observation Promotion Gate — Still-No-Evidence Boundary (crates/hypothesis-layer/src/promotion.rs).
+# Converts a HYP-4 ProbeObservationReceipt into an inert, deterministic PromotionRequest that RECORDS a
+# request to promote a quarantined observation toward a claim/evidence/memory_note — WITHOUT promoting
+# anything to evidence, mutating anything, or implying the probe ran. The outcome is machine-checkable and
+# DERIVED from the observation and the requested target: a rejected/requires_review observation yields a
+# `rejected` request (for ANY target), and the FUTURE-reserved `recorded` observation yields
+# `requires_verifier` (claim/evidence) or `unsupported` (memory_note, which the layer may never write). NO
+# path grants a promotion — PromotionStatus::grants_promotion is exhaustive and ALWAYS false at HYP-5, so a
+# future promoting status cannot be added without an explicit, review-evident change. A request is minted
+# ONLY by PromotionRequest::from_observation (private fields, no Deserialize — compiler-enforced and pinned
+# LIVE by the cargo doctest-reality check above; the requested_target INPUT enum is deserializable, but the
+# derived PromotionStatus/PromotionReason are Serialize-only, which keeps the request non-deserializable),
+# so a forged "promoted" request cannot be hand-set or deserialized off the wire; it carries an
+# integrity_hash over all fields and reuses the FORBIDDEN_USES quarantine so it can never become evidence.
+# The crate-wide no-execution / no-float / no-wall-clock / no-IO / no-#[allow] scans and the serde-only
+# quarantine cargo-tree above already cover promotion.rs and the new example. Doctrine: Hypothesis
+# proposes. Probe queue classifies. Governance reviews. HYP-3 records intent. HYP-4 quarantines
+# observations. HYP-5 records promotion requests. Nothing becomes evidence.
+# ---------------------------------------------------------------------------------------------------
+# Promotion-request structure present (signals).
+grep -q 'enum PromotionTarget' crates/hypothesis-layer/src/promotion.rs
+grep -q 'enum PromotionStatus' crates/hypothesis-layer/src/promotion.rs
+grep -q 'enum PromotionReason' crates/hypothesis-layer/src/promotion.rs
+grep -q 'struct PromotionRequest' crates/hypothesis-layer/src/promotion.rs
+grep -q 'pub fn from_observation' crates/hypothesis-layer/src/promotion.rs
+grep -q 'fn grants_promotion' crates/hypothesis-layer/src/promotion.rs
+grep -q 'integrity_hash' crates/hypothesis-layer/src/promotion.rs
+# ENCAPSULATION (compiler-enforced): a PromotionRequest is minted ONLY by from_observation, is read-only
+# (private fields), and is NOT deserializable — proven by the compile_fail doctest whose LIVE presence is
+# pinned by the cargo doctest-reality check above (the existence grep below cannot be dodged by a
+# `//`-commented copy because that copy drops out of cargo's doctest run). Plus private-fields and whole-file
+# manual-`impl Deserialize` scans for the inert output type and its DERIVED (Serialize-only) enums — note
+# PromotionTarget is the deserializable INPUT enum and is deliberately NOT in this set.
+grep -q 'let _: hypothesis_layer::PromotionRequest = serde_json::from_str' crates/hypothesis-layer/src/promotion.rs
+test "$(awk '/pub struct PromotionRequest \{/,/^\}/' crates/hypothesis-layer/src/promotion.rs | grep -cE '^[[:space:]]+pub ')" -eq 0
+test "$(grep -cE 'impl([[:space:]]|<).*Deserialize.*for[[:space:]]+(PromotionRequest|PromotionStatus|PromotionReason)\b' crates/hypothesis-layer/src/promotion.rs)" -eq 0
+# Correct-if 1 — from_observation is the SOLE minting path. from_observation always DERIVES a NON-granting
+# status, so the ONLY way to mint a granting request is to ADD a second construction site. Because the crate
+# is `#![forbid(unsafe_code)]` (no transmute), PromotionRequest has NO Deserialize, and its fields are
+# private with no setter, the ONLY way to construct one is a literal `PromotionRequest { ... }` — whatever
+# the enclosing function's return type (PromotionRequest, Option<…>, a tuple, Self, or a fresh type alias).
+# So we pin the count of that construction literal: exactly 5 occurrences (the `struct` def, the `impl`
+# header, from_observation's `-> PromotionRequest {` body brace, and its TWO real constructions `let base =
+# PromotionRequest {` and the `..base` return). ANY added construction site raises this to >= 6 and fails
+# here, so a backdoor constructor of any return-type shape cannot be added without ALSO editing this gate.
+# (Residual, scoped out since HYP-0: a token-obfuscating macro that emits the struct without the literal
+# text, plus editing this count, is review-evident multi-file insider forgery, beyond regression scope — the
+# structural quarantine defends against off-wire forgery and accidental regression, not against an insider
+# who also rewrites the gate.)
+test "$(grep -cE 'PromotionRequest \{' crates/hypothesis-layer/src/promotion.rs)" -eq 5
+# The still-no-evidence boundary is COMPILER/test-enforced, not prose: the reason derivation matches the
+# observation disposition exhaustively with NO wildcard (E0004 on a new ObservationStatus), the status<-reason
+# map is likewise exhaustive (E0004 on a new reason), and grants_promotion matches every status with no
+# wildcard returning false (a future promoting variant forces an explicit `true` → E0004). These tests (run
+# by cargo test above) prove a rejected/requires_review observation cannot promote, a recorded observation
+# only defers to a future verifier, no path grants evidence authority, and a request changes neither P12 nor
+# a verifier receipt.
+grep -q 'fn rejected_observation_cannot_promote' crates/hypothesis-layer/src/promotion.rs
+grep -q 'fn requires_review_observation_cannot_promote' crates/hypothesis-layer/src/promotion.rs
+grep -q 'fn recorded_observation_requires_future_verifier' crates/hypothesis-layer/src/promotion.rs
+grep -q 'fn promotion_never_yields_evidence_authority' crates/hypothesis-layer/src/promotion.rs
+grep -q 'fn promotion_preserves_forbidden_uses' crates/hypothesis-layer/src/promotion.rs
+grep -q 'fn promotion_does_not_change_training_gate' crates/hypothesis-layer/src/promotion.rs
+grep -q 'fn promotion_does_not_change_verifier_receipt' crates/hypothesis-layer/src/promotion.rs
+# The end-to-end determinism smoke must EXERCISE the real API: the example CALLS from_observation.
+grep -q 'PromotionRequest::from_observation' crates/hypothesis-layer/examples/promotion_request_report.rs
+# End-to-end determinism smoke: the demo request set is a pure function of fixed inputs, so two runs are
+# byte-identical (replay reproduces the requests). The requests array is the least-fabricable behavioral
+# surface SHORT OF editing the example source: each element is a serialized REAL PromotionRequest (a private,
+# non-deserializable type minted only by from_observation), so a forged status cannot be injected off-API —
+# the `rejected` status, all three requested targets, and the two reachable reason tokens appear ONLY because
+# the fixed observations really derived them. A non-promotable observation becoming promotable, or any
+# request granting a promotion, drops a token / raises `promoted` here and fails the gate, independent of (and
+# in a different file from) the unit tests — so gutting a unit-test body cannot hide a real grant; this
+# behavioral channel still catches it. (Residual, explicitly scoped out since HYP-0: fabricating the ENTIRE
+# example output as literal JSON AND gutting every covering unit-test body is review-evident multi-file
+# insider forgery, beyond regression scope.)
+cargo build --offline --quiet --manifest-path crates/hypothesis-layer/Cargo.toml --example promotion_request_report >/dev/null 2>&1
+_pr_dir="$(mktemp -d)"
+./target/debug/examples/promotion_request_report > "$_pr_dir/run1.json" 2>/dev/null
+./target/debug/examples/promotion_request_report > "$_pr_dir/run2.json" 2>/dev/null
+if ! cmp -s "$_pr_dir/run1.json" "$_pr_dir/run2.json"; then rm -rf "$_pr_dir"; exit 1; fi
+grep -q '"status": "rejected"' "$_pr_dir/run1.json"
+grep -q '"requested_target": "claim"' "$_pr_dir/run1.json"
+grep -q '"requested_target": "evidence"' "$_pr_dir/run1.json"
+grep -q '"requested_target": "memory_note"' "$_pr_dir/run1.json"
+grep -q '"reason_code": "observation_rejected_not_promotable"' "$_pr_dir/run1.json"
+grep -q '"reason_code": "observation_requires_review_not_promotable"' "$_pr_dir/run1.json"
+# THE STILL-NO-EVIDENCE BOUNDARY, enforced behaviorally: nothing is promoted at HYP-5. The real serialized
+# requests array must contain NO granting status token, and promoted == 0.
+if grep -qE '"status": "(promoted|granted|evidence)"' "$_pr_dir/run1.json"; then rm -rf "$_pr_dir"; exit 1; fi
+grep -q '"promoted": 0' "$_pr_dir/run1.json"
+# BEHAVIORAL still-no-evidence backstop (a SECONDARY channel to the unit tests + the requests array above):
+# the example RUNS the real from_observation() on each boundary path — including the evidence-target path,
+# the exact "observation exists therefore evidence" leak — and emits these. If a non-promotable observation
+# became promotable, or an evidence target were granted, these flip and the gate fails.
+grep -q '"policy_rejected_observation_not_promoted": true' "$_pr_dir/run1.json"
+grep -q '"policy_requires_review_observation_not_promoted": true' "$_pr_dir/run1.json"
+grep -q '"policy_evidence_target_not_granted": true' "$_pr_dir/run1.json"
+grep -q '"policy_no_promotion_at_hyp5": true' "$_pr_dir/run1.json"
+rm -rf "$_pr_dir"
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json
