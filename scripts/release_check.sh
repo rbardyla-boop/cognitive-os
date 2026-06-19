@@ -856,13 +856,13 @@ test "$(grep -c 'compile_fail' crates/hypothesis-layer/src/probe.rs)" -ge 2
 # grep-visible tokens yet drops out of the doctest suite, letting the type be made Deserialize undetected).
 # So we ALSO pin the doctest REALITY from cargo itself — it reports every live doctest and labels the
 # compile_fail ones — so commenting out or deleting any compile_fail proof lowers these counts and fails
-# here. Crate-wide: exactly 14 live doctests, 7 `compile fail`, one per inert type (HypothesisPacket,
-# RecommendedProbe, ProbeRequest, ProbeQueue, ReviewReceipt, ReviewLog, ProbeExecutionIntent). (Residual: a
-# decoy compile_fail deliberately planted on the same type while the real one is commented out is
-# review-evident insider forgery, beyond regression scope.)
+# here. Crate-wide: exactly 16 live doctests, 8 `compile fail`, one per inert type (HypothesisPacket,
+# RecommendedProbe, ProbeRequest, ProbeQueue, ReviewReceipt, ReviewLog, ProbeExecutionIntent,
+# ProbeObservationReceipt). (Residual: a decoy compile_fail deliberately planted on the same type while the
+# real one is commented out is review-evident insider forgery, beyond regression scope.)
 _doc_out="$(cargo test --offline --doc --manifest-path crates/hypothesis-layer/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_doc_out" | grep -oE 'running [0-9]+ tests' | grep -oE '[0-9]+')" -eq 14
-test "$(printf '%s\n' "$_doc_out" | grep -c 'compile fail')" -eq 7
+test "$(printf '%s\n' "$_doc_out" | grep -oE 'running [0-9]+ tests' | grep -oE '[0-9]+')" -eq 16
+test "$(printf '%s\n' "$_doc_out" | grep -c 'compile fail')" -eq 8
 printf '%s\n' "$_doc_out" | grep -q 'HypothesisPacket (line.*compile fail'
 printf '%s\n' "$_doc_out" | grep -q 'RecommendedProbe (line.*compile fail'
 printf '%s\n' "$_doc_out" | grep -q 'ProbeRequest (line.*compile fail'
@@ -870,13 +870,14 @@ printf '%s\n' "$_doc_out" | grep -q 'ProbeQueue (line.*compile fail'
 printf '%s\n' "$_doc_out" | grep -q 'ReviewReceipt (line.*compile fail'
 printf '%s\n' "$_doc_out" | grep -q 'ReviewLog (line.*compile fail'
 printf '%s\n' "$_doc_out" | grep -q 'ProbeExecutionIntent (line.*compile fail'
+printf '%s\n' "$_doc_out" | grep -q 'ProbeObservationReceipt (line.*compile fail'
 # Likewise, the UNIT tests must actually RUN, not be silently disabled: an `#[ignore]` (or a cfg-out /
 # commented-out `#[test]`) skips a test without failing `cargo test`, so a test-name grep cannot tell an
 # enforced policy from a disabled one. We pin the test reality from cargo: the crate's library unit tests
 # must report EXACTLY the expected passed count and ZERO ignored — ignoring or removing any test lowers the
 # passed count and/or raises the ignored count and fails here. (Update the count when adding/removing tests.)
 _unit_out="$(cargo test --offline --lib --manifest-path crates/hypothesis-layer/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_unit_out" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 48
+test "$(printf '%s\n' "$_unit_out" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 62
 test "$(printf '%s\n' "$_unit_out" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
 test "$(awk '/pub struct ProbeRequest \{/,/^\}/' crates/hypothesis-layer/src/probe.rs | grep -cE '^[[:space:]]+pub ')" -eq 0
 test "$(awk '/pub struct ProbeQueue \{/,/^\}/' crates/hypothesis-layer/src/probe.rs | grep -cE '^[[:space:]]+pub ')" -eq 0
@@ -1064,6 +1065,86 @@ grep -q '"policy_deferred_review_blocked": true' "$_ei_dir/run1.json"
 grep -q '"policy_blocked_probe_never_approved": true' "$_ei_dir/run1.json"
 grep -q '"policy_approved_records_not_executed": true' "$_ei_dir/run1.json"
 rm -rf "$_ei_dir"
+# ---------------------------------------------------------------------------------------------------
+# HYP-4 / Observation Receipt Quarantine (crates/hypothesis-layer/src/observation.rs). Defines the
+# quarantine FORMAT for a future probe result: a ProbeObservationReceipt derived from a HYP-3
+# ProbeExecutionIntent that records "something was observed" WITHOUT letting it become evidence, a claim,
+# verifier input, or a memory mutation — and without implying the probe ran. The disposition is DERIVED
+# from the intent: a not_executed/blocked intent yields `rejected`, a requires_operator intent yields
+# `requires_review`, and NO intent yields `recorded` (the FUTURE-reserved promotion target) — so at HYP-4
+# nothing can be recorded; the quarantine holds until a future verifier/governance promotion path exists.
+# Every observation carries authority `observation_only` (a single-variant enum). A receipt is minted ONLY
+# by ProbeObservationReceipt::from_intent (private fields, no Deserialize — compiler-enforced and pinned
+# LIVE by the cargo doctest-reality check above), so a forged `recorded` observation cannot be hand-set or
+# deserialized off the wire; it carries an integrity_hash over all fields and reuses the FORBIDDEN_USES
+# quarantine so it can never become evidence. The crate-wide no-execution / no-float / no-wall-clock / no-IO
+# / no-#[allow] scans and the serde-only quarantine cargo-tree above already cover observation.rs and the
+# new example. Doctrine: Hypothesis proposes. Probe queue classifies. Governance reviews. HYP-3 records
+# intent. HYP-4 quarantines observations. Nothing becomes evidence.
+# ---------------------------------------------------------------------------------------------------
+# Observation-receipt structure present (signals).
+grep -q 'enum ObservationStatus' crates/hypothesis-layer/src/observation.rs
+grep -q 'enum ObservationAuthority' crates/hypothesis-layer/src/observation.rs
+grep -q 'struct ProbeObservationReceipt' crates/hypothesis-layer/src/observation.rs
+grep -q 'pub fn from_intent' crates/hypothesis-layer/src/observation.rs
+grep -q 'observation_only' crates/hypothesis-layer/src/observation.rs
+grep -q 'integrity_hash' crates/hypothesis-layer/src/observation.rs
+# ENCAPSULATION (compiler-enforced): a ProbeObservationReceipt is minted ONLY by from_intent, is read-only
+# (private fields), and is NOT deserializable — proven by the compile_fail doctest whose LIVE presence is
+# pinned by the cargo doctest-reality check above (the existence grep below cannot be dodged by a
+# `//`-commented copy because that copy drops out of cargo's doctest run). Plus private-fields and whole-file
+# manual-`impl Deserialize` scans for the inert output type and its derived (Serialize-only) enums.
+grep -q 'let _: hypothesis_layer::ProbeObservationReceipt = serde_json::from_str' crates/hypothesis-layer/src/observation.rs
+test "$(awk '/pub struct ProbeObservationReceipt \{/,/^\}/' crates/hypothesis-layer/src/observation.rs | grep -cE '^[[:space:]]+pub ')" -eq 0
+test "$(grep -cE 'impl([[:space:]]|<).*Deserialize.*for[[:space:]]+(ProbeObservationReceipt|ObservationStatus|ObservationAuthority)\b' crates/hypothesis-layer/src/observation.rs)" -eq 0
+# The quarantine is COMPILER/test-enforced, not prose: from_execution_status matches the intent disposition
+# exhaustively with NO wildcard (E0004 on a new ExecutionStatus), no arm yields Recorded, and the
+# single-variant ObservationAuthority is matched with no wildcard (E0004 on a 2nd variant). These tests (run
+# by cargo test above) prove not_executed/blocked intents cannot record, a requires_operator intent requires
+# review, NO disposition yields recorded, the observation is observation_only, it can't be evidence, and it
+# changes neither P12 nor a verifier receipt.
+grep -q 'fn not_executed_intent_cannot_record_observation' crates/hypothesis-layer/src/observation.rs
+grep -q 'fn blocked_intent_cannot_record_observation' crates/hypothesis-layer/src/observation.rs
+grep -q 'fn requires_operator_intent_requires_review' crates/hypothesis-layer/src/observation.rs
+grep -q 'fn no_intent_disposition_yields_recorded' crates/hypothesis-layer/src/observation.rs
+grep -q 'fn observation_authority_has_exactly_one_variant' crates/hypothesis-layer/src/observation.rs
+grep -q 'fn observation_cannot_be_evidence' crates/hypothesis-layer/src/observation.rs
+grep -q 'fn observation_does_not_change_training_gate' crates/hypothesis-layer/src/observation.rs
+grep -q 'fn observation_does_not_change_verifier_receipt' crates/hypothesis-layer/src/observation.rs
+# The end-to-end determinism smoke must EXERCISE the real API: the example CALLS from_intent.
+grep -q 'ProbeObservationReceipt::from_intent' crates/hypothesis-layer/examples/observation_receipt_report.rs
+# End-to-end determinism smoke: the demo observation set is a pure function of fixed inputs, so two runs are
+# byte-identical (replay reproduces the observations). The observations array is the least-fabricable
+# behavioral surface SHORT OF editing the example source: each element is a serialized REAL
+# ProbeObservationReceipt (a private, non-deserializable type minted only by from_intent), so a forged status
+# cannot be injected off-API — the reachable status tokens and the observation_only authority appear ONLY
+# because the fixed intents really derived them. A not_executed/blocked intent becoming recordable or a
+# requires_operator intent losing its review requirement drops the matching token here and fails the gate,
+# independent of (and in a different file from) the unit tests — so gutting a unit-test body cannot hide a
+# real ->recorded regression; this behavioral channel still catches it. (Residual, explicitly scoped out
+# since HYP-0: fabricating the ENTIRE example output as literal JSON AND gutting every covering unit-test
+# body is review-evident multi-file insider forgery, beyond regression scope.)
+cargo build --offline --quiet --manifest-path crates/hypothesis-layer/Cargo.toml --example observation_receipt_report >/dev/null 2>&1
+_or_dir="$(mktemp -d)"
+./target/debug/examples/observation_receipt_report > "$_or_dir/run1.json" 2>/dev/null
+./target/debug/examples/observation_receipt_report > "$_or_dir/run2.json" 2>/dev/null
+if ! cmp -s "$_or_dir/run1.json" "$_or_dir/run2.json"; then rm -rf "$_or_dir"; exit 1; fi
+grep -q '"observation_status": "rejected"' "$_or_dir/run1.json"
+grep -q '"observation_status": "requires_review"' "$_or_dir/run1.json"
+grep -q '"authority": "observation_only"' "$_or_dir/run1.json"
+# THE QUARANTINE, enforced behaviorally: no observation is `recorded` at HYP-4. The real serialized
+# observations array must contain NO `recorded` status token, and recorded == 0.
+if grep -q '"observation_status": "recorded"' "$_or_dir/run1.json"; then rm -rf "$_or_dir"; exit 1; fi
+grep -q '"recorded": 0' "$_or_dir/run1.json"
+# BEHAVIORAL quarantine backstop (a SECONDARY channel to the unit tests + the observations array above): the
+# example RUNS the real from_intent() on each boundary path and emits these. If a not_executed/blocked intent
+# became recordable, a requires_operator intent stopped requiring review, or ANY observation became recorded,
+# these flip and the gate fails.
+grep -q '"policy_not_executed_rejected": true' "$_or_dir/run1.json"
+grep -q '"policy_blocked_rejected": true' "$_or_dir/run1.json"
+grep -q '"policy_requires_operator_requires_review": true' "$_or_dir/run1.json"
+grep -q '"policy_no_recorded_at_hyp4": true' "$_or_dir/run1.json"
+rm -rf "$_or_dir"
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json

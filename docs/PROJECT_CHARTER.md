@@ -3,6 +3,42 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-18-E — Add the observation receipt quarantine (P16 / HYP-4) in-crate
+
+**Decision.** Add `crates/hypothesis-layer/src/observation.rs` — a `ProbeObservationReceipt` derived from a
+HYP-3 `ProbeExecutionIntent` that records a CLAIMED future probe result (`observation_text`) while remaining
+`observation_only`: it can never become evidence, a claim, verifier input, or a memory mutation, and it does
+not imply the probe ran. Doctrine: *Hypothesis proposes. Probe queue classifies. Governance reviews. HYP-3
+records intent. HYP-4 quarantines observations. Nothing becomes evidence.* Kept INSIDE the existing crate (a
+new module, no new dependency), so the serde-only quarantine is unchanged.
+
+**Why.** HYP-3 records an execution intent but executes nothing; the next risk is the FORMAT a future probe
+result would take. HYP-4 defines that format as a quarantine: an observation is minted only by `from_intent`,
+which DERIVES the disposition from the intent — a `not_executed`/`blocked` intent yields `rejected`, a
+`requires_operator` intent yields `requires_review`, and NO intent yields `recorded`. `recorded` is the
+future-reserved promotion target; at HYP-4 nothing can be recorded, so an observation cannot quietly become a
+result until a verifier/governance promotion path exists. The observation holds `observation_only` authority
+(a single-variant enum) and reuses the forbidden-uses quarantine.
+
+**Boundary (enforced by the compiler, types, the gate, and a behavioral surface).** A `ProbeObservationReceipt`
+is minted only by `from_intent`, has private fields, and derives `Serialize` but not `Deserialize`
+(`ObservationStatus`/`ObservationAuthority` are output-only, so the receipt is structurally non-deserializable
+— a `compile_fail` proof, pinned live by cargo's doctest report). The disposition derivation is exhaustive
+with no wildcard (E0004 on a new `ExecutionStatus`) and no arm yields `recorded`; the single-variant authority
+is matched with no wildcard (E0004 on a second variant). The recorded-quarantine is a tested invariant
+(`no_intent_disposition_yields_recorded`) AND a behavioral gate check (the example output must contain no
+`recorded` token and `recorded == 0`). The observation binds its fields with an `integrity_hash`, cites its
+provenance, and reuses the forbidden-uses quarantine so it can never become evidence. No execution code exists
+in the crate (crate-wide gate scan over `src/` + examples). Verified by three read-only adversarial panel
+rounds (round one fully dry; round two's five substantive lenses clean, with the gate-vacuity lens re-raising
+the multi-file-forgery residual — reproduced first-hand and refuted, since the example is an independent
+cross-file behavioral surface that catches a real `->recorded` regression even with the unit tests gutted, and
+only coordinated multi-file fabrication bypasses it, which is beyond regression scope; an in-gate residual note
+was added; round three fully dry post-fold) plus four live sabotage probes. No LLM, no training, no probe
+execution; P12 still owns weights, P13–P15 stay closed. `release_check` green + silent. Recorded in full in
+[a.md](../a.md) under "Observation Receipt Quarantine (P16 / HYP-4)". Additive: HYP-0, HYP-1, HYP-2, HYP-3,
+and all prior crates/docs 0-diff. Local only — no remote push.
+
 ## DD-2026-06-18-D — Add the approved-probe execution stub / non-execution boundary (P16 / HYP-3) in-crate
 
 **Decision.** Add `crates/hypothesis-layer/src/execution.rs` — a `ProbeExecutionIntent` derived from a HYP-2

@@ -48,6 +48,12 @@ pub use review::{
 mod execution;
 pub use execution::{ExecutionError, ExecutionReason, ExecutionStatus, ProbeExecutionIntent};
 
+/// HYP-4: the observation receipt quarantine, built on the HYP-3 execution intent.
+mod observation;
+pub use observation::{
+    ObservationAuthority, ObservationError, ObservationStatus, ProbeObservationReceipt,
+};
+
 /// Probability-like fields are fixed-point per-mille in `0..=SCALE` (no floats, so
 /// scoring is deterministic and replayable across platforms — matching the engine's
 /// integer discipline).
