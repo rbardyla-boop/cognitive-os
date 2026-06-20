@@ -1704,6 +1704,519 @@ fn render_scenario_matrix(matrix: &ScenarioMatrix) -> String {
     out
 }
 
+// --- MTRACE-2: the scenario failure-injection / boundary-regression pack. Where MTRACE-0/1 prove the
+//     GOOD paths preserve the authority boundary, MTRACE-2 proves the BAD paths cannot smuggle authority:
+//     a finite, enum-backed set of negative scenarios, each of which DETERMINISTICALLY forges a forbidden
+//     authority claim onto a canonical artifact (a trace, a scenario bundle, the report, or the coverage
+//     matrix) and then runs the EXISTING re-derive-and-byte-compare verifier, which REFUSES it. Nothing is
+//     trusted: the forged bytes are never parsed back into authority (every artifact type is Serialize-only),
+//     they are only COMPARED against the freshly re-derived canonical and rejected with a typed error. The
+//     pack records, per case, that the forgery genuinely altered the canonical bytes AND the exact typed
+//     rejection reason. Failure cases attack the boundary; they do not weaken it. ---
+
+/// The seven-line MTRACE-2 boundary, embedded in the failure pack. Pinned as data so a test can assert it.
+pub const FAILURE_BOUNDARY_LINES: [&str; 7] = [
+    "Failure cases attack the boundary.",
+    "They do not weaken it.",
+    "Forged authority is rejected.",
+    "Nothing executes.",
+    "Nothing becomes evidence.",
+    "Nothing promotes.",
+    "Nothing trains.",
+];
+
+/// The failure-pack file names (the rejection record + its rendered report). Re-derived and byte-compared
+/// on verify, exactly like the bundle files.
+pub const FAILURE_PACK_FILE: &str = "failure-pack.json";
+/// The rendered failure-pack report file name.
+pub const FAILURE_REPORT_FILE: &str = "failure-report.txt";
+/// Both failure-pack files, in write order (so the shell can read them back for `failure-verify`).
+pub const FAILURE_PACK_FILES: [&str; 2] = [FAILURE_PACK_FILE, FAILURE_REPORT_FILE];
+
+/// The finite, enumerated set of negative scenarios. Each forges ONE forbidden authority claim onto a
+/// canonical artifact and is REFUSED by the existing re-derive-and-byte-compare verifier. The set is
+/// CLOSED — there is no free-form path; an unrecognized slug maps to no variant ([`FailureCase::from_slug`]
+/// returns `None`). Each variant maps to one fixed forgery and the surface that rejects it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FailureCase {
+    /// Forge the execution intent to claim the probe ran. Refused by `verify_trace_json`.
+    ForgedExecution,
+    /// Forge the observation to claim evidence authority. Refused by `verify_trace_json`.
+    ForgedEvidence,
+    /// Forge the promotion request to grant a promotion. Refused by `verify_trace_json`.
+    ForgedPromotion,
+    /// Forge the P12 training gate toward justified. Refused by `verify_trace_json`.
+    ForgedTraining,
+    /// Forge a rejected governance review to read as approved. Refused by `verify_scenario_bundle`.
+    ForgedReview,
+    /// Forge the operator report to narrate that execution/evidence occurred. Refused by `verify_bundle`.
+    ForgedReport,
+    /// Forge the coverage matrix to hide a failed boundary cell. Refused by `verify_scenario_matrix`.
+    ForgedMatrix,
+}
+
+impl FailureCase {
+    /// Every failure case, in canonical order. Pinned as data so the pack can assert the full set.
+    pub const ALL: [FailureCase; 7] = [
+        FailureCase::ForgedExecution,
+        FailureCase::ForgedEvidence,
+        FailureCase::ForgedPromotion,
+        FailureCase::ForgedTraining,
+        FailureCase::ForgedReview,
+        FailureCase::ForgedReport,
+        FailureCase::ForgedMatrix,
+    ];
+
+    /// The stable slug for this case. Exhaustive match — a new variant forces a slug here.
+    pub fn slug(self) -> &'static str {
+        match self {
+            FailureCase::ForgedExecution => "forged-execution",
+            FailureCase::ForgedEvidence => "forged-evidence",
+            FailureCase::ForgedPromotion => "forged-promotion",
+            FailureCase::ForgedTraining => "forged-training",
+            FailureCase::ForgedReview => "forged-review",
+            FailureCase::ForgedReport => "forged-report",
+            FailureCase::ForgedMatrix => "forged-matrix",
+        }
+    }
+
+    /// A one-line description of the attack (shown by `failure-cases`). Exhaustive match.
+    pub fn describe(self) -> &'static str {
+        match self {
+            FailureCase::ForgedExecution => "forge an executed status onto the execution intent",
+            FailureCase::ForgedEvidence => {
+                "forge evidence authority onto the quarantined observation"
+            }
+            FailureCase::ForgedPromotion => "forge the promotion request to grant a promotion",
+            FailureCase::ForgedTraining => "forge the P12 training gate toward justified",
+            FailureCase::ForgedReview => "forge a rejected governance review to read as approved",
+            FailureCase::ForgedReport => {
+                "forge the operator report to narrate execution and evidence"
+            }
+            FailureCase::ForgedMatrix => "forge the coverage matrix to hide a failed boundary cell",
+        }
+    }
+
+    /// Parse a slug into a case. Fails CLOSED: any string that is not EXACTLY a known slug is `None`.
+    pub fn from_slug(slug: &str) -> Option<FailureCase> {
+        FailureCase::ALL.into_iter().find(|c| c.slug() == slug)
+    }
+
+    /// The surface (verifier) that rejects this case's forgery. Prose only — no affirmative authority
+    /// token, so recording it in the pack never leaks a forged claim into trusted state. Exhaustive match.
+    fn target_surface(self) -> &'static str {
+        match self {
+            FailureCase::ForgedExecution
+            | FailureCase::ForgedEvidence
+            | FailureCase::ForgedPromotion
+            | FailureCase::ForgedTraining => "trace-json (verify_trace_json re-derives + byte-compares)",
+            FailureCase::ForgedReview => {
+                "scenario-bundle:review-rejected (verify_scenario_bundle re-derives + byte-compares)"
+            }
+            FailureCase::ForgedReport => "bundle (verify_bundle re-derives + byte-compares)",
+            FailureCase::ForgedMatrix => {
+                "matrix (verify_scenario_matrix re-derives + byte-compares)"
+            }
+        }
+    }
+
+    /// A prose description of the forbidden authority the forgery TRIES to inject. Deliberately prose (no
+    /// affirmative-authority JSON token), so the pack records the ATTACK without ever encoding the claim as
+    /// trusted state. Exhaustive match.
+    fn forbidden_claim(self) -> &'static str {
+        match self {
+            FailureCase::ForgedExecution => {
+                "the execution intent is altered to claim the probe ran"
+            }
+            FailureCase::ForgedEvidence => "the observation is altered to claim evidence authority",
+            FailureCase::ForgedPromotion => "the promotion request is altered to grant a promotion",
+            FailureCase::ForgedTraining => "the P12 training gate is altered toward justified",
+            FailureCase::ForgedReview => {
+                "a rejected governance review is altered to read as approved"
+            }
+            FailureCase::ForgedReport => {
+                "the operator report is altered to narrate that execution and evidence occurred"
+            }
+            FailureCase::ForgedMatrix => {
+                "the coverage matrix is altered to hide a failed boundary cell"
+            }
+        }
+    }
+
+    /// The exact AFFIRMATIVE-authority substring the forgery injects into the forged artifact — proof that
+    /// the forgery genuinely encodes FORBIDDEN authority (not a benign byte-change that would also be
+    /// rejected by byte-compare). Used ONLY to inspect the in-memory forged artifact at attempt time; it is
+    /// never persisted into the pack (the pack records only the boolean result), so no affirmative claim
+    /// becomes trusted state. Exhaustive match.
+    fn forbidden_token(self) -> &'static str {
+        match self {
+            FailureCase::ForgedExecution => "\"execution_status\": \"executed\"",
+            FailureCase::ForgedEvidence => "\"observation_authority\": \"evidence\"",
+            FailureCase::ForgedPromotion => "\"grants_promotion\": true",
+            FailureCase::ForgedTraining => "\"training_justified\": true",
+            FailureCase::ForgedReview => "\"review_decision\": \"approved\"",
+            FailureCase::ForgedReport => "The promotion was granted.",
+            FailureCase::ForgedMatrix => "\"no_execution\": false",
+        }
+    }
+}
+
+/// The outcome of attempting one forgery: whether the forgery genuinely altered the canonical bytes, whether
+/// it injected the specific FORBIDDEN authority token (not just any change), and the REAL verdict the existing
+/// verifier returned for the forged artifact. All are observed, never
+/// asserted — the pack records what actually happened, so a forgery that slipped through would surface as
+/// `forgery_applied=false` or a non-error `verdict` and fail the rejection tests.
+struct FailureAttempt {
+    forgery_applied: bool,
+    injects_forbidden: bool,
+    verdict: Result<(), TraceError>,
+}
+
+/// Forge ONE file inside a canonical bundle (by name) via a deterministic substring replacement, returning
+/// the provided-bundle-shaped copy. The other files are passed through unchanged. Pure.
+fn forge_bundle_file(
+    bundle: &[(&'static str, String)],
+    target_file: &str,
+    from: &str,
+    to: &str,
+) -> Vec<(String, String)> {
+    bundle
+        .iter()
+        .map(|(name, content)| {
+            if *name == target_file {
+                (name.to_string(), content.replace(from, to))
+            } else {
+                (name.to_string(), content.clone())
+            }
+        })
+        .collect()
+}
+
+/// The content of a named file in a provided-shaped bundle (empty if absent), for inspecting a forged file.
+fn bundle_file_content(bundle: &[(String, String)], name: &str) -> String {
+    bundle
+        .iter()
+        .find(|(n, _)| n == name)
+        .map(|(_, c)| c.clone())
+        .unwrap_or_default()
+}
+
+/// The content of a named file in a CANONICAL (&str-keyed) bundle (empty if absent), for the un-forged
+/// baseline when computing whether a bundle forgery actually changed the target file.
+fn canonical_bundle_file(bundle: &[(&'static str, String)], name: &str) -> String {
+    bundle
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, c)| c.clone())
+        .unwrap_or_default()
+}
+
+/// Run ONE failure case: build the canonical artifact, apply the case's deterministic forgery, and run the
+/// EXISTING re-derive-and-byte-compare verifier on the forged artifact. Returns whether the forgery changed
+/// the canonical bytes, whether it injected the case's specific FORBIDDEN authority token (so a benign change
+/// cannot masquerade as a forbidden-authority forgery), and the verifier's real verdict (an `Err` = refused).
+/// The canonical artifact is always built fresh and the forgery operates on a COPY, so this never mutates any
+/// canonical data. Pure.
+fn run_failure_case(case: FailureCase) -> Result<FailureAttempt, TraceError> {
+    let token = case.forbidden_token();
+    match case {
+        FailureCase::ForgedExecution => {
+            let canonical = CognitiveTrace::demo()?.to_json();
+            let forged = canonical.replace(
+                "\"execution_status\": \"requires_operator\"",
+                "\"execution_status\": \"executed\"",
+            );
+            Ok(FailureAttempt {
+                forgery_applied: forged != canonical,
+                injects_forbidden: forged.contains(token),
+                verdict: verify_trace_json(&forged).map(|_| ()),
+            })
+        }
+        FailureCase::ForgedEvidence => {
+            let canonical = CognitiveTrace::demo()?.to_json();
+            let forged = canonical.replace(
+                "\"observation_authority\": \"observation_only\"",
+                "\"observation_authority\": \"evidence\"",
+            );
+            Ok(FailureAttempt {
+                forgery_applied: forged != canonical,
+                injects_forbidden: forged.contains(token),
+                verdict: verify_trace_json(&forged).map(|_| ()),
+            })
+        }
+        FailureCase::ForgedPromotion => {
+            let canonical = CognitiveTrace::demo()?.to_json();
+            let forged =
+                canonical.replace("\"grants_promotion\": false", "\"grants_promotion\": true");
+            Ok(FailureAttempt {
+                forgery_applied: forged != canonical,
+                injects_forbidden: forged.contains(token),
+                verdict: verify_trace_json(&forged).map(|_| ()),
+            })
+        }
+        FailureCase::ForgedTraining => {
+            let canonical = CognitiveTrace::demo()?.to_json();
+            let forged = canonical.replace(
+                "\"training_justified\": false",
+                "\"training_justified\": true",
+            );
+            Ok(FailureAttempt {
+                forgery_applied: forged != canonical,
+                injects_forbidden: forged.contains(token),
+                verdict: verify_trace_json(&forged).map(|_| ()),
+            })
+        }
+        FailureCase::ForgedReview => {
+            // The review-rejected scenario's trace records a `rejected` decision; forge it to `approved`.
+            let canonical = scenario_bundle(Scenario::ReviewRejected)?;
+            let original = canonical_bundle_file(&canonical, BUNDLE_TRACE_FILE);
+            let forged = forge_bundle_file(
+                &canonical,
+                BUNDLE_TRACE_FILE,
+                "\"review_decision\": \"rejected\"",
+                "\"review_decision\": \"approved\"",
+            );
+            let forged_trace = bundle_file_content(&forged, BUNDLE_TRACE_FILE);
+            Ok(FailureAttempt {
+                forgery_applied: forged_trace != original,
+                injects_forbidden: forged_trace.contains(token),
+                verdict: verify_scenario_bundle(Scenario::ReviewRejected, &forged),
+            })
+        }
+        FailureCase::ForgedReport => {
+            // The canonical report states the no-execution/no-evidence/no-promotion summary; forge it to
+            // narrate that execution and evidence occurred.
+            let canonical = canonical_bundle()?;
+            let original = canonical_bundle_file(&canonical, BUNDLE_REPORT_FILE);
+            let forged = forge_bundle_file(
+                &canonical,
+                BUNDLE_REPORT_FILE,
+                "Nothing executed. Nothing became evidence. Nothing was promoted.",
+                "Execution ran. The observation became evidence. The promotion was granted.",
+            );
+            let forged_report = bundle_file_content(&forged, BUNDLE_REPORT_FILE);
+            Ok(FailureAttempt {
+                forgery_applied: forged_report != original,
+                injects_forbidden: forged_report.contains(token),
+                verdict: verify_bundle(&forged),
+            })
+        }
+        FailureCase::ForgedMatrix => {
+            // Flip the FIRST row's no_execution cell to false while the summary still claims full coverage
+            // (cells_proven 16 / all_boundaries_hold true) — a matrix that HIDES a failed boundary cell.
+            let canonical = scenario_matrix()?;
+            let forged = canonical.replacen("\"no_execution\": true", "\"no_execution\": false", 1);
+            Ok(FailureAttempt {
+                forgery_applied: forged != canonical,
+                injects_forbidden: forged.contains(token),
+                verdict: verify_scenario_matrix(&forged),
+            })
+        }
+    }
+}
+
+/// One recorded rejection: the case identity, the attack and the surface that refused it, whether the
+/// forgery genuinely altered the canonical bytes, whether it was rejected, and the EXACT typed rejection
+/// reason. `Serialize` but NOT `Deserialize` — re-derived and byte-compared, never parsed back into
+/// authority. The `forbidden_claim`/`rejection_reason` are prose; no affirmative-authority token is stored.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct FailureRejection {
+    slug: String,
+    attack: String,
+    target_surface: String,
+    forbidden_claim: String,
+    forgery_applied: bool,
+    injects_forbidden: bool,
+    rejected: bool,
+    rejection_reason: String,
+}
+
+/// The coverage summary for the failure pack: how many cases, whether every forgery genuinely altered the
+/// canonical bytes, injected its forbidden authority token, AND was rejected, and this pack's canonical trace
+/// hash (ties the pack to the real, unchanged canonical). `Serialize` but NOT `Deserialize`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct FailureSummary {
+    case_count: usize,
+    all_forged: bool,
+    all_inject_forbidden: bool,
+    all_rejected: bool,
+    canonical_trace_hash: String,
+}
+
+/// The failure pack: every recorded rejection, the coverage summary, and the boundary. `Serialize` but NOT
+/// `Deserialize` — re-derived and byte-compared on verify, never parsed back into authority.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct FailurePack {
+    schema: String,
+    cases: Vec<FailureRejection>,
+    summary: FailureSummary,
+    boundary: Vec<String>,
+}
+
+/// Build the canonical failure pack: run every forgery through the existing verifier and record the real
+/// outcome. Pure and deterministic — every case is re-run from fixed inputs; the `rejected`/`rejection_reason`
+/// fields are OBSERVED from the verifier, not asserted, so a forgery that slipped through would record
+/// `rejected=false` and fail the rejection tests rather than being silently laundered.
+fn canonical_failure_pack() -> Result<FailurePack, TraceError> {
+    let mut cases = Vec::new();
+    let mut all_forged = true;
+    let mut all_inject_forbidden = true;
+    let mut all_rejected = true;
+    for case in FailureCase::ALL {
+        let attempt = run_failure_case(case)?;
+        let rejected = attempt.verdict.is_err();
+        let rejection_reason = match &attempt.verdict {
+            Err(e) => e.to_string(),
+            Ok(()) => "ACCEPTED — the forgery was NOT rejected".to_string(),
+        };
+        if !attempt.forgery_applied {
+            all_forged = false;
+        }
+        if !attempt.injects_forbidden {
+            all_inject_forbidden = false;
+        }
+        if !rejected {
+            all_rejected = false;
+        }
+        cases.push(FailureRejection {
+            slug: case.slug().to_string(),
+            attack: case.describe().to_string(),
+            target_surface: case.target_surface().to_string(),
+            forbidden_claim: case.forbidden_claim().to_string(),
+            forgery_applied: attempt.forgery_applied,
+            injects_forbidden: attempt.injects_forbidden,
+            rejected,
+            rejection_reason,
+        });
+    }
+    let summary = FailureSummary {
+        case_count: cases.len(),
+        all_forged,
+        all_inject_forbidden,
+        all_rejected,
+        canonical_trace_hash: bundle_content_hash(&CognitiveTrace::demo()?.to_json()),
+    };
+    Ok(FailurePack {
+        schema: "cognitive-failure-pack-v0.1".to_string(),
+        cases,
+        summary,
+        boundary: FAILURE_BOUNDARY_LINES
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+    })
+}
+
+/// The deterministic failure pack as pretty JSON: one entry per negative scenario recording that its forgery
+/// was rejected, plus the coverage summary and the boundary. This is what `failure-pack --out` writes. Pure.
+pub fn failure_pack() -> Result<String, TraceError> {
+    Ok(serde_json::to_string_pretty(&canonical_failure_pack()?).expect("FailurePack serializes"))
+}
+
+/// Render the plain-text failure report from a failure pack — pure FORMATTING of its recorded fields (the
+/// per-case attack, surface, whether the forgery applied, REJECTED + the exact reason), the coverage summary,
+/// and the boundary. No new verdict, no authority object.
+fn render_failure_pack(pack: &FailurePack) -> String {
+    let mut out = String::new();
+    out.push_str("COGNITIVE OS — SCENARIO FAILURE-INJECTION / BOUNDARY REGRESSION PACK\n");
+    out.push_str(&format!("schema: {}\n", pack.schema));
+    out.push_str(
+        "(each case forges forbidden authority and is REFUSED by re-derive byte-compare)\n\n",
+    );
+
+    out.push_str("PER-CASE FORGERY x REJECTION\n");
+    for case in &pack.cases {
+        out.push_str(&format!("[{}]\n", case.slug));
+        out.push_str(&format!("    attack:           {}\n", case.attack));
+        out.push_str(&format!("    forbidden claim:  {}\n", case.forbidden_claim));
+        out.push_str(&format!("    surface:          {}\n", case.target_surface));
+        out.push_str(&format!("    forgery applied:  {}\n", case.forgery_applied));
+        out.push_str(&format!(
+            "    injects forbidden:{}\n",
+            case.injects_forbidden
+        ));
+        out.push_str(&format!(
+            "    verdict:          {}\n",
+            if case.rejected {
+                "REJECTED"
+            } else {
+                "ACCEPTED"
+            }
+        ));
+        out.push_str(&format!(
+            "    rejection reason: {}\n",
+            case.rejection_reason
+        ));
+    }
+
+    out.push_str("\nCOVERAGE\n");
+    out.push_str(&format!(
+        "    cases:                  {}\n",
+        pack.summary.case_count
+    ));
+    out.push_str(&format!(
+        "    every forgery applied:   {}\n",
+        pack.summary.all_forged
+    ));
+    out.push_str(&format!(
+        "    every forgery forbidden: {}\n",
+        pack.summary.all_inject_forbidden
+    ));
+    out.push_str(&format!(
+        "    every forgery rejected:  {}\n",
+        pack.summary.all_rejected
+    ));
+    out.push_str(&format!(
+        "    canonical trace hash:  {}\n",
+        pack.summary.canonical_trace_hash
+    ));
+
+    out.push_str("\nSUMMARY\n");
+    out.push_str("    Every forged authority claim is rejected by re-derive byte-compare.\n");
+    out.push_str(
+        "    Nothing executes. Nothing becomes evidence. Nothing promotes. Nothing trains.\n\n",
+    );
+
+    out.push_str("BOUNDARY\n");
+    for line in FAILURE_BOUNDARY_LINES {
+        out.push_str(&format!("    {line}\n"));
+    }
+    out
+}
+
+/// The full failure pack as (filename, content) pairs in write order: the rejection-record JSON and its
+/// rendered report. Pure: both are derived from the same canonical [`FailurePack`]. This is what
+/// `failure-pack` writes and what `failure-verify` re-derives and byte-compares against.
+pub fn failure_pack_files() -> Result<Vec<(&'static str, String)>, TraceError> {
+    let pack = canonical_failure_pack()?;
+    let json = serde_json::to_string_pretty(&pack).expect("FailurePack serializes");
+    let report = render_failure_pack(&pack);
+    Ok(vec![
+        (FAILURE_PACK_FILE, json),
+        (FAILURE_REPORT_FILE, report),
+    ])
+}
+
+/// Verify a provided failure pack (its files as (name, content) pairs read from disk) WITHOUT trusting it:
+/// re-derive the canonical pack (re-running every forgery) and require every file to be present and
+/// byte-identical. A missing file is [`TraceError::BundleMissingFile`]; any tampered/stale/foreign file is
+/// [`TraceError::BundleMismatch`]. So a doctored failure pack (e.g. one that flips a `rejected` to false to
+/// claim a forgery passed) can never be laundered into a clean verification. Pure (no I/O).
+pub fn verify_failure_pack(provided: &[(String, String)]) -> Result<(), TraceError> {
+    compare_bundle(&failure_pack_files()?, provided)
+}
+
+/// The `failure-cases` command: list the finite negative-scenario set (slug + one-line attack). Pure.
+pub fn list_failure_cases() -> String {
+    let mut out = String::from(
+        "cognitive-demo — deterministic failure cases (each forges forbidden authority and is rejected):\n",
+    );
+    for c in FailureCase::ALL {
+        out.push_str(&format!("    {:<18} {}\n", c.slug(), c.describe()));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2957,6 +3470,233 @@ mod tests {
         assert_eq!(
             scenario_trace(Scenario::HappyBoundary).unwrap().to_json(),
             CognitiveTrace::demo().unwrap().to_json()
+        );
+    }
+
+    // --- MTRACE-2: scenario failure-injection / boundary-regression pack ---
+
+    #[test]
+    fn failure_pack_lists_all_cases() {
+        // The pack enumerates every negative scenario, the summary counts them, and the listing covers
+        // them — and every forgery both applied and was rejected.
+        let pack = canonical_failure_pack().unwrap();
+        assert_eq!(pack.cases.len(), 7);
+        assert_eq!(pack.summary.case_count, 7);
+        for case in FailureCase::ALL {
+            assert!(
+                pack.cases.iter().any(|c| c.slug == case.slug()),
+                "{} is recorded",
+                case.slug()
+            );
+        }
+        assert!(pack.summary.all_forged, "every forgery genuinely applied");
+        assert!(
+            pack.summary.all_inject_forbidden,
+            "every forgery injected its specific forbidden authority token"
+        );
+        assert!(pack.summary.all_rejected, "every forgery was rejected");
+        let listing = list_failure_cases();
+        for case in FailureCase::ALL {
+            assert!(
+                listing.contains(case.slug()),
+                "listing covers {}",
+                case.slug()
+            );
+        }
+        // The slug round-trips through the closed enum; an unknown slug fails closed.
+        assert_eq!(
+            FailureCase::from_slug("forged-execution"),
+            Some(FailureCase::ForgedExecution)
+        );
+        assert_eq!(FailureCase::from_slug("forged-anything"), None);
+    }
+
+    #[test]
+    fn forged_execution_is_rejected() {
+        // Forging the execution intent to claim it ran is refused by re-derive byte-compare (TraceMismatch),
+        // a STRUCTURAL rejection — not a prose grep — and the forgery genuinely altered the canonical bytes.
+        let attempt = run_failure_case(FailureCase::ForgedExecution).unwrap();
+        assert!(
+            attempt.forgery_applied,
+            "the forgery altered the canonical trace"
+        );
+        assert!(
+            attempt.injects_forbidden,
+            "the forgery injected the forbidden executed-status token (not a benign change)"
+        );
+        assert!(
+            matches!(attempt.verdict, Err(TraceError::TraceMismatch)),
+            "a forged execution claim is refused"
+        );
+    }
+
+    #[test]
+    fn forged_evidence_is_rejected() {
+        let attempt = run_failure_case(FailureCase::ForgedEvidence).unwrap();
+        assert!(attempt.forgery_applied);
+        assert!(attempt.injects_forbidden);
+        assert!(matches!(attempt.verdict, Err(TraceError::TraceMismatch)));
+    }
+
+    #[test]
+    fn forged_promotion_is_rejected() {
+        let attempt = run_failure_case(FailureCase::ForgedPromotion).unwrap();
+        assert!(attempt.forgery_applied);
+        assert!(attempt.injects_forbidden);
+        assert!(matches!(attempt.verdict, Err(TraceError::TraceMismatch)));
+    }
+
+    #[test]
+    fn forged_training_is_rejected() {
+        let attempt = run_failure_case(FailureCase::ForgedTraining).unwrap();
+        assert!(attempt.forgery_applied);
+        assert!(attempt.injects_forbidden);
+        assert!(matches!(attempt.verdict, Err(TraceError::TraceMismatch)));
+    }
+
+    #[test]
+    fn forged_review_is_rejected() {
+        // Forging a rejected scenario review to "approved" is refused by the scenario bundle verifier
+        // (BundleMismatch on the trace file), again a re-derive byte-compare, not a content grep.
+        let attempt = run_failure_case(FailureCase::ForgedReview).unwrap();
+        assert!(attempt.forgery_applied);
+        assert!(attempt.injects_forbidden);
+        assert!(
+            matches!(attempt.verdict, Err(TraceError::BundleMismatch(ref f)) if f == BUNDLE_TRACE_FILE)
+        );
+    }
+
+    #[test]
+    fn forged_report_is_rejected() {
+        // Forging the report to narrate execution/evidence is refused by the bundle verifier
+        // (BundleMismatch on the report file).
+        let attempt = run_failure_case(FailureCase::ForgedReport).unwrap();
+        assert!(attempt.forgery_applied);
+        assert!(attempt.injects_forbidden);
+        assert!(
+            matches!(attempt.verdict, Err(TraceError::BundleMismatch(ref f)) if f == BUNDLE_REPORT_FILE)
+        );
+    }
+
+    #[test]
+    fn forged_matrix_is_rejected() {
+        // Forging the coverage matrix to hide a failed cell is refused by the matrix verifier (MatrixMismatch).
+        let attempt = run_failure_case(FailureCase::ForgedMatrix).unwrap();
+        assert!(attempt.forgery_applied);
+        assert!(attempt.injects_forbidden);
+        assert!(matches!(attempt.verdict, Err(TraceError::MatrixMismatch)));
+    }
+
+    #[test]
+    fn failure_report_contains_rejection_reasons() {
+        // The rendered report records every case as REJECTED with its exact typed rejection reason —
+        // the reasons come from the verifier's typed errors, never from a hand-written string.
+        let pack = canonical_failure_pack().unwrap();
+        let report = render_failure_pack(&pack);
+        assert!(report.contains("REJECTED"));
+        for case in &pack.cases {
+            assert!(case.rejected, "{} is rejected", case.slug);
+            assert!(report.contains(&case.slug), "report names {}", case.slug);
+            assert!(
+                report.contains(&case.rejection_reason),
+                "report records the {} rejection reason",
+                case.slug
+            );
+            assert!(
+                !case.rejection_reason.is_empty()
+                    && case.rejection_reason != "ACCEPTED — the forgery was NOT rejected",
+                "{} has a real rejection reason",
+                case.slug
+            );
+        }
+        // The reasons are the real typed-error Displays (tamper/stale/foreign), not bare prose verdicts.
+        assert!(report.contains("tampered, stale, or foreign"));
+    }
+
+    #[test]
+    fn failure_pack_does_not_change_training_gate() {
+        // Building the whole pack (running every forgery) leaves the P12 gate closed and the canonical
+        // trace byte-identical, and the pack's summary ties to that real, unchanged canonical.
+        let before = CognitiveTrace::demo().unwrap();
+        assert!(!before.training_justified());
+        let _ = failure_pack().unwrap();
+        let after = CognitiveTrace::demo().unwrap();
+        assert!(!after.training_justified(), "training gate stays closed");
+        assert_eq!(
+            before.to_json(),
+            after.to_json(),
+            "canonical trace byte-identical"
+        );
+        let pack = canonical_failure_pack().unwrap();
+        assert_eq!(
+            pack.summary.canonical_trace_hash,
+            bundle_content_hash(&after.to_json())
+        );
+    }
+
+    #[test]
+    fn failure_pack_forgeries_actually_mutate_canonical() {
+        // Every forgery genuinely changes the canonical bytes (so each rejection is REAL, not vacuous) and
+        // is rejected — and building the pack leaves the frozen canonical trace AND the MTRACE-1 matrix
+        // byte-identical (a failure case mutates no canonical data).
+        for case in FailureCase::ALL {
+            let attempt = run_failure_case(case).unwrap();
+            assert!(
+                attempt.forgery_applied,
+                "{} forgery alters canonical bytes",
+                case.slug()
+            );
+            assert!(
+                attempt.injects_forbidden,
+                "{} forgery injects its forbidden authority token",
+                case.slug()
+            );
+            assert!(
+                attempt.verdict.is_err(),
+                "{} forgery is rejected",
+                case.slug()
+            );
+        }
+        let demo_before = CognitiveTrace::demo().unwrap().to_json();
+        let matrix_before = scenario_matrix().unwrap();
+        let pack_before = scenario_pack_manifest().unwrap();
+        let _ = failure_pack().unwrap();
+        assert_eq!(demo_before, CognitiveTrace::demo().unwrap().to_json());
+        assert_eq!(matrix_before, scenario_matrix().unwrap());
+        assert_eq!(pack_before, scenario_pack_manifest().unwrap());
+    }
+
+    #[test]
+    fn failure_pack_verify_rejects_tampered_pack() {
+        // The failure pack is itself re-derive-never-trust: a pristine pack verifies, but a pack doctored to
+        // claim a forgery passed (rejected:true -> false) or with a missing file is refused.
+        let files = failure_pack_files().unwrap();
+        let pristine: Vec<(String, String)> = files
+            .iter()
+            .map(|(n, c)| (n.to_string(), c.clone()))
+            .collect();
+        assert!(verify_failure_pack(&pristine).is_ok());
+        let tampered: Vec<(String, String)> = files
+            .iter()
+            .map(|(n, c)| {
+                let c2 = if *n == FAILURE_PACK_FILE {
+                    c.replacen("\"rejected\": true", "\"rejected\": false", 1)
+                } else {
+                    c.clone()
+                };
+                (n.to_string(), c2)
+            })
+            .collect();
+        assert!(
+            matches!(verify_failure_pack(&tampered), Err(TraceError::BundleMismatch(ref f)) if f == FAILURE_PACK_FILE)
+        );
+        let missing: Vec<(String, String)> = files
+            .iter()
+            .filter(|(n, _)| *n != FAILURE_REPORT_FILE)
+            .map(|(n, c)| (n.to_string(), c.clone()))
+            .collect();
+        assert!(
+            matches!(verify_failure_pack(&missing), Err(TraceError::BundleMissingFile(ref f)) if f == FAILURE_REPORT_FILE)
         );
     }
 }

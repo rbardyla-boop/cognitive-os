@@ -1323,10 +1323,10 @@ grep -q 'fn trace_does_not_change_training_gate' crates/cognitive-demo/src/lib.r
 grep -q 'fn trace_does_not_change_verifier_receipt' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_records_every_stage_id_and_links_the_chain' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_grants_no_new_authority' crates/cognitive-demo/src/lib.rs
-# Unit-test REALITY pin: exactly the 68 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
-# MTRACE-1 (12) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
+# Unit-test REALITY pin: exactly the 80 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
+# MTRACE-1 (12) + MTRACE-2 (12) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
 _int0_unit="$(cargo test --offline --lib --manifest-path crates/cognitive-demo/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 68
+test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 80
 test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
 # Determinism / no side effects: the trace is a pure, in-memory function — no clock, entropy, or network
 # anywhere in src/, and no floats anywhere in the crate. (`std::process::exit` in the CLI shell is a clean
@@ -1834,6 +1834,110 @@ cp -r "$_m1_dir/pack" "$_m1_dir/tp"; sed -i 's/"review_decision": "rejected"/"re
 if ./target/debug/cognitive-demo scenario-matrix --pack "$_m1_dir/tp" --out "$_m1_dir/x.json" >/dev/null 2>&1; then rm -rf "$_m1_dir"; exit 1; fi
 if ./target/debug/cognitive-demo scenario-matrix-verify --pack "$_m1_dir/tp" --matrix "$_m1_dir/matrix.json" >/dev/null 2>&1; then rm -rf "$_m1_dir"; exit 1; fi
 rm -rf "$_m1_dir"
+# ---------------------------------------------------------------------------------------------------
+# MTRACE-2 — Scenario Failure Injection / Boundary Regression Pack (crates/cognitive-demo, the
+# `cognitive-demo` binary's `failure-cases` + `failure-pack` + `failure-verify` commands). A finite, enum-
+# backed set of NEGATIVE scenarios: each DETERMINISTICALLY forges a forbidden authority claim onto a canonical
+# artifact (a trace / scenario bundle / report / coverage matrix) and runs the EXISTING re-derive-and-byte-
+# compare verifier, which REFUSES it with a typed error. Nothing forged is trusted: every artifact type is
+# Serialize-only, so the forged bytes are never parsed back into authority — only COMPARED against the freshly
+# re-derived canonical and rejected. The pack records, per case, that the forgery genuinely altered the
+# canonical bytes AND the exact typed rejection reason. Failure cases attack the boundary; they do not weaken it.
+# ---------------------------------------------------------------------------------------------------
+# The failure surface exists (signals): the pure pack builder, the re-deriving verifier, the pack files, the
+# listing, the boundary data, and the closed failure-case enum.
+grep -q 'pub fn failure_pack' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn verify_failure_pack' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn failure_pack_files' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn list_failure_cases' crates/cognitive-demo/src/lib.rs
+grep -q 'FAILURE_BOUNDARY_LINES' crates/cognitive-demo/src/lib.rs
+grep -q 'enum FailureCase' crates/cognitive-demo/src/lib.rs
+# Re-derive (not trust): verify_failure_pack byte-compares against the re-derived canonical pack; the pack is
+# Serialize-only (no Deserialize, pinned far above), so a provided pack is never parsed into authority.
+grep -q 'compare_bundle(&failure_pack_files()?' crates/cognitive-demo/src/lib.rs
+grep -q 'struct FailurePack' crates/cognitive-demo/src/lib.rs
+# ANTI-VACUITY: each forgery's verdict is the REAL result of an EXISTING re-derive verifier (observed, never a
+# hardcoded bool) — so a forgery's "rejected" can only be true because a genuine verifier refused the forged
+# artifact. All four surfaces are exercised (trace / scenario-bundle / bundle / matrix).
+grep -q 'verdict: verify_trace_json' crates/cognitive-demo/src/lib.rs
+grep -q 'verdict: verify_scenario_bundle' crates/cognitive-demo/src/lib.rs
+grep -q 'verdict: verify_bundle' crates/cognitive-demo/src/lib.rs
+grep -q 'verdict: verify_scenario_matrix' crates/cognitive-demo/src/lib.rs
+# ANTI-VACUITY (forgery is FORBIDDEN authority, not a benign change): each forgery is checked to inject its
+# specific affirmative-authority token, so a forgery that merely perturbed a byte (also rejected) cannot
+# masquerade as a forbidden-authority forgery.
+grep -q 'fn forbidden_token' crates/cognitive-demo/src/lib.rs
+grep -q 'injects_forbidden: forged.contains(token)' crates/cognitive-demo/src/lib.rs
+# The 12 MTRACE-2 tests exist (a gutted/deleted test drops the unit count pinned above).
+grep -q 'fn failure_pack_lists_all_cases' crates/cognitive-demo/src/lib.rs
+grep -q 'fn forged_execution_is_rejected' crates/cognitive-demo/src/lib.rs
+grep -q 'fn forged_evidence_is_rejected' crates/cognitive-demo/src/lib.rs
+grep -q 'fn forged_promotion_is_rejected' crates/cognitive-demo/src/lib.rs
+grep -q 'fn forged_training_is_rejected' crates/cognitive-demo/src/lib.rs
+grep -q 'fn forged_review_is_rejected' crates/cognitive-demo/src/lib.rs
+grep -q 'fn forged_report_is_rejected' crates/cognitive-demo/src/lib.rs
+grep -q 'fn forged_matrix_is_rejected' crates/cognitive-demo/src/lib.rs
+grep -q 'fn failure_report_contains_rejection_reasons' crates/cognitive-demo/src/lib.rs
+grep -q 'fn failure_pack_does_not_change_training_gate' crates/cognitive-demo/src/lib.rs
+grep -q 'fn failure_pack_forgeries_actually_mutate_canonical' crates/cognitive-demo/src/lib.rs
+grep -q 'fn failure_pack_verify_rejects_tampered_pack' crates/cognitive-demo/src/lib.rs
+# End-to-end BINARY smoke (real files; the CLI was built in the INT-1 smoke): emit the failure pack and prove
+# every negative scenario is recorded with its forgery APPLIED and REJECTED, no forgery slipped through, no
+# affirmative authority leaked into the pack files, the report records the exact typed rejection reasons + the
+# boundary verbatim, the pack is deterministic, a doctored/missing pack is refused, and the frozen canonical
+# trace is unperturbed.
+_m2_dir="$(mktemp -d)"
+./target/debug/cognitive-demo failure-pack --out "$_m2_dir/fp" >/dev/null 2>&1
+test -f "$_m2_dir/fp/failure-pack.json"
+test -f "$_m2_dir/fp/failure-report.txt"
+# Every negative scenario is listed and recorded.
+for _c in forged-execution forged-evidence forged-promotion forged-training forged-review forged-report forged-matrix; do
+  if ! grep -qF "$_c" "$_m2_dir/fp/failure-pack.json"; then rm -rf "$_m2_dir"; exit 1; fi
+done
+# Every forgery genuinely applied, injected its forbidden token, AND was rejected (exactly 7 each); summary agrees.
+test "$(grep -c '"forgery_applied": true' "$_m2_dir/fp/failure-pack.json")" -eq 7
+test "$(grep -c '"injects_forbidden": true' "$_m2_dir/fp/failure-pack.json")" -eq 7
+test "$(grep -c '"rejected": true' "$_m2_dir/fp/failure-pack.json")" -eq 7
+grep -q '"all_forged": true' "$_m2_dir/fp/failure-pack.json"
+grep -q '"all_inject_forbidden": true' "$_m2_dir/fp/failure-pack.json"
+grep -q '"all_rejected": true' "$_m2_dir/fp/failure-pack.json"
+# NO forgery slipped through or was benign (not a single applied:false, injects_forbidden:false, or rejected:false).
+if grep -qE '"(forgery_applied|injects_forbidden|rejected)": false' "$_m2_dir/fp/failure-pack.json"; then rm -rf "$_m2_dir"; exit 1; fi
+# NO-AUTHORITY guard: no affirmative authority JSON leaked into EITHER pack file — the forged bytes are never
+# persisted as trusted state; only the (prose) rejection record is.
+if grep -qE '"(execution_status|observation_status|promotion_status|intent_status)": "(executed|promoted|granted|recorded)"' "$_m2_dir/fp/"*; then rm -rf "$_m2_dir"; exit 1; fi
+if grep -qE '"(grants_promotion|training_justified)": true' "$_m2_dir/fp/"*; then rm -rf "$_m2_dir"; exit 1; fi
+if grep -qE '"no_(execution|evidence|promotion|training)": false' "$_m2_dir/fp/"*; then rm -rf "$_m2_dir"; exit 1; fi
+# The report records each case as REJECTED (never ACCEPTED) with the EXACT typed-error reason — the rejections
+# are structural re-derive byte-compare refusals, not a prose grep.
+grep -qF 'verdict:          REJECTED' "$_m2_dir/fp/failure-report.txt"
+if grep -qF 'verdict:          ACCEPTED' "$_m2_dir/fp/failure-report.txt"; then rm -rf "$_m2_dir"; exit 1; fi
+grep -qF 'the provided trace is not the canonical trace (tampered, stale, or foreign)' "$_m2_dir/fp/failure-report.txt"
+grep -qF "bundle file 'report.txt' is not the canonical file (tampered, stale, or foreign)" "$_m2_dir/fp/failure-report.txt"
+grep -qF 'the provided matrix is not the canonical matrix (tampered, stale, or foreign)' "$_m2_dir/fp/failure-report.txt"
+# The seven-line boundary appears verbatim.
+for _bl in 'Failure cases attack the boundary.' 'They do not weaken it.' 'Forged authority is rejected.' 'Nothing executes.' 'Nothing becomes evidence.' 'Nothing promotes.' 'Nothing trains.'; do
+  if ! grep -qF "$_bl" "$_m2_dir/fp/failure-report.txt"; then rm -rf "$_m2_dir"; exit 1; fi
+done
+# Determinism: a second pack is byte-identical.
+./target/debug/cognitive-demo failure-pack --out "$_m2_dir/fp2" >/dev/null 2>&1
+if ! cmp -s "$_m2_dir/fp/failure-pack.json" "$_m2_dir/fp2/failure-pack.json"; then rm -rf "$_m2_dir"; exit 1; fi
+if ! cmp -s "$_m2_dir/fp/failure-report.txt" "$_m2_dir/fp2/failure-report.txt"; then rm -rf "$_m2_dir"; exit 1; fi
+# failure-verify accepts the pristine pack...
+./target/debug/cognitive-demo failure-verify --path "$_m2_dir/fp" >/dev/null 2>&1
+# ...a doctored pack that claims a forgery PASSED (rejected:true -> false) is REFUSED (re-derive-never-trust)...
+mkdir -p "$_m2_dir/td"
+sed 's/"rejected": true/"rejected": false/' "$_m2_dir/fp/failure-pack.json" > "$_m2_dir/td/failure-pack.json"
+cp "$_m2_dir/fp/failure-report.txt" "$_m2_dir/td/failure-report.txt"
+if ./target/debug/cognitive-demo failure-verify --path "$_m2_dir/td" >/dev/null 2>&1; then rm -rf "$_m2_dir"; exit 1; fi
+# ...and a missing file is refused.
+mkdir -p "$_m2_dir/tm"; cp "$_m2_dir/fp/failure-pack.json" "$_m2_dir/tm/failure-pack.json"
+if ./target/debug/cognitive-demo failure-verify --path "$_m2_dir/tm" >/dev/null 2>&1; then rm -rf "$_m2_dir"; exit 1; fi
+# The FROZEN canonical is unperturbed: the happy-boundary scenario trace still equals demo() byte-for-byte.
+./target/debug/cognitive-demo scenario-pack --out "$_m2_dir/pack" >/dev/null 2>&1
+./target/debug/cognitive-demo trace --out "$_m2_dir/demo.json" >/dev/null 2>&1
+if ! cmp -s "$_m2_dir/pack/happy-boundary/trace.json" "$_m2_dir/demo.json"; then rm -rf "$_m2_dir"; exit 1; fi
+rm -rf "$_m2_dir"
 # ---------------------------------------------------------------------------------------------------
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json

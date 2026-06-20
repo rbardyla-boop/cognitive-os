@@ -3,6 +3,47 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-20-B — Add the scenario failure-injection / boundary-regression pack (MTRACE-2)
+
+**Decision.** Extend `crates/cognitive-demo` (the `cognitive-demo` binary) with a finite, enum-backed set of
+NEGATIVE scenarios that prove the bad paths cannot smuggle authority: `failure-cases` lists the seven cases,
+`failure-pack --out DIR` writes the rejection record (`failure-pack.json`) and its rendered report
+(`failure-report.txt`), and `failure-verify --path DIR` re-derives the whole pack and refuses any tamper. Where
+MTRACE-0/1 prove the good paths preserve the boundary, MTRACE-2 proves invalid variations FAIL CLOSED. Doctrine:
+*Failure cases attack the boundary. They do not weaken it. Forged authority is rejected. Nothing executes. Nothing
+becomes evidence. Nothing promotes. Nothing trains.*
+
+**Why.** Coverage of valid paths (MTRACE-1) is necessary but not sufficient; the boundary's value is that forged
+authority is REJECTED. Each of the seven `FailureCase` variants deterministically forges one forbidden authority
+claim onto a canonical artifact and is refused by the EXISTING re-derive-and-byte-compare verifier — no new
+verification logic, only a curated regression suite of attacks: `forged-execution`/`forged-evidence`/
+`forged-promotion`/`forged-training` (the trace) → `verify_trace_json`/`TraceMismatch`; `forged-review` (a rejected
+scenario review forged to approved) → `verify_scenario_bundle`/`BundleMismatch`; `forged-report` (the report forged
+to narrate execution/evidence) → `verify_bundle`/`BundleMismatch`; `forged-matrix` (a coverage cell forged to hide
+a failed boundary) → `verify_scenario_matrix`/`MatrixMismatch`. The pack PROVES rather than asserts: `run_failure_case`
+runs the real verifier on a forged COPY and records `forgery_applied`, `injects_forbidden` (the case's specific
+forbidden-authority token was injected, so a benign byte-change cannot masquerade as a forbidden-authority forgery),
+`rejected` (observed from the verifier, never hardcoded), and the exact typed `rejection_reason` — a structural
+re-derive byte-compare refusal, not a prose grep. `FailurePack`/`FailureRejection`/`FailureSummary` derive
+`Serialize` but NOT `Deserialize`, so a doctored pack (e.g. flipping a `rejected` to false to claim a forgery
+passed) is refused, never parsed back into authority; the forged bytes are never persisted (only the prose
+rejection record is), so neither emitted file carries affirmative authority. Building the pack leaves the frozen
+canonical trace byte-identical (happy-boundary still == `demo()`), the MTRACE-0 pack and MTRACE-1 matrix unchanged,
+and P12 `training_justified=false`. A self-found vacuity hole (a benign change would also be byte-rejected) was
+folded before sabotage by adding `injects_forbidden`. `release_check.sh` gates it (surface signals, the re-derive
+pin, the anti-vacuity pins, twelve MTRACE-2 test-name pins, the unit-count pin raised 68→80, and a binary smoke
+proving every case is forged + injects-forbidden + rejected, no authority leaks into either pack file, the report's
+exact typed reasons and seven boundary lines verbatim, determinism, and refusal of a doctored/missing pack) and
+stays green + byte-silent. Verified by three live sabotage probes (verify-trusts-the-pack; a benign forgery caught
+solely by the new `injects_forbidden` check; a boundary-line drift that kept the suite green but failed the gate
+via the verbatim boundary loop — each restored byte-identical) and a read-only adversarial panel (four Explore
+lenses, 0 real findings, fully dry on the first round, no debris). Purely additive: only
+`crates/cognitive-demo/src/{lib.rs,main.rs}` and the gate block; no frozen crate source touched, the
+`reading-track-v0.1` (`f6fa55a`), `hypothesis-track-v0.1` (`bb20acf`), and `integration-demo-v0.1` (`95b586d`) tags
+unmoved, P12 `training_justified=false`, and P13–P15 closed. Recorded in full in [a.md](../a.md) (the MTRACE-2
+checklist entry and the "Scenario Failure Injection / Boundary Regression Pack (MTRACE-2)" detail section). Local
+only — no remote push.
+
 ## DD-2026-06-20-A — Add the scenario boundary-coverage matrix (MTRACE-1)
 
 **Decision.** Extend `crates/cognitive-demo` (the `cognitive-demo` binary) with a deterministic boundary-coverage

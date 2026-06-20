@@ -10,6 +10,9 @@
 //!   cognitive-demo questions                                 # list the finite audit-question set
 //!   cognitive-demo bundle        --out DIR                   # write a reproducible operator repro pack
 //!   cognitive-demo bundle-verify --path DIR                  # re-derive the pack and refuse any tamper
+//!   cognitive-demo failure-cases                             # list the finite negative-scenario set
+//!   cognitive-demo failure-pack   --out DIR                  # forge forbidden authority; prove each rejected
+//!   cognitive-demo failure-verify --path DIR                 # re-derive the failure pack and refuse any tamper
 //!
 //! INT-2 adds the interrogation surface: `questions` lists the finite, enumerated audit-question set,
 //! and `ask` answers exactly one of those questions about a provided trace — there is no free-form /
@@ -22,10 +25,16 @@
 //! creates no evidence and no authority. The filesystem reads/writes for the pack live here, in the
 //! shell; the library that derives and verifies the bundle stays pure.
 //!
+//! MTRACE-2 adds the failure-injection pack: `failure-cases` lists a finite set of negative scenarios,
+//! `failure-pack` forges a forbidden authority claim onto each canonical artifact and records that the
+//! EXISTING re-derive-and-byte-compare verifier REFUSES it, and `failure-verify` re-derives the whole pack
+//! and refuses any tamper. The forged bytes are never persisted as trusted state — only the rejections.
+//!
 //! This binary is ONLY an I/O shell: it parses argv and reads/writes files, then delegates ALL
 //! logic to the pure [`cognitive_demo`] library (`run_trace` / `run_report` / `run_replay` /
 //! `run_ask` / `list_questions` / `canonical_bundle` / `verify_bundle` / `scenario_bundle` /
-//! `verify_scenario_pack` / `scenario_matrix` / `verify_scenario_matrix` / `scenario_matrix_report`).
+//! `verify_scenario_pack` / `scenario_matrix` / `verify_scenario_matrix` / `scenario_matrix_report` /
+//! `list_failure_cases` / `failure_pack_files` / `verify_failure_pack`).
 //! It holds no executor, spawns no process, opens no socket, and consults no clock or entropy — the
 //! trace it serves is a pure function of fixed inputs, and `report`/`replay` re-derive the
 //! canonical trace and REFUSE any provided file that is not byte-for-byte that trace, so a tampered
@@ -33,10 +42,12 @@
 //! here (never in the library or the example), which the release gate enforces.
 
 use cognitive_demo::{
-    canonical_bundle, list_questions, list_scenarios, run_ask, run_replay, run_report, run_trace,
-    scenario_bundle, scenario_matrix, scenario_matrix_report, scenario_pack_manifest,
-    verify_bundle, verify_scenario_matrix, verify_scenario_pack, Scenario, BUNDLE_BOUNDARY_LINES,
-    BUNDLE_FILES, MATRIX_BOUNDARY_LINES, MTRACE_BOUNDARY_LINES, PACK_MANIFEST_FILE,
+    canonical_bundle, failure_pack_files, list_failure_cases, list_questions, list_scenarios,
+    run_ask, run_replay, run_report, run_trace, scenario_bundle, scenario_matrix,
+    scenario_matrix_report, scenario_pack_manifest, verify_bundle, verify_failure_pack,
+    verify_scenario_matrix, verify_scenario_pack, Scenario, BUNDLE_BOUNDARY_LINES, BUNDLE_FILES,
+    FAILURE_BOUNDARY_LINES, FAILURE_PACK_FILES, MATRIX_BOUNDARY_LINES, MTRACE_BOUNDARY_LINES,
+    PACK_MANIFEST_FILE,
 };
 
 fn main() {
@@ -150,6 +161,29 @@ fn dispatch(args: &[String]) -> Result<(), String> {
                 std::fs::read_to_string(path).map_err(|e| format!("cannot read {path}: {e}"))?;
             verify_scenario_matrix(&matrix).map_err(|e| e.to_string())?;
             print!("{}", scenario_matrix_verify_summary());
+            Ok(())
+        }
+        Some("failure-cases") => {
+            // List the finite negative-scenario set (no inputs needed — this is the menu).
+            print!("{}", list_failure_cases());
+            Ok(())
+        }
+        Some("failure-pack") => {
+            // Run every forgery through the existing verifiers and write the rejection record + report
+            // (pure derivation). Nothing forged is persisted as trusted state — only the rejections.
+            let out_dir = flag_value(args, "--out").ok_or("this command requires --out <dir>")?;
+            let files = failure_pack_files().map_err(|e| e.to_string())?;
+            write_failure_pack(out_dir, &files)?;
+            print!("{}", failure_pack_summary(out_dir, &files));
+            Ok(())
+        }
+        Some("failure-verify") => {
+            // Read the provided failure pack, then verify it by RE-DERIVING the canonical pack (re-running
+            // every forgery) and byte-comparing every file — a doctored pack is refused, never trusted.
+            let dir = flag_value(args, "--path").ok_or("this command requires --path <dir>")?;
+            let provided = read_failure_pack(dir)?;
+            verify_failure_pack(&provided).map_err(|e| e.to_string())?;
+            print!("{}", failure_verify_summary());
             Ok(())
         }
         _ => Err(usage()),
@@ -311,12 +345,63 @@ fn scenario_matrix_verify_summary() -> String {
     out
 }
 
+/// Write the failure pack (the rejection-record JSON + its rendered report) into `dir` with EXACT bytes,
+/// so every file re-reads and re-derives byte-identically. This shell only places the bytes on disk.
+fn write_failure_pack(dir: &str, files: &[(&str, String)]) -> Result<(), String> {
+    write_bundle(dir, files)
+}
+
+/// Read the expected failure-pack files from `dir`. A file that is absent is simply omitted (so
+/// `verify_failure_pack` reports it missing rather than this shell guessing). The CONTENT is never trusted —
+/// it is only re-derived and byte-compared by the library.
+fn read_failure_pack(dir: &str) -> Result<Vec<(String, String)>, String> {
+    let mut found = Vec::new();
+    for name in FAILURE_PACK_FILES {
+        let path = format!("{dir}/{name}");
+        if std::path::Path::new(&path).exists() {
+            let content =
+                std::fs::read_to_string(&path).map_err(|e| format!("cannot read {path}: {e}"))?;
+            found.push((name.to_string(), content));
+        }
+    }
+    Ok(found)
+}
+
+/// The human summary printed after `failure-pack` writes the pack: the files written and the boundary.
+fn failure_pack_summary(dir: &str, files: &[(&str, String)]) -> String {
+    let mut out = format!(
+        "failure-pack: wrote {} files to {dir} (every forged authority claim REJECTED)\n",
+        files.len()
+    );
+    for (name, content) in files {
+        out.push_str(&format!("    {name} ({} bytes)\n", content.len()));
+    }
+    out.push_str("BOUNDARY\n");
+    for line in FAILURE_BOUNDARY_LINES {
+        out.push_str(&format!("    {line}\n"));
+    }
+    out
+}
+
+/// The success summary printed after `failure-verify` accepts a failure pack (every file re-derived).
+fn failure_verify_summary() -> String {
+    let mut out = String::from(
+        "failure-verify: OK — the failure pack re-derives byte-identically; every forged claim stays rejected\n",
+    );
+    out.push_str("BOUNDARY\n");
+    for line in FAILURE_BOUNDARY_LINES {
+        out.push_str(&format!("    {line}\n"));
+    }
+    out
+}
+
 fn usage() -> String {
     "usage: cognitive-demo <trace [--out PATH] | report --trace PATH [--out PATH] | \
      replay --trace PATH | ask --trace PATH --question SLUG [--out PATH] | questions | \
      bundle --out DIR | bundle-verify --path DIR | scenarios | scenario-pack --out DIR | \
      scenario-verify --path DIR | scenario-matrix --pack DIR [--out PATH] | \
      scenario-matrix-report --matrix PATH [--out PATH] | \
-     scenario-matrix-verify --pack DIR --matrix PATH>"
+     scenario-matrix-verify --pack DIR --matrix PATH | failure-cases | \
+     failure-pack --out DIR | failure-verify --path DIR>"
         .to_string()
 }
