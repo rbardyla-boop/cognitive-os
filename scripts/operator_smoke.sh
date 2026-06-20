@@ -1,11 +1,17 @@
 #!/usr/bin/env sh
-# operator_smoke.sh — OPS-1: Operator Smoke Script / Manual Drift Guard.
+# operator_smoke.sh — OPS-1 + DOCFLOW-1: Operator Smoke Script / Manual Drift Guard.
 #
 # Runs the documented operator path end-to-end against the built cognitive-demo binary and proves the
 # OPERATOR_MANUAL.md has NOT drifted from the binary: every documented command still runs, every generated
 # artifact re-derives byte-identically through the binary's OWN verify subcommands (never trusted from its
 # bytes), a tampered artifact is still refused, and the boundary lines the manual leads an operator to
 # expect are still emitted verbatim by the binary AND recorded verbatim in the manual.
+#
+# DOCFLOW-1 extends the same guard to the operator-supplied-document path: §10 below runs the documented
+# doc flow (doc-trace --input/--out, doc-report, doc-bundle, doc-bundle-verify) against a LOCAL sample
+# document (under the gitignored target/ dir, inside the working dir — the doc commands only read local
+# paths), proves the trace started from the document's OWN verified read, and proves a tampered document,
+# trace, report, or manifest is still refused. The local document is READ, never TRUSTED.
 #
 # Deterministic, offline, temp-dir only (no repo debris), fail-closed: `set -e` means any documented
 # command exiting non-zero aborts this script non-zero — command failures are never swallowed. The only
@@ -31,7 +37,12 @@ fail() { echo "operator-smoke: DRIFT — $1" >&2; exit 1; }
 cargo build --offline --quiet --manifest-path crates/cognitive-demo/Cargo.toml --bin cognitive-demo
 
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+# DOCFLOW-1: the doc-flow commands only read paths INSIDE the working dir, so the operator-document sample
+# lives under target/ (gitignored, inside cwd) and is referenced by a RELATIVE path. Both temp dirs are
+# removed on exit (no repo debris).
+docwork="$(mktemp -d "$PWD/target/.docflow_smoke.XXXXXX")"
+docrel="target/$(basename "$docwork")"
+trap 'rm -rf "$work" "$docwork"' EXIT
 
 # ---- 1. canonical trace — ALWAYS --out (exact replayable bytes), NEVER a shell redirect ----
 $BIN trace --out "$work/trace.json"
@@ -108,14 +119,80 @@ for _ml in 'The manual explains the prototype.' 'It does not expand the prototyp
            'It does not create authority.' 'It does not execute.' 'It does not promote.' 'It does not train.'; do
   grep -qF "$_ml" "$MANUAL" || fail "manual boundary line drifted: $_ml"
 done
-# The manual still documents every command this smoke exercised (manual surface == binary surface).
+# The manual still documents every command this smoke exercised (manual surface == binary surface),
+# including the DOCFLOW-1 operator-document commands.
 for _cmd in 'trace --out' 'report --trace' 'replay --trace' 'questions' 'ask --trace' 'bundle --out' \
             'bundle-verify --path' 'scenario-pack --out' 'scenario-verify --path' 'scenario-matrix --pack' \
             'scenario-matrix-report --matrix' 'scenario-matrix-verify --pack' 'failure-pack --out' \
-            'failure-verify --path'; do
+            'failure-verify --path' \
+            'doc-trace --input' 'doc-report --input' 'doc-bundle --input' 'doc-bundle-verify --input'; do
   grep -qF "$_cmd" "$MANUAL" || fail "manual no longer documents: $_cmd"
+done
+# The manual states the document flow reads local input but does NOT trust it (DOCFLOW-1 doctrine).
+grep -qF 'read but not trusted' "$MANUAL" || fail 'manual no longer states local input is read but not trusted'
+# The manual records the DOCFLOW-1 document-operator-path boundary verbatim (all six lines).
+for _dbl in 'The document operator path explains and verifies local-document tracing.' \
+            'It does not trust local input.' 'It does not create authority.' 'It does not execute.' \
+            'It does not promote.' 'It does not train.'; do
+  grep -qF "$_dbl" "$MANUAL" || fail "manual DOCFLOW boundary line drifted: $_dbl"
 done
 # The manual still records training as closed; this smoke asserts that and never opens training.
 grep -qF 'training_justified=false' "$MANUAL" || fail 'manual no longer records training_justified=false'
+
+# ---- 10. DOCFLOW operator path: run the doc flow from a LOCAL operator-supplied document ----
+# DOCFLOW-1 boundary (recorded verbatim):
+#   The document operator path explains and verifies local-document tracing.
+#   It does not trust local input.
+#   It does not create authority.
+#   It does not execute.
+#   It does not promote.
+#   It does not train.
+# The doc commands only read paths INSIDE the working dir, so the sample lives under target/ (relative path).
+printf 'The east bridge reopened today. Traffic resumed by noon.' > "$docwork/doc.txt"
+# doc-trace --input --out: read the local doc, verify it, trace it. The trace carries the document's OWN
+# verified read and the boundary markers (verified receipt, requires_operator, rejected, no evidence,
+# training false) — proof the operator's text was read, NOT trusted as authority.
+$BIN doc-trace --input "$docrel/doc.txt" --out "$docwork/trace.json"
+for _dm in '"starts_from_verified_receipt": true' '"reading_passed": true' '"nothing_executed": true' \
+           '"promotion_refused": true' '"nothing_becomes_evidence": true' \
+           '"execution_status": "requires_operator"' '"promotion_status": "rejected"' \
+           '"training_justified": false'; do
+  grep -qF "$_dm" "$docwork/trace.json" || fail "doc-trace marker missing: $_dm"
+done
+# The trace really read the OPERATOR's text (answer == the document's own first span), not the canonical corpus.
+grep -qF '"reading_answer": "The east bridge reopened today."' "$docwork/trace.json" \
+  || fail 'doc-trace did not read the operator document'
+# No affirmative-authority status leaked into the doc trace.
+if grep -qE '"(execution_status|observation_status|promotion_status)": "(executed|recorded|promoted|granted|evidence)"' "$docwork/trace.json"; then
+  fail 'doc trace claims an executed/recorded/promoted/granted status'
+fi
+# doc-report re-derives from the SAME input + trace and renders the 9-line trace boundary.
+$BIN doc-report --input "$docrel/doc.txt" --trace "$docwork/trace.json" --out "$docwork/report.txt"
+grep -qF 'Nothing trains.' "$docwork/report.txt" || fail 'doc-report boundary line drifted'
+# doc-bundle + doc-bundle-verify (clean) re-derive byte-identically and print the DOCFLOW boundary.
+$BIN doc-bundle --input "$docrel/doc.txt" --out "$docwork/pack"
+out="$($BIN doc-bundle-verify --input "$docrel/doc.txt" --path "$docwork/pack")"
+case "$out" in *'doc-bundle-verify: OK'*) : ;; *) fail 'doc-bundle-verify did not pass on a clean bundle' ;; esac
+case "$out" in *'The document flow reads local input.'*) : ;; *) fail 'doc-bundle-verify did not emit the DOCFLOW boundary' ;; esac
+# RE-DERIVE IS LOAD-BEARING over operator input — every tamper must be refused (never trusted from bytes):
+# (a) a tampered DOCUMENT (different text -> different trace) is refused.
+printf 'The west bridge collapsed today. Traffic stopped by noon.' > "$docwork/doc2.txt"
+if $BIN doc-bundle-verify --input "$docrel/doc2.txt" --path "$docwork/pack" >/dev/null 2>&1; then
+  fail 'doc-bundle-verify accepted a tampered document'
+fi
+# (b) a tampered BUNDLE FILE (trace / report / questions / manifest) is refused — each file re-derives.
+for _bf in trace.json report.txt questions.txt manifest.json; do
+  cp -r "$docwork/pack" "$docwork/pack_t"
+  printf '\n{tampered}' >> "$docwork/pack_t/$_bf"
+  if $BIN doc-bundle-verify --input "$docrel/doc.txt" --path "$docwork/pack_t" >/dev/null 2>&1; then
+    fail "doc-bundle-verify accepted a tampered $_bf"
+  fi
+  rm -rf "$docwork/pack_t"
+done
+# (c) a tampered standalone TRACE is refused by doc-report.
+printf '\n{tampered}' >> "$docwork/trace.json"
+if $BIN doc-report --input "$docrel/doc.txt" --trace "$docwork/trace.json" >/dev/null 2>&1; then
+  fail 'doc-report accepted a tampered trace'
+fi
 
 echo 'operator-smoke: OK — the documented operator path runs and the manual matches the binary'

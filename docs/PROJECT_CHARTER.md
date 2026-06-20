@@ -3,6 +3,40 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-20-I — Document flow operator guard / manual + smoke integration (DOCFLOW-1)
+
+**Decision.** Extend the operator-facing guard layer to cover the DOCFLOW-0 commands without adding any
+behavior: `OPERATOR_MANUAL.md` now documents `doc-trace` / `doc-report` / `doc-bundle` / `doc-bundle-verify`
+(new §11, with real flags and outputs) and states the document is *read but not trusted*; the operator smoke
+`scripts/operator_smoke.sh` now runs the whole doc flow end-to-end against a LOCAL sample document, the same
+way it already exercises the canonical demo commands. No `crates/` source changes.
+
+**Why.** DOCFLOW-0 added an operator-facing capability. Before adding more document behavior, the manual and
+the smoke guard must cover the new commands so the doc flow cannot become undocumented or drift from the
+binary — the same drift discipline OPS-0/OPS-1 established for the original demo surface. This is a
+documentation + drift-guard sprint, not a capability sprint, so `a.md` is left unchanged.
+
+**Boundary recorded.** The manual and smoke record the six-line document-operator-path boundary verbatim:
+*The document operator path explains and verifies local-document tracing. It does not trust local input. It
+does not create authority. It does not execute. It does not promote. It does not train.* The smoke creates a
+temp local document under the gitignored `target/` directory (referenced by a relative path, since the doc
+commands only read paths inside the working directory) and removes it on exit; it runs `doc-trace --input
+--out`, `doc-report`, `doc-bundle`, and `doc-bundle-verify`, proves the trace started from the document's OWN
+verified read (the reading answer is the document's first span), and proves re-derive is load-bearing over
+operator input — a tampered document, each tampered bundle file (trace / report / questions / manifest), and a
+tampered standalone trace are all refused. The smoke is RUN by the OPS-1 lock (a doc-flow drift makes it fail
+closed and aborts the gate); a new DOCFLOW-1 gate block additionally pins the doc commands, the *read but not
+trusted* statement, and the six boundary lines in both the manual and the smoke, so the coverage cannot be
+silently removed. Verified by a green, byte-silent `release_check.sh`; live sabotage of the new pins
+(manual boundary drift, per-file tamper coverage, local doc-dir path, and the runtime read-operator-text
+check each caught, restored byte-identical via `cp`+`md5`); and an independent read-only adversarial panel
+(4 refute-by-default lenses). The panel raised one low finding — a gate pin that checked the smoke's doc-dir
+setup rather than the §10 doc-flow run — folded by adding a §10-unique load-bearing pin (the no-affirmative-
+authority assertion), sabotage-verified, and re-checked to a dry round. No code crate behavior changes, P12
+stays `training_justified=false`, P13–P15 closed, and the six milestone tags are unmoved. Recorded in
+[OPERATOR_MANUAL.md](../OPERATOR_MANUAL.md) and [scripts/operator_smoke.sh](../scripts/operator_smoke.sh).
+Local only — no remote push.
+
 ## DD-2026-06-20-H — Operator-supplied document trace / read-only input demo (DOCFLOW-0)
 
 **Decision.** Extend `crates/cognitive-demo` with an operator-supplied document flow: `doc-trace`,

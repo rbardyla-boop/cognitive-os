@@ -33,7 +33,13 @@ scenario-matrix --pack DIR [--out PATH]     scenario-matrix-report --matrix PATH
 scenario-matrix-verify --pack DIR --matrix PATH
 failure-cases                               failure-pack --out DIR
 failure-verify --path DIR
+
+doc-trace --input PATH [--out PATH]         doc-report --input PATH --trace PATH [--out PATH]
+doc-bundle --input PATH --out DIR           doc-bundle-verify --input PATH --path DIR
 ```
+
+The `doc-*` commands run the same pipeline from a **local operator-supplied document** instead of the
+fixed corpus — see §11. The document is read but not trusted: it is verified before it is traced.
 
 > **Reproducibility note (important).** Use `trace --out FILE` to write a trace you will later `report`,
 > `replay`, or `ask` against. Writing with a shell redirect (`trace > FILE`) appends a trailing newline,
@@ -70,7 +76,7 @@ function of fixed inputs.
 
 Each layer is frozen as an annotated point in history. Recover any milestone with
 `git checkout <tag>`; verify the whole stack at any time with `./scripts/release_check.sh`
-(it must exit 0 and print nothing — see §11/§12). Each tag has a freeze record document.
+(it must exit 0 and print nothing — see §12/§13). Each tag has a freeze record document.
 
 | Tag | Commit | Freezes | Record |
 | --- | --- | --- | --- |
@@ -241,7 +247,51 @@ forged-matrix      forge the coverage matrix to hide a failed boundary cell
 
 The forged bytes are never persisted as trusted state — only the (prose) rejection record is written.
 
-## 11. Authority boundaries
+## 11. How to trace a local operator document
+
+The `doc-*` commands run the **same** end-to-end pipeline as the canonical demo, but starting from a
+**local operator-supplied text document** instead of the fixed bridge corpus. The crucial property is not
+"it reads a file" — it is that **the document is read but not trusted**. The text is read, asked of the
+frozen reader for its own first span, turned into a **verified reading receipt**, and only then traced. If
+the read does not verify, the doc flow fails closed and produces no trace. A verified document still cannot
+become execution, evidence, promotion, memory mutation, or training — exactly like the canonical trace.
+
+The commands only read a **local path inside the working directory.** An absolute path, a `..` traversal,
+or a symlink that escapes the working directory is refused before anything is read.
+
+```sh
+# Trace a local document (exact bytes — replayable). --input is the local doc; --out is the trace file:
+./target/debug/cognitive-demo doc-trace --input notes.txt --out trace.json
+# -> trace.json — a CognitiveTrace whose reading stage read and verified notes.txt's first span
+
+# Render a plain report of that trace (re-derived from the SAME document + trace, never trusted from bytes):
+./target/debug/cognitive-demo doc-report --input notes.txt --trace trace.json
+# -> COGNITIVE OS — END-TO-END TRACE REPORT ... (question: "What does the document state in its first span?")
+
+# Build and verify a four-file repro bundle purely derived from the document:
+./target/debug/cognitive-demo doc-bundle --input notes.txt --out pack
+# -> doc-bundle: wrote 4 files to .../pack  (trace.json, report.txt, questions.txt, manifest.json)
+./target/debug/cognitive-demo doc-bundle-verify --input notes.txt --path pack
+# -> doc-bundle-verify: OK — every bundle file re-derives byte-identically from the operator document
+```
+
+`doc-report` and `doc-bundle-verify` re-derive every artifact from the **same** document and byte-compare,
+so a tampered document, trace, report, questions file, or manifest is refused (non-zero exit) — never
+rendered, replayed, or accepted. The reading stage's answer is the document's own first span, so the trace
+demonstrably read the operator's text; it never grants that text any authority. The whole doc flow is
+exercised end-to-end by `./scripts/operator_smoke.sh` (see §3), so this documentation cannot drift from the
+binary.
+
+```text
+The document operator path explains and verifies local-document tracing.
+It does not trust local input.
+It does not create authority.
+It does not execute.
+It does not promote.
+It does not train.
+```
+
+## 12. Authority boundaries
 
 These are the load-bearing invariants the whole prototype preserves. Each is enforced mechanically by
 `./scripts/release_check.sh` from the artifacts' own bytes.
@@ -263,7 +313,7 @@ These are the load-bearing invariants the whole prototype preserves. Each is enf
    through the frozen hypothesis layer — it can never ground a claim, mutate memory, execute a probe,
    promote evidence, or self-authorize.
 
-## 12. Training status
+## 13. Training status
 
 Weight training is **closed**. The P12 training verdict is `training_not_justified` — the
 `TrainingDecision.training_justified` bit is `training_justified=false` — and every layer reads that
@@ -272,13 +322,14 @@ mode, promotion gate) stay closed under every freeze. Training stays forbidden u
 stable, recurring model failure that survives fixes to task spec, schema, prompt, examples, tooling,
 context, and verifier design. This manual makes no claim that training has opened.
 
-## 13. Next possible work
+## 14. Next possible work
 
 This manual is a comprehension and reproducibility checkpoint, not a new capability. Possible future work
 (none started, none authorized here):
 
-- **Parameterize the demo corpus** beyond the single fixed bridge scenario, still under the
-  re-derive-not-trust discipline.
+- **Parameterizing the demo corpus** beyond the single fixed bridge scenario has begun: the document flow
+  (§11) now traces a local operator-supplied document under the same re-derive-not-trust discipline. Further
+  document-flow work would extend that surface, not open a new authority.
 - **RDT-0 (recurrent-depth)** material is noted as future inspiration only; it is not started.
 
 Any future capability must go through the same cadence that produced every layer above — a written rubric,
