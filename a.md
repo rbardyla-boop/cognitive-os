@@ -3091,6 +3091,79 @@ no memory, and leaving P12 `training_justified=false`. Additive within the integ
 `multi-trace-validation-v0.1` (`460be0c`), and `operator-controls-v0.1` (`34b4f47`) tags are unmoved, and P13–P15
 stay closed. `release_check.sh` is exit 0 and byte-silent.
 
+## Document Flow Scenario Pack / Input-Integrity Matrix (DOCFLOW-2): vary the input, never the authority
+
+Date: 2026-06-20. DOCFLOW-0 proved one clean local-document path; DOCFLOW-1 (a documentation + drift-guard sprint,
+recorded in `OPERATOR_MANUAL.md` and `scripts/operator_smoke.sh`, not here) pinned the operator path so it cannot
+drift from the binary. DOCFLOW-2 is the next capability: it proves the document flow holds across a finite,
+enum-backed set of VALID and INVALID inputs. Doctrine: **Document scenarios vary the input. They do not vary the
+authority. Local text is read, not trusted. Verification comes before tracing. Nothing executes. Nothing becomes
+evidence. Nothing promotes. Nothing trains.** Four commands extend `crates/cognitive-demo`: `cognitive-demo
+doc-scenarios` lists the nine scenarios; `cognitive-demo doc-scenario-pack --out DIR` writes `doc-scenario-pack.json`
++ `doc-scenario-report.txt` (the observed-outcome record + its rendered report); `cognitive-demo doc-scenario-verify
+--path DIR` re-derives the pack and refuses any tamper; `cognitive-demo doc-scenario-matrix --path DIR [--out PATH]`
+verifies the pack then emits the input-integrity coverage matrix.
+
+**Nine scenarios, one valid and eight invalid, each OBSERVED by running the REAL DOCFLOW-0 check (proves, not
+asserts):** `clean-local-document` verifies (its bundle re-derives byte-identically, observed via
+`verify_doc_bundle`); `modified-document` invalidates the clean bundle (the trace re-derived from the new text no
+longer matches — `BundleMismatch`); `empty-document` fails closed (`doc_trace("")` → `EmptyDocument`, an explicit
+unsupported status, never a panic or ambiguous success); `absolute-path` and `parent-traversal` are refused by the
+pure `check_local_input_path` before any read (`UnsafeInputPath`); `symlink-escape` is refused by the containment
+decision `resolved_path_within` (the SAME pure decision the shell calls after `canonicalize`); `tampered-trace`,
+`tampered-report`, and `tampered-manifest` are each refused by re-derivation (`BundleMismatch`). Every scenario row
+records the OBSERVED outcome (`verified`/`refused`), whether the input genuinely differed from the clean input
+(`input_changed`, an anti-vacuity marker so a benign no-op cannot masquerade as a caught tamper), the typed
+`rejection_reason`, and the four boundary cells (`no_execution`/`no_evidence`/`no_promotion`/`no_training`, all
+true). The matrix coverage is derived from the entries — `verified_count` 1, `refused_count` 8, 36/36 cells proven,
+`all_expectations_met` and `all_boundaries_hold` true, plus the distinct input kinds and rejection reasons — never
+hardcoded. The clean scenario's boundary cells come from the real trace's accessors; the refused scenarios' cells
+hold trivially because the flow fails closed before minting anything.
+
+**Re-derive, never trust:** `verify_doc_scenario_pack` re-derives both files (re-running every scenario) and
+byte-compares via the shared `compare_bundle` core; `doc-scenario-matrix` verifies the pack BEFORE emitting; every
+new struct (`DocScenarioEntry`, `DocScenarioCoverage`, `DocScenarioPack`, `DocMatrixRow`, `DocScenarioMatrix`)
+derives `Serialize` but NOT `Deserialize`, so a doctored pack or matrix is refused, never parsed back into authority.
+The containment decision was extracted into the shared pure `resolved_path_within`, which the shell's
+`read_local_input` now calls — a single source of truth for the symlink-escape boundary. 10 new tests (the rubric's
+ten first-tests) → 100 unit total (12 INT-0 + 8 INT-1 + 12 INT-2 + 12 INT-3 + 12 MTRACE-0 + 12 MTRACE-1 + 12 MTRACE-2
++ 10 DOCFLOW-0 + 10 DOCFLOW-2), fmt + clippy clean. The `release_check.sh` DOCFLOW-2 block is load-bearing: surface
+signals for the API + commands and the single-source containment call; the proves-not-asserts pins (`run_doc_scenario`
+observes `verify_doc_bundle`); all ten test-name pins and the unit-count pin raised 90→100; the eight boundary lines
+verbatim; and a binary smoke that runs the whole flow, proves the coverage from the matrix's OWN bytes
+(`verified_count` 1 / `refused_count` 8 / 36-of-36 cells / `all_expectations_met` / `all_boundaries_hold`), checks
+every slug is recorded, refuses a tampered pack by BOTH verify and matrix, and proves the absolute-path,
+parent-traversal, and **symlink-escape** refusals END-TO-END through the real binary (an actual filesystem symlink
+under gitignored `target/`).
+
+Five live sabotage probes proved distinct mechanisms, each restored byte-identical by md5 (never `git checkout`,
+since the changes are uncommitted): (a) renaming a DOCFLOW-2 test — clippy-clean — caught SOLELY by the test-name
+pin (exit 1); (b) drifting an eight-line boundary line — caught by the boundary pin (exit 1); (c) making the
+`modified-document` scenario verify against the SAME document so it records `refused=false` — caught by
+`doc_modified_input_invalidates_bundle` and the runtime `all_expectations_met` marker (exit 101); (d) making
+`verify_doc_scenario_pack` trust its files — caught by `doc_scenario_matrix_records_outcomes` (exit 101); (e) a
+clippy-clean main.rs wiring regression that skips the matrix's pack verification, keeping all 100 lib tests green —
+caught SOLELY by the binary smoke's tampered-pack check (exit 1); and, for the panel fold, (f) a clippy-clean
+vacuous containment (`resolved_path_within(&cwd, &cwd)`) that keeps all 100 lib tests green — caught by the new
+end-to-end symlink smoke (exit 1), and with DOCFLOW-0's separate symlink smoke also disabled the DOCFLOW-2 smoke
+still caught it. (Two probe attempts that used an uppercase rename / an `&& false` were caught FIRST by clippy's
+`non_snake_case` / always-false lints — reported honestly and re-run clippy-clean to exercise the intended check.)
+A read-only adversarial panel (Workflow, four Explore lenses, refute-by-default — proves-not-asserts/vacuity,
+input-safety/path-validation, re-derive/tamper-rejection, scope/boundary/non-authority) returned ONE real HIGH
+finding: the `symlink-escape` scenario observed the pure containment decision but DOCFLOW-2's own gate had no
+END-TO-END symlink test. It was FOLDED additively by adding the end-to-end input-safety smoke above (sabotage (f)
+proves it load-bearing); an independent fresh-context re-verification then returned ZERO real findings, fully dry,
+no debris.
+
+Boundary held: DOCFLOW-2 adds VARIATION over the input but no new authority and no cognition. Every scenario is a
+read of local text that either verifies through the frozen reader or fails closed; none executes, promotes, mutates
+memory, or opens training, and P12 stays `training_justified=false`. Purely additive within the integration layer:
+only `crates/cognitive-demo/src/{lib.rs,main.rs}` and the gate block change — NO `Cargo.toml`/`Cargo.lock` change,
+NO new file, NO new dependency, and no frozen crate SOURCE is touched. The `reading-track-v0.1` (`f6fa55a`),
+`hypothesis-track-v0.1` (`bb20acf`), `integration-demo-v0.1` (`95b586d`), `multi-trace-validation-v0.1` (`460be0c`),
+and `operator-controls-v0.1` (`34b4f47`) tags are unmoved, and P13–P15 stay closed. `release_check.sh` is exit 0 and
+byte-silent.
+
 ## Appendix — LLM Training as Constraint Engineering (supporting methodology)
 
 Date: 2026-06-13

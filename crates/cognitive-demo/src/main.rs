@@ -53,13 +53,15 @@
 //! here (never in the library or the example), which the release gate enforces.
 
 use cognitive_demo::{
-    canonical_bundle, check_local_input_path, doc_bundle, failure_pack_files, list_failure_cases,
-    list_questions, list_scenarios, run_ask, run_doc_report, run_doc_trace, run_replay, run_report,
-    run_trace, scenario_bundle, scenario_matrix, scenario_matrix_report, scenario_pack_manifest,
-    verify_bundle, verify_doc_bundle, verify_failure_pack, verify_scenario_matrix,
-    verify_scenario_pack, Scenario, BUNDLE_BOUNDARY_LINES, BUNDLE_FILES, DOC_BOUNDARY_LINES,
-    FAILURE_BOUNDARY_LINES, FAILURE_PACK_FILES, MATRIX_BOUNDARY_LINES, MTRACE_BOUNDARY_LINES,
-    PACK_MANIFEST_FILE,
+    canonical_bundle, check_local_input_path, doc_bundle, doc_scenario_matrix,
+    doc_scenario_pack_files, failure_pack_files, list_doc_scenarios, list_failure_cases,
+    list_questions, list_scenarios, resolved_path_within, run_ask, run_doc_report, run_doc_trace,
+    run_replay, run_report, run_trace, scenario_bundle, scenario_matrix, scenario_matrix_report,
+    scenario_pack_manifest, verify_bundle, verify_doc_bundle, verify_doc_scenario_pack,
+    verify_failure_pack, verify_scenario_matrix, verify_scenario_pack, Scenario,
+    BUNDLE_BOUNDARY_LINES, BUNDLE_FILES, DOC_BOUNDARY_LINES, DOC_SCENARIO_BOUNDARY_LINES,
+    DOC_SCENARIO_PACK_FILES, FAILURE_BOUNDARY_LINES, FAILURE_PACK_FILES, MATRIX_BOUNDARY_LINES,
+    MTRACE_BOUNDARY_LINES, PACK_MANIFEST_FILE,
 };
 
 fn main() {
@@ -236,6 +238,39 @@ fn dispatch(args: &[String]) -> Result<(), String> {
             print!("{}", doc_bundle_verify_summary());
             Ok(())
         }
+        Some("doc-scenarios") => {
+            // List the finite document-flow input-scenario set (no inputs needed — this is the menu).
+            print!("{}", list_doc_scenarios());
+            Ok(())
+        }
+        Some("doc-scenario-pack") => {
+            // Run every document scenario (clean + invalid inputs) and write the observed-outcome record +
+            // report (pure derivation). No scenario executes, promotes, or trains; the forged/invalid
+            // inputs exist only to be refused.
+            let out_dir = flag_value(args, "--out").ok_or("this command requires --out <dir>")?;
+            let files = doc_scenario_pack_files().map_err(|e| e.to_string())?;
+            write_bundle(out_dir, &files)?;
+            print!("{}", doc_scenario_pack_summary(out_dir, &files));
+            Ok(())
+        }
+        Some("doc-scenario-verify") => {
+            // Read the provided document-scenario pack, then verify it by RE-DERIVING the pack (re-running
+            // every scenario) and byte-comparing — a doctored pack is refused, never trusted.
+            let dir = flag_value(args, "--path").ok_or("this command requires --path <dir>")?;
+            let provided = read_doc_scenario_pack(dir)?;
+            verify_doc_scenario_pack(&provided).map_err(|e| e.to_string())?;
+            print!("{}", doc_scenario_verify_summary());
+            Ok(())
+        }
+        Some("doc-scenario-matrix") => {
+            // VERIFY the pack at --path re-derives (refuse a tampered pack), then emit the input-integrity
+            // matrix to --out. The matrix is purely re-derived from the scenario set; the pack is never trusted.
+            let dir = flag_value(args, "--path").ok_or("this command requires --path <dir>")?;
+            let provided = read_doc_scenario_pack(dir)?;
+            verify_doc_scenario_pack(&provided).map_err(|e| e.to_string())?;
+            let matrix = doc_scenario_matrix().map_err(|e| e.to_string())?;
+            emit(&matrix, flag_value(args, "--out"))
+        }
         _ => Err(usage()),
     }
 }
@@ -262,7 +297,7 @@ fn read_local_input(args: &[String]) -> Result<String, String> {
         .and_then(|d| d.canonicalize())
         .map_err(|e| format!("cannot resolve the working directory: {e}"))?;
     let resolved = std::fs::canonicalize(path).map_err(|e| format!("cannot read {path}: {e}"))?;
-    if !resolved.starts_with(&cwd) {
+    if !resolved_path_within(&cwd, &resolved) {
         return Err(format!(
             "refusing unsafe input path '{path}' — it escapes the working directory"
         ));
@@ -358,6 +393,50 @@ fn doc_bundle_summary(dir: &str, files: &[(&str, String)]) -> String {
     }
     out.push_str("BOUNDARY\n");
     for line in DOC_BOUNDARY_LINES {
+        out.push_str(&format!("    {line}\n"));
+    }
+    out
+}
+
+/// Read the expected document-scenario pack files from `dir`. A file that is absent is simply omitted (so
+/// `verify_doc_scenario_pack` reports it missing rather than this shell guessing). The CONTENT is never
+/// trusted — it is only re-derived and byte-compared by the library.
+fn read_doc_scenario_pack(dir: &str) -> Result<Vec<(String, String)>, String> {
+    let mut found = Vec::new();
+    for name in DOC_SCENARIO_PACK_FILES {
+        let path = format!("{dir}/{name}");
+        if std::path::Path::new(&path).exists() {
+            let content =
+                std::fs::read_to_string(&path).map_err(|e| format!("cannot read {path}: {e}"))?;
+            found.push((name.to_string(), content));
+        }
+    }
+    Ok(found)
+}
+
+/// The human summary printed after `doc-scenario-pack` writes the pack: the files and the DOCFLOW-2 boundary.
+fn doc_scenario_pack_summary(dir: &str, files: &[(&str, String)]) -> String {
+    let mut out = format!(
+        "doc-scenario-pack: wrote {} files to {dir} (1 valid + 8 invalid inputs; every invalid input REFUSED)\n",
+        files.len()
+    );
+    for (name, content) in files {
+        out.push_str(&format!("    {name} ({} bytes)\n", content.len()));
+    }
+    out.push_str("BOUNDARY\n");
+    for line in DOC_SCENARIO_BOUNDARY_LINES {
+        out.push_str(&format!("    {line}\n"));
+    }
+    out
+}
+
+/// The success summary printed after `doc-scenario-verify` accepts a document-scenario pack.
+fn doc_scenario_verify_summary() -> String {
+    let mut out = String::from(
+        "doc-scenario-verify: OK — the document-scenario pack re-derives byte-identically; every input outcome stands\n",
+    );
+    out.push_str("BOUNDARY\n");
+    for line in DOC_SCENARIO_BOUNDARY_LINES {
         out.push_str(&format!("    {line}\n"));
     }
     out
@@ -509,6 +588,8 @@ fn usage() -> String {
      scenario-matrix-verify --pack DIR --matrix PATH | failure-cases | \
      failure-pack --out DIR | failure-verify --path DIR | \
      doc-trace --input PATH [--out PATH] | doc-report --input PATH --trace PATH [--out PATH] | \
-     doc-bundle --input PATH --out DIR | doc-bundle-verify --input PATH --path DIR>"
+     doc-bundle --input PATH --out DIR | doc-bundle-verify --input PATH --path DIR | \
+     doc-scenarios | doc-scenario-pack --out DIR | doc-scenario-verify --path DIR | \
+     doc-scenario-matrix --path DIR [--out PATH]>"
         .to_string()
 }

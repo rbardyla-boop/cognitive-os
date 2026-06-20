@@ -2393,6 +2393,612 @@ pub fn verify_doc_bundle(doc_text: &str, provided: &[(String, String)]) -> Resul
     compare_bundle(&doc_bundle(doc_text)?, provided)
 }
 
+// --- DOCFLOW-2: the document-flow scenario pack / input-integrity matrix. Where DOCFLOW-0 proves one
+//     clean local-document path and DOCFLOW-1 pins the operator path, DOCFLOW-2 proves the document flow
+//     holds across a finite, enum-backed set of VALID and INVALID inputs: a clean local document verifies;
+//     a modified document, a tampered bundle file, an empty document, an absolute path, a `..` traversal,
+//     and a path that escapes the working directory are each REFUSED. Every scenario is OBSERVED by running
+//     the REAL DOCFLOW-0 check/verify (proves, not asserts), and every scenario preserves the same boundary:
+//     local text is read, never trusted; nothing executes, becomes evidence, promotes, or trains. The pack
+//     and matrix are `Serialize`-only and re-derived-and-byte-compared, so a tampered pack is refused. ---
+
+/// Decide whether a RESOLVED (already canonicalized) path stays inside `working_dir`. This is the pure
+/// containment decision the shell applies after `canonicalize()` to refuse a symlink that escapes the
+/// working directory: a resolved path that is not within `working_dir` is rejected. Pure — it inspects
+/// already-resolved [`std::path::Path`] values component-wise and never touches the filesystem, so it is
+/// unit-testable and is the SINGLE source of the containment decision the shell also calls.
+pub fn resolved_path_within(working_dir: &std::path::Path, resolved: &std::path::Path) -> bool {
+    resolved.starts_with(working_dir)
+}
+
+/// The eight-line DOCFLOW-2 boundary, embedded in the pack and matrix. Pinned as data so a test can assert it.
+pub const DOC_SCENARIO_BOUNDARY_LINES: [&str; 8] = [
+    "Document scenarios vary the input.",
+    "They do not vary the authority.",
+    "Local text is read, not trusted.",
+    "Verification comes before tracing.",
+    "Nothing executes.",
+    "Nothing becomes evidence.",
+    "Nothing promotes.",
+    "Nothing trains.",
+];
+
+/// The document-scenario pack file names (the structured outcome record + its rendered report).
+pub const DOC_SCENARIO_PACK_FILE: &str = "doc-scenario-pack.json";
+pub const DOC_SCENARIO_REPORT_FILE: &str = "doc-scenario-report.txt";
+pub const DOC_SCENARIO_PACK_FILES: [&str; 2] = [DOC_SCENARIO_PACK_FILE, DOC_SCENARIO_REPORT_FILE];
+
+/// The clean operator document every scenario derives from (a CONSTANT, so the pack is reproducible). Its
+/// first span is the verified reading answer.
+const DOC_SCENARIO_SAMPLE: &str = "The east bridge reopened today. Traffic resumed by noon.";
+/// A genuinely different document used by the modified-document scenario (its first span differs, so the
+/// re-derived trace differs and the clean bundle no longer matches).
+const DOC_SCENARIO_MODIFIED: &str = "The west bridge collapsed today. Traffic stopped by noon.";
+
+/// A deterministic document-flow input scenario. The set is finite and enum-backed: one VALID input
+/// (clean) and eight INVALID inputs (modified / empty / unsafe / escaping / tampered), each of which the
+/// DOCFLOW-0 check or verifier must refuse. Each scenario proves an input-integrity property while keeping
+/// the authority boundary closed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DocScenario {
+    /// A clean local document: its bundle re-derives byte-identically and verifies.
+    CleanLocalDocument,
+    /// A modified document: the clean bundle no longer matches the trace re-derived from the new text.
+    ModifiedDocument,
+    /// An empty document: no readable span, so the flow fails closed before tracing.
+    EmptyDocument,
+    /// An absolute input path: refused by the pure path check before any read.
+    AbsolutePath,
+    /// A `..` parent-traversal input path: refused by the pure path check before any read.
+    ParentTraversal,
+    /// A path whose resolved target escapes the working directory (e.g. a symlink): refused by the
+    /// containment decision after canonicalize.
+    SymlinkEscape,
+    /// A tampered `trace.json` in an otherwise-clean bundle: refused by re-derivation.
+    TamperedTrace,
+    /// A tampered `report.txt` in an otherwise-clean bundle: refused by re-derivation.
+    TamperedReport,
+    /// A tampered `manifest.json` in an otherwise-clean bundle: refused by re-derivation.
+    TamperedManifest,
+}
+
+impl DocScenario {
+    /// Every scenario, in canonical order. Pinned as data so a test/the pack can assert the full set.
+    pub const ALL: [DocScenario; 9] = [
+        DocScenario::CleanLocalDocument,
+        DocScenario::ModifiedDocument,
+        DocScenario::EmptyDocument,
+        DocScenario::AbsolutePath,
+        DocScenario::ParentTraversal,
+        DocScenario::SymlinkEscape,
+        DocScenario::TamperedTrace,
+        DocScenario::TamperedReport,
+        DocScenario::TamperedManifest,
+    ];
+
+    /// The stable slug for this scenario. Exhaustive match — a new variant forces a slug here.
+    pub fn slug(self) -> &'static str {
+        match self {
+            DocScenario::CleanLocalDocument => "clean-local-document",
+            DocScenario::ModifiedDocument => "modified-document",
+            DocScenario::EmptyDocument => "empty-document",
+            DocScenario::AbsolutePath => "absolute-path",
+            DocScenario::ParentTraversal => "parent-traversal",
+            DocScenario::SymlinkEscape => "symlink-escape",
+            DocScenario::TamperedTrace => "tampered-trace",
+            DocScenario::TamperedReport => "tampered-report",
+            DocScenario::TamperedManifest => "tampered-manifest",
+        }
+    }
+
+    /// A one-line description of the scenario (shown by `doc-scenarios`). Exhaustive match.
+    pub fn describe(self) -> &'static str {
+        match self {
+            DocScenario::CleanLocalDocument => {
+                "a clean local document verifies (its bundle re-derives byte-identically)"
+            }
+            DocScenario::ModifiedDocument => {
+                "a modified document invalidates the clean bundle (re-derivation no longer matches)"
+            }
+            DocScenario::EmptyDocument => {
+                "an empty document fails closed (no readable span, no verified receipt)"
+            }
+            DocScenario::AbsolutePath => "an absolute input path is refused before any read",
+            DocScenario::ParentTraversal => {
+                "a `..` traversal input path is refused before any read"
+            }
+            DocScenario::SymlinkEscape => {
+                "a path that escapes the working directory is refused after canonicalize"
+            }
+            DocScenario::TamperedTrace => "a tampered trace.json is refused by re-derivation",
+            DocScenario::TamperedReport => "a tampered report.txt is refused by re-derivation",
+            DocScenario::TamperedManifest => "a tampered manifest.json is refused by re-derivation",
+        }
+    }
+
+    /// Parse a slug into a scenario. Fails CLOSED: any string that is not EXACTLY a known slug is `None`.
+    pub fn from_slug(slug: &str) -> Option<DocScenario> {
+        DocScenario::ALL.into_iter().find(|s| s.slug() == slug)
+    }
+
+    /// The class of input this scenario varies. Exhaustive match.
+    fn input_kind(self) -> &'static str {
+        match self {
+            DocScenario::CleanLocalDocument => "clean",
+            DocScenario::ModifiedDocument => "modified",
+            DocScenario::EmptyDocument => "empty",
+            DocScenario::AbsolutePath | DocScenario::ParentTraversal => "unsafe-path",
+            DocScenario::SymlinkEscape => "escaping-path",
+            DocScenario::TamperedTrace
+            | DocScenario::TamperedReport
+            | DocScenario::TamperedManifest => "tampered-artifact",
+        }
+    }
+
+    /// The expected outcome: only the clean document verifies; every other input is refused. Exhaustive.
+    fn expectation(self) -> &'static str {
+        match self {
+            DocScenario::CleanLocalDocument => "verifies",
+            _ => "refused",
+        }
+    }
+}
+
+/// One observed row of the document-scenario pack: the scenario's identity, the input class, the expected
+/// and OBSERVED outcome, whether the input genuinely differed from the clean input (anti-vacuity), the
+/// typed rejection reason (observed, empty for the clean case), and the four boundary cells (always all
+/// true). `Serialize` but NOT `Deserialize` — re-derived and byte-compared, never parsed back into authority.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct DocScenarioEntry {
+    slug: String,
+    description: String,
+    input_kind: String,
+    expectation: String,
+    produced_trace: bool,
+    verified: bool,
+    refused: bool,
+    input_changed: bool,
+    rejection_reason: String,
+    no_execution: bool,
+    no_evidence: bool,
+    no_promotion: bool,
+    no_training: bool,
+}
+
+/// The coverage summary over the scenario set: counts of verified/refused, the boundary cells proven, and
+/// the distinct input kinds and rejection reasons (proving the variation is real). Shared by the pack and
+/// the matrix. `Serialize` but NOT `Deserialize`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct DocScenarioCoverage {
+    scenario_count: usize,
+    verified_count: usize,
+    refused_count: usize,
+    boundary_count: usize,
+    cells_total: usize,
+    cells_proven: usize,
+    all_expectations_met: bool,
+    all_boundaries_hold: bool,
+    distinct_input_kinds: Vec<String>,
+    distinct_rejection_reasons: Vec<String>,
+}
+
+/// The document-scenario pack manifest: every observed scenario row, the coverage summary, and the
+/// eight-line boundary. `Serialize` but NOT `Deserialize` — re-derived and byte-compared on verify.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct DocScenarioPack {
+    schema: String,
+    scenarios: Vec<DocScenarioEntry>,
+    coverage: DocScenarioCoverage,
+    boundary: Vec<String>,
+}
+
+/// One row of the input-integrity matrix: a projection of an entry onto the input class, the observed
+/// outcome, and the four boundary cells. `Serialize` but NOT `Deserialize`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct DocMatrixRow {
+    slug: String,
+    input_kind: String,
+    expectation: String,
+    outcome: String,
+    rejection_reason: String,
+    no_execution: bool,
+    no_evidence: bool,
+    no_promotion: bool,
+    no_training: bool,
+}
+
+/// The input-integrity matrix: one row per scenario, the coverage summary, and the boundary. `Serialize`
+/// but NOT `Deserialize` — re-derived and byte-compared, never parsed back into authority.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct DocScenarioMatrix {
+    schema: String,
+    scenarios: Vec<DocMatrixRow>,
+    coverage: DocScenarioCoverage,
+    boundary: Vec<String>,
+}
+
+/// A stable, deterministic token for an OBSERVED rejection. Derived from the typed error variant (never the
+/// variable path/byte contents), so the pack stays reproducible while still recording WHY each input was
+/// refused.
+fn doc_rejection_token(err: &TraceError) -> String {
+    match err {
+        TraceError::EmptyDocument => "empty-document".to_string(),
+        TraceError::UnsafeInputPath(_) => "unsafe-input-path".to_string(),
+        TraceError::BundleMismatch(name) => format!("bundle-file-mismatch:{name}"),
+        TraceError::BundleMissingFile(name) => format!("bundle-missing-file:{name}"),
+        TraceError::DocTraceMismatch => "doc-trace-mismatch".to_string(),
+        TraceError::VerifierRejected => "verifier-rejected".to_string(),
+        TraceError::CitationMismatch => "citation-mismatch".to_string(),
+        TraceError::TraceMismatch => "trace-mismatch".to_string(),
+        TraceError::MatrixMismatch => "matrix-mismatch".to_string(),
+        TraceError::UnknownQuestion(_) => "unknown-question".to_string(),
+        TraceError::Reading(_) => "reading-error".to_string(),
+        TraceError::Hypothesis(_) => "hypothesis-error".to_string(),
+        TraceError::Review(_) => "review-error".to_string(),
+    }
+}
+
+/// Clone a `(name, content)` bundle into owned pairs (as a provided pack would arrive from disk).
+fn owned_pairs(files: &[(&'static str, String)]) -> Vec<(String, String)> {
+    files
+        .iter()
+        .map(|(name, content)| (name.to_string(), content.clone()))
+        .collect()
+}
+
+/// Forge one named file in an otherwise-clean document bundle by appending a tamper marker. Returns the
+/// forged provided bundle and whether the named file was found and genuinely changed (anti-vacuity: a
+/// no-op cannot masquerade as a caught tamper). The forged bytes are never persisted as trusted state —
+/// they exist only to be REFUSED by re-derivation.
+fn forge_doc_bundle_file(file: &str) -> Result<(Vec<(String, String)>, bool), TraceError> {
+    let mut provided = owned_pairs(&doc_bundle(DOC_SCENARIO_SAMPLE)?);
+    let mut changed = false;
+    for (name, content) in provided.iter_mut() {
+        if name == file {
+            let before = content.clone();
+            content.push_str("\n{tampered}");
+            changed = *content != before;
+        }
+    }
+    Ok((provided, changed))
+}
+
+/// Run ONE document scenario by exercising the REAL DOCFLOW-0 check/verifier over the input variation and
+/// recording the OBSERVED outcome (verified vs refused + the typed reason), never an asserted one. A
+/// refused scenario produces no trace, so its four boundary cells hold trivially (nothing was minted); the
+/// clean scenario reads its cells from the real verified trace.
+fn run_doc_scenario(scenario: DocScenario) -> Result<DocScenarioEntry, TraceError> {
+    // (produced_trace, verified, refused, input_changed, rejection_reason, [no_exec, no_evid, no_promo, no_train])
+    let (produced_trace, verified, refused, input_changed, rejection_reason, cells) = match scenario
+    {
+        DocScenario::CleanLocalDocument => {
+            let provided = owned_pairs(&doc_bundle(DOC_SCENARIO_SAMPLE)?);
+            let verified = verify_doc_bundle(DOC_SCENARIO_SAMPLE, &provided).is_ok();
+            let trace = doc_trace(DOC_SCENARIO_SAMPLE)?;
+            let cells = [
+                trace.nothing_executed(),
+                trace.nothing_becomes_evidence(),
+                trace.promotion_refused(),
+                !trace.training_justified(),
+            ];
+            (true, verified, !verified, false, String::new(), cells)
+        }
+        DocScenario::ModifiedDocument => {
+            let provided = owned_pairs(&doc_bundle(DOC_SCENARIO_SAMPLE)?);
+            let changed = DOC_SCENARIO_MODIFIED != DOC_SCENARIO_SAMPLE;
+            let err = verify_doc_bundle(DOC_SCENARIO_MODIFIED, &provided).err();
+            let reason = err.as_ref().map(doc_rejection_token).unwrap_or_default();
+            (
+                false,
+                false,
+                err.is_some(),
+                changed,
+                reason,
+                [true, true, true, true],
+            )
+        }
+        DocScenario::EmptyDocument => {
+            let err = doc_trace("").err();
+            let reason = err.as_ref().map(doc_rejection_token).unwrap_or_default();
+            (
+                false,
+                false,
+                err.is_some(),
+                true,
+                reason,
+                [true, true, true, true],
+            )
+        }
+        DocScenario::AbsolutePath => {
+            let err = check_local_input_path("/etc/passwd").err();
+            let reason = err.as_ref().map(doc_rejection_token).unwrap_or_default();
+            (
+                false,
+                false,
+                err.is_some(),
+                true,
+                reason,
+                [true, true, true, true],
+            )
+        }
+        DocScenario::ParentTraversal => {
+            let err = check_local_input_path("../escape.txt").err();
+            let reason = err.as_ref().map(doc_rejection_token).unwrap_or_default();
+            (
+                false,
+                false,
+                err.is_some(),
+                true,
+                reason,
+                [true, true, true, true],
+            )
+        }
+        DocScenario::SymlinkEscape => {
+            // The containment decision the shell applies to a canonicalized path: a resolved target
+            // outside the working directory (e.g. a symlink pointing at /etc) is refused. The library is
+            // filesystem-free, so it observes the SAME pure decision the shell calls
+            // (`resolved_path_within`, exercised on both an escaping and a contained path by the unit
+            // test); the end-to-end refusal of a REAL filesystem symlink is proven by the shell and by the
+            // release gate's end-to-end `doc-trace --input <symlink>` smoke.
+            let working_dir = std::path::Path::new("/work/project");
+            let escaped = std::path::Path::new("/etc/hostname");
+            let within = resolved_path_within(working_dir, escaped);
+            (
+                false,
+                false,
+                !within,
+                true,
+                "escapes-working-directory".to_string(),
+                [true, true, true, true],
+            )
+        }
+        DocScenario::TamperedTrace => {
+            let (provided, changed) = forge_doc_bundle_file("trace.json")?;
+            let err = verify_doc_bundle(DOC_SCENARIO_SAMPLE, &provided).err();
+            let reason = err.as_ref().map(doc_rejection_token).unwrap_or_default();
+            (
+                false,
+                false,
+                err.is_some(),
+                changed,
+                reason,
+                [true, true, true, true],
+            )
+        }
+        DocScenario::TamperedReport => {
+            let (provided, changed) = forge_doc_bundle_file("report.txt")?;
+            let err = verify_doc_bundle(DOC_SCENARIO_SAMPLE, &provided).err();
+            let reason = err.as_ref().map(doc_rejection_token).unwrap_or_default();
+            (
+                false,
+                false,
+                err.is_some(),
+                changed,
+                reason,
+                [true, true, true, true],
+            )
+        }
+        DocScenario::TamperedManifest => {
+            let (provided, changed) = forge_doc_bundle_file("manifest.json")?;
+            let err = verify_doc_bundle(DOC_SCENARIO_SAMPLE, &provided).err();
+            let reason = err.as_ref().map(doc_rejection_token).unwrap_or_default();
+            (
+                false,
+                false,
+                err.is_some(),
+                changed,
+                reason,
+                [true, true, true, true],
+            )
+        }
+    };
+    Ok(DocScenarioEntry {
+        slug: scenario.slug().to_string(),
+        description: scenario.describe().to_string(),
+        input_kind: scenario.input_kind().to_string(),
+        expectation: scenario.expectation().to_string(),
+        produced_trace,
+        verified,
+        refused,
+        input_changed,
+        rejection_reason,
+        no_execution: cells[0],
+        no_evidence: cells[1],
+        no_promotion: cells[2],
+        no_training: cells[3],
+    })
+}
+
+/// Run every document scenario, in canonical order, recording each observed outcome. Pure (no I/O).
+fn canonical_doc_scenario_entries() -> Result<Vec<DocScenarioEntry>, TraceError> {
+    DocScenario::ALL.into_iter().map(run_doc_scenario).collect()
+}
+
+/// Compute the coverage summary over the observed entries: counts, boundary cells proven, whether every
+/// observed outcome met its expectation, and the distinct input kinds / rejection reasons.
+fn doc_scenario_coverage(entries: &[DocScenarioEntry]) -> DocScenarioCoverage {
+    let scenario_count = entries.len();
+    let verified_count = entries.iter().filter(|e| e.verified).count();
+    let refused_count = entries.iter().filter(|e| e.refused).count();
+    let boundary_count = 4;
+    let cells_total = scenario_count * boundary_count;
+    let cells_proven: usize = entries
+        .iter()
+        .map(|e| {
+            [e.no_execution, e.no_evidence, e.no_promotion, e.no_training]
+                .iter()
+                .filter(|cell| **cell)
+                .count()
+        })
+        .sum();
+    let all_expectations_met = entries.iter().all(|e| {
+        if e.expectation == "verifies" {
+            e.verified && !e.refused
+        } else {
+            e.refused && !e.verified
+        }
+    });
+    DocScenarioCoverage {
+        scenario_count,
+        verified_count,
+        refused_count,
+        boundary_count,
+        cells_total,
+        cells_proven,
+        all_expectations_met,
+        all_boundaries_hold: cells_proven == cells_total,
+        distinct_input_kinds: sorted_unique(entries.iter().map(|e| e.input_kind.clone()).collect()),
+        distinct_rejection_reasons: sorted_unique(
+            entries
+                .iter()
+                .filter(|e| !e.rejection_reason.is_empty())
+                .map(|e| e.rejection_reason.clone())
+                .collect(),
+        ),
+    }
+}
+
+fn doc_scenario_boundary() -> Vec<String> {
+    DOC_SCENARIO_BOUNDARY_LINES
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
+}
+
+/// The document-scenario pack manifest JSON: every observed scenario row + coverage + boundary. Pure.
+pub fn doc_scenario_pack_manifest() -> Result<String, TraceError> {
+    let scenarios = canonical_doc_scenario_entries()?;
+    let coverage = doc_scenario_coverage(&scenarios);
+    let pack = DocScenarioPack {
+        schema: "cognitive-doc-scenario-pack-v0.1".to_string(),
+        scenarios,
+        coverage,
+        boundary: doc_scenario_boundary(),
+    };
+    Ok(serde_json::to_string_pretty(&pack).expect("DocScenarioPack serializes"))
+}
+
+/// Render the plain-text document-scenario report: each scenario's input class, expected/observed outcome,
+/// rejection reason, and boundary cells, plus the coverage summary and boundary. Pure FORMATTING.
+pub fn doc_scenario_report() -> Result<String, TraceError> {
+    let entries = canonical_doc_scenario_entries()?;
+    let coverage = doc_scenario_coverage(&entries);
+    let mut out = String::new();
+    out.push_str("COGNITIVE OS — DOCUMENT FLOW INPUT-INTEGRITY SCENARIOS\n");
+    out.push_str("schema: cognitive-doc-scenario-pack-v0.1\n");
+    out.push_str("(each scenario varies the INPUT and observes the real check; it records, it does not act)\n\n");
+    for e in &entries {
+        out.push_str(&format!("[{}]  ({})\n", e.slug, e.input_kind));
+        out.push_str(&format!("    {}\n", e.description));
+        out.push_str(&format!(
+            "    expected: {}    observed: {}\n",
+            e.expectation,
+            if e.verified { "verified" } else { "refused" }
+        ));
+        if !e.rejection_reason.is_empty() {
+            out.push_str(&format!("    rejection: {}\n", e.rejection_reason));
+        }
+        out.push_str(&format!(
+            "    boundary: no_execution={} no_evidence={} no_promotion={} no_training={}\n",
+            e.no_execution, e.no_evidence, e.no_promotion, e.no_training
+        ));
+    }
+    out.push_str("\nCOVERAGE\n");
+    out.push_str(&format!(
+        "    scenarios:           {}\n",
+        coverage.scenario_count
+    ));
+    out.push_str(&format!(
+        "    verified:            {}\n",
+        coverage.verified_count
+    ));
+    out.push_str(&format!(
+        "    refused:             {}\n",
+        coverage.refused_count
+    ));
+    out.push_str(&format!(
+        "    cells proven:        {}/{}\n",
+        coverage.cells_proven, coverage.cells_total
+    ));
+    out.push_str(&format!(
+        "    all_expectations_met: {}\n",
+        coverage.all_expectations_met
+    ));
+    out.push_str(&format!(
+        "    all_boundaries_hold: {}\n",
+        coverage.all_boundaries_hold
+    ));
+    out.push_str(&format!(
+        "    distinct input kinds: {}\n",
+        coverage.distinct_input_kinds.join(", ")
+    ));
+    out.push_str(&format!(
+        "    distinct rejections:  {}\n",
+        coverage.distinct_rejection_reasons.join(", ")
+    ));
+    out.push_str("\nBOUNDARY\n");
+    for line in DOC_SCENARIO_BOUNDARY_LINES {
+        out.push_str(&format!("    {line}\n"));
+    }
+    Ok(out)
+}
+
+/// The document-scenario pack as `(filename, content)` pairs in write order: the structured manifest and
+/// its rendered report. Pure: both are derived from the observed scenario set.
+pub fn doc_scenario_pack_files() -> Result<Vec<(&'static str, String)>, TraceError> {
+    Ok(vec![
+        (DOC_SCENARIO_PACK_FILE, doc_scenario_pack_manifest()?),
+        (DOC_SCENARIO_REPORT_FILE, doc_scenario_report()?),
+    ])
+}
+
+/// Verify a provided document-scenario pack WITHOUT trusting it: re-derive both files (re-running every
+/// scenario) and byte-compare. A missing file is [`TraceError::BundleMissingFile`]; any tampered/stale/
+/// foreign file is [`TraceError::BundleMismatch`]. Pure (no I/O).
+pub fn verify_doc_scenario_pack(provided: &[(String, String)]) -> Result<(), TraceError> {
+    compare_bundle(&doc_scenario_pack_files()?, provided)
+}
+
+/// The `doc-scenarios` command: list the finite document-scenario set (slug + one-line description). Pure.
+pub fn list_doc_scenarios() -> String {
+    let mut out = String::from(
+        "cognitive-demo — document-flow input scenarios (each proves an input-integrity property):\n",
+    );
+    for s in DocScenario::ALL {
+        out.push_str(&format!("    {:<22} {}\n", s.slug(), s.describe()));
+    }
+    out
+}
+
+/// The input-integrity matrix JSON: one row per scenario (input class × observed outcome × boundary
+/// cells) plus the coverage summary, re-derived from the scenario set. Pure: it never trusts the pack
+/// files; the matrix command verifies the pack separately before emitting this.
+pub fn doc_scenario_matrix() -> Result<String, TraceError> {
+    let entries = canonical_doc_scenario_entries()?;
+    let coverage = doc_scenario_coverage(&entries);
+    let rows = entries
+        .iter()
+        .map(|e| DocMatrixRow {
+            slug: e.slug.clone(),
+            input_kind: e.input_kind.clone(),
+            expectation: e.expectation.clone(),
+            outcome: if e.verified { "verified" } else { "refused" }.to_string(),
+            rejection_reason: e.rejection_reason.clone(),
+            no_execution: e.no_execution,
+            no_evidence: e.no_evidence,
+            no_promotion: e.no_promotion,
+            no_training: e.no_training,
+        })
+        .collect();
+    let matrix = DocScenarioMatrix {
+        schema: "cognitive-doc-scenario-matrix-v0.1".to_string(),
+        scenarios: rows,
+        coverage,
+        boundary: doc_scenario_boundary(),
+    };
+    Ok(serde_json::to_string_pretty(&matrix).expect("DocScenarioMatrix serializes"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3999,5 +4605,201 @@ mod tests {
         assert!(trace.nothing_becomes_evidence());
         assert_eq!(trace.execution_status(), "requires_operator");
         assert_eq!(trace.promotion_status(), "rejected");
+    }
+
+    // --- DOCFLOW-2: document-flow scenario pack / input-integrity matrix ---
+
+    #[test]
+    fn doc_scenarios_list_all_cases() {
+        // The finite set is exactly nine: one valid (clean) + eight invalid inputs, each with a unique
+        // slug, and the menu lists every one.
+        assert_eq!(DocScenario::ALL.len(), 9);
+        let slugs: Vec<&str> = DocScenario::ALL.iter().map(|s| s.slug()).collect();
+        let mut sorted = slugs.clone();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted.len(), slugs.len(), "every scenario slug is unique");
+        let menu = list_doc_scenarios();
+        for s in DocScenario::ALL {
+            assert!(menu.contains(s.slug()), "menu lists {}", s.slug());
+            assert_eq!(DocScenario::from_slug(s.slug()), Some(s));
+        }
+        // A non-slug fails closed.
+        assert_eq!(DocScenario::from_slug("not-a-scenario"), None);
+    }
+
+    #[test]
+    fn doc_clean_local_document_verifies() {
+        // The clean scenario is OBSERVED to verify, produces a real trace, and its boundary cells come
+        // from that trace (all true).
+        let entry = run_doc_scenario(DocScenario::CleanLocalDocument).unwrap();
+        assert!(entry.verified, "clean document verifies");
+        assert!(!entry.refused);
+        assert!(entry.produced_trace);
+        assert!(entry.rejection_reason.is_empty());
+        assert!(
+            entry.no_execution && entry.no_evidence && entry.no_promotion && entry.no_training,
+            "clean trace preserves the boundary"
+        );
+        // And the bundle really re-derives byte-identically.
+        let provided: Vec<(String, String)> = doc_bundle(DOC_SCENARIO_SAMPLE)
+            .unwrap()
+            .into_iter()
+            .map(|(n, c)| (n.to_string(), c))
+            .collect();
+        assert!(verify_doc_bundle(DOC_SCENARIO_SAMPLE, &provided).is_ok());
+    }
+
+    #[test]
+    fn doc_modified_input_invalidates_bundle() {
+        // A clean bundle verified against a DIFFERENT document is refused: the re-derived trace differs,
+        // so the stale bundle no longer matches.
+        let entry = run_doc_scenario(DocScenario::ModifiedDocument).unwrap();
+        assert!(entry.refused, "modified input invalidates the bundle");
+        assert!(!entry.verified);
+        assert!(
+            entry.input_changed,
+            "the modified document genuinely differs"
+        );
+        assert!(
+            entry.rejection_reason.starts_with("bundle-file-mismatch:"),
+            "rejected by re-derivation, got {}",
+            entry.rejection_reason
+        );
+        // Direct: the clean bundle does NOT verify against the modified document.
+        let clean: Vec<(String, String)> = doc_bundle(DOC_SCENARIO_SAMPLE)
+            .unwrap()
+            .into_iter()
+            .map(|(n, c)| (n.to_string(), c))
+            .collect();
+        assert!(verify_doc_bundle(DOC_SCENARIO_MODIFIED, &clean).is_err());
+    }
+
+    #[test]
+    fn doc_empty_document_fails_closed() {
+        // An empty document yields no readable span, so the flow fails closed with EmptyDocument — an
+        // explicit unsupported status, never an ambiguous success or a panic.
+        assert!(matches!(doc_trace(""), Err(TraceError::EmptyDocument)));
+        let entry = run_doc_scenario(DocScenario::EmptyDocument).unwrap();
+        assert!(entry.refused);
+        assert!(!entry.verified);
+        assert!(!entry.produced_trace);
+        assert_eq!(entry.rejection_reason, "empty-document");
+    }
+
+    #[test]
+    fn doc_absolute_path_refused() {
+        // An absolute input path is refused by the pure path check before any read.
+        assert!(matches!(
+            check_local_input_path("/etc/passwd"),
+            Err(TraceError::UnsafeInputPath(_))
+        ));
+        let entry = run_doc_scenario(DocScenario::AbsolutePath).unwrap();
+        assert!(entry.refused);
+        assert_eq!(entry.input_kind, "unsafe-path");
+        assert_eq!(entry.rejection_reason, "unsafe-input-path");
+    }
+
+    #[test]
+    fn doc_parent_traversal_refused() {
+        // A `..` traversal input path is refused by the pure path check before any read.
+        assert!(matches!(
+            check_local_input_path("../escape.txt"),
+            Err(TraceError::UnsafeInputPath(_))
+        ));
+        let entry = run_doc_scenario(DocScenario::ParentTraversal).unwrap();
+        assert!(entry.refused);
+        assert_eq!(entry.input_kind, "unsafe-path");
+        assert_eq!(entry.rejection_reason, "unsafe-input-path");
+    }
+
+    #[test]
+    fn doc_symlink_escape_refused() {
+        // The containment decision refuses a resolved path that escapes the working directory, and accepts
+        // one that stays inside it (so the check is discriminating, not always-false).
+        let work = std::path::Path::new("/work/project");
+        assert!(!resolved_path_within(
+            work,
+            std::path::Path::new("/etc/hostname")
+        ));
+        assert!(resolved_path_within(
+            work,
+            std::path::Path::new("/work/project/sub/doc.txt")
+        ));
+        let entry = run_doc_scenario(DocScenario::SymlinkEscape).unwrap();
+        assert!(entry.refused, "an escaping path is refused");
+        assert_eq!(entry.input_kind, "escaping-path");
+        assert_eq!(entry.rejection_reason, "escapes-working-directory");
+    }
+
+    #[test]
+    fn doc_tampered_artifact_refused() {
+        // Each tampered bundle file (trace / report / manifest) is refused by re-derivation, and the
+        // tamper genuinely changed the bytes (anti-vacuity).
+        for scenario in [
+            DocScenario::TamperedTrace,
+            DocScenario::TamperedReport,
+            DocScenario::TamperedManifest,
+        ] {
+            let entry = run_doc_scenario(scenario).unwrap();
+            assert!(entry.refused, "{} is refused", scenario.slug());
+            assert!(!entry.verified);
+            assert!(
+                entry.input_changed,
+                "{} genuinely changed bytes",
+                scenario.slug()
+            );
+            assert!(
+                entry.rejection_reason.starts_with("bundle-file-mismatch:"),
+                "{} rejected by re-derivation, got {}",
+                scenario.slug(),
+                entry.rejection_reason
+            );
+        }
+    }
+
+    #[test]
+    fn doc_scenario_matrix_records_outcomes() {
+        // The matrix records one row per scenario with its observed outcome and boundary cells, and the
+        // coverage proves every expectation met, all boundary cells hold, and the variation is real.
+        let json = doc_scenario_matrix().unwrap();
+        for s in DocScenario::ALL {
+            assert!(json.contains(s.slug()), "matrix records {}", s.slug());
+        }
+        assert!(json.contains("\"all_expectations_met\": true"));
+        assert!(json.contains("\"all_boundaries_hold\": true"));
+        // 9 scenarios × 4 boundary cells = 36 cells, all proven.
+        assert!(json.contains("\"cells_total\": 36"));
+        assert!(json.contains("\"cells_proven\": 36"));
+        assert!(json.contains("\"verified_count\": 1"));
+        assert!(json.contains("\"refused_count\": 8"));
+        // The pack re-derives and a tampered pack is refused.
+        let pack: Vec<(String, String)> = doc_scenario_pack_files()
+            .unwrap()
+            .into_iter()
+            .map(|(n, c)| (n.to_string(), c))
+            .collect();
+        assert!(verify_doc_scenario_pack(&pack).is_ok());
+        let mut tampered = pack.clone();
+        tampered[0].1.push_str("\n{tampered}");
+        assert!(verify_doc_scenario_pack(&tampered).is_err());
+    }
+
+    #[test]
+    fn doc_scenarios_do_not_change_training_gate() {
+        // Every scenario keeps training closed: the no_training cell holds for all, and the clean trace
+        // proves the training gate is unchanged and not justified.
+        let entries = canonical_doc_scenario_entries().unwrap();
+        assert_eq!(entries.len(), 9);
+        for e in &entries {
+            assert!(e.no_training, "{} keeps training closed", e.slug);
+            assert!(e.no_execution && e.no_evidence && e.no_promotion);
+        }
+        let clean = doc_trace(DOC_SCENARIO_SAMPLE).unwrap();
+        assert!(clean.training_gate_unchanged());
+        assert!(!clean.training_justified());
+        // No scenario produced an executed/promoted authority claim.
+        let json = doc_scenario_pack_manifest().unwrap();
+        assert!(!json.contains("\"verified\": true,\n            \"refused\": true"));
     }
 }

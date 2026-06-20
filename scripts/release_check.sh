@@ -1323,10 +1323,10 @@ grep -q 'fn trace_does_not_change_training_gate' crates/cognitive-demo/src/lib.r
 grep -q 'fn trace_does_not_change_verifier_receipt' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_records_every_stage_id_and_links_the_chain' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_grants_no_new_authority' crates/cognitive-demo/src/lib.rs
-# Unit-test REALITY pin: exactly the 90 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
-# MTRACE-1 (12) + MTRACE-2 (12) + DOCFLOW-0 (10) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
+# Unit-test REALITY pin: exactly the 100 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
+# MTRACE-1 (12) + MTRACE-2 (12) + DOCFLOW-0 (10) + DOCFLOW-2 (10) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
 _int0_unit="$(cargo test --offline --lib --manifest-path crates/cognitive-demo/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 90
+test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 100
 test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
 # Determinism / no side effects: the trace is a pure, in-memory function — no clock, entropy, or network
 # anywhere in src/, and no floats anywhere in the crate. (`std::process::exit` in the CLI shell is a clean
@@ -2283,6 +2283,79 @@ if ./target/debug/cognitive-demo doc-trace --input "../etc-escape.txt" >/dev/nul
 ln -s /etc/hostname "$_doc_dir/link.txt" 2>/dev/null
 if ./target/debug/cognitive-demo doc-trace --input "$_doc_rel/link.txt" >/dev/null 2>&1; then rm -rf "$_doc_dir"; exit 1; fi
 rm -rf "$_doc_dir"
+# ---------------------------------------------------------------------------------------------------
+# DOCFLOW-2 — document flow scenario pack / input-integrity matrix (crates/cognitive-demo). A finite,
+# enum-backed set of VALID and INVALID document inputs, each OBSERVED by running the REAL DOCFLOW-0 check or
+# verifier: a clean local document verifies; a modified document, a tampered bundle file (trace/report/
+# manifest), an empty document, an absolute path, a `..` traversal, and a path that escapes the working
+# directory are each REFUSED. doc-scenario-pack writes the observed-outcome record + report; doc-scenario-
+# verify re-derives and refuses any tamper; doc-scenario-matrix verifies the pack then emits the coverage
+# matrix. Every scenario keeps the boundary closed: local text is read never trusted, nothing executes,
+# becomes evidence, promotes, or trains; P12 stays training_justified=false. No frozen crate edit. Doctrine:
+# Document scenarios vary the input. They do not vary the authority. Local text is read, not trusted.
+# Verification comes before tracing. Nothing executes. Nothing becomes evidence. Nothing promotes. Nothing trains.
+# ---------------------------------------------------------------------------------------------------
+# Surface signals: the DOCFLOW-2 API + commands exist and the containment decision is a shared pure fn.
+grep -q 'pub enum DocScenario' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn doc_scenario_pack_files' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn verify_doc_scenario_pack' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn doc_scenario_matrix' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn list_doc_scenarios' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn resolved_path_within' crates/cognitive-demo/src/lib.rs
+# The shell's symlink-containment check goes through the SAME pure decision (single source of truth).
+grep -q 'resolved_path_within(&cwd, &resolved)' crates/cognitive-demo/src/main.rs
+# Each scenario OBSERVES the real check (proves not asserts): the pack runs the DOCFLOW-0 verifier/checks.
+grep -q 'fn run_doc_scenario' crates/cognitive-demo/src/lib.rs
+grep -q 'verify_doc_bundle(DOC_SCENARIO_SAMPLE' crates/cognitive-demo/src/lib.rs
+# The 10 DOCFLOW-2 first-tests exist by name (a gutted/deleted test also drops the unit count pinned at 100 above).
+for _dt in doc_scenarios_list_all_cases doc_clean_local_document_verifies doc_modified_input_invalidates_bundle doc_empty_document_fails_closed doc_absolute_path_refused doc_parent_traversal_refused doc_symlink_escape_refused doc_tampered_artifact_refused doc_scenario_matrix_records_outcomes doc_scenarios_do_not_change_training_gate; do
+  if ! grep -q "fn $_dt" crates/cognitive-demo/src/lib.rs; then exit 1; fi
+done
+# The eight-line DOCFLOW-2 boundary is recorded verbatim in the source (all eight lines).
+for _sbl in 'Document scenarios vary the input.' 'They do not vary the authority.' 'Local text is read, not trusted.' 'Verification comes before tracing.' 'Nothing executes.' 'Nothing becomes evidence.' 'Nothing promotes.' 'Nothing trains.'; do
+  if ! grep -qF "$_sbl" crates/cognitive-demo/src/lib.rs; then exit 1; fi
+done
+# BEHAVIORAL smoke: run the WHOLE doc-scenario flow end-to-end, prove the coverage from the matrix's OWN
+# serialized output, and prove a tampered pack is refused by BOTH verify and matrix. The pack lives under
+# target/ (gitignored, inside the working dir) so no git debris is left. Fail-closed on any unexpected success.
+cargo build --offline --quiet --manifest-path crates/cognitive-demo/Cargo.toml --bin cognitive-demo >/dev/null 2>&1
+_scn_dir="$(mktemp -d "$PWD/target/.docflow2_gate.XXXXXX")"
+# doc-scenarios lists all nine input scenarios.
+_scn_menu="$(./target/debug/cognitive-demo doc-scenarios)"
+for _slug in clean-local-document modified-document empty-document absolute-path parent-traversal symlink-escape tampered-trace tampered-report tampered-manifest; do
+  case "$_scn_menu" in *"$_slug"*) : ;; *) rm -rf "$_scn_dir"; exit 1 ;; esac
+done
+# doc-scenario-pack writes the pack; doc-scenario-verify accepts the clean pack and prints the boundary.
+./target/debug/cognitive-demo doc-scenario-pack --out "$_scn_dir/pack" >/dev/null 2>&1 || { rm -rf "$_scn_dir"; exit 1; }
+_scn_verify="$(./target/debug/cognitive-demo doc-scenario-verify --path "$_scn_dir/pack" 2>/dev/null)" || { rm -rf "$_scn_dir"; exit 1; }
+case "$_scn_verify" in *'doc-scenario-verify: OK'*) : ;; *) rm -rf "$_scn_dir"; exit 1 ;; esac
+case "$_scn_verify" in *'Local text is read, not trusted.'*) : ;; *) rm -rf "$_scn_dir"; exit 1 ;; esac
+# doc-scenario-matrix verifies the pack then emits the coverage matrix; its OWN bytes prove the coverage.
+./target/debug/cognitive-demo doc-scenario-matrix --path "$_scn_dir/pack" --out "$_scn_dir/matrix.json" >/dev/null 2>&1 || { rm -rf "$_scn_dir"; exit 1; }
+for _m in '"verified_count": 1' '"refused_count": 8' '"cells_total": 36' '"cells_proven": 36' '"all_expectations_met": true' '"all_boundaries_hold": true'; do
+  if ! grep -qF "$_m" "$_scn_dir/matrix.json"; then rm -rf "$_scn_dir"; exit 1; fi
+done
+# Every scenario slug appears in the matrix (it records all outcomes).
+for _slug in clean-local-document modified-document empty-document absolute-path parent-traversal symlink-escape tampered-trace tampered-report tampered-manifest; do
+  if ! grep -qF "\"$_slug\"" "$_scn_dir/matrix.json"; then rm -rf "$_scn_dir"; exit 1; fi
+done
+# No scenario produced an affirmative-authority status in the pack manifest.
+if grep -qE '"(execution_status|observation_status|promotion_status)": "(executed|recorded|promoted|granted|evidence)"' "$_scn_dir/pack/doc-scenario-pack.json"; then rm -rf "$_scn_dir"; exit 1; fi
+# RE-DERIVE IS LOAD-BEARING: a tampered pack file must be refused by BOTH verify AND matrix.
+printf '\n{tampered}' >> "$_scn_dir/pack/doc-scenario-pack.json"
+if ./target/debug/cognitive-demo doc-scenario-verify --path "$_scn_dir/pack" >/dev/null 2>&1; then rm -rf "$_scn_dir"; exit 1; fi
+if ./target/debug/cognitive-demo doc-scenario-matrix --path "$_scn_dir/pack" >/dev/null 2>&1; then rm -rf "$_scn_dir"; exit 1; fi
+# END-TO-END input safety: the matrix records absolute-path / parent-traversal / symlink-escape as REFUSED.
+# Prove those outcomes end-to-end through the binary (not only via the pure containment decision in the lib),
+# so a regression in the shell's path validation cannot leave the matrix asserting a refusal that no longer
+# happens. The doc commands read only a LOCAL relative path, so the escaping symlink lives under the scenario
+# dir (inside target/, gitignored). Each unexpected success removes the dir and aborts the gate.
+_scn_rel="target/$(basename "$_scn_dir")"
+if ./target/debug/cognitive-demo doc-trace --input /etc/hostname >/dev/null 2>&1; then rm -rf "$_scn_dir"; exit 1; fi
+if ./target/debug/cognitive-demo doc-trace --input "../etc-escape.txt" >/dev/null 2>&1; then rm -rf "$_scn_dir"; exit 1; fi
+ln -s /etc/hostname "$_scn_dir/escape.txt" 2>/dev/null
+if ./target/debug/cognitive-demo doc-trace --input "$_scn_rel/escape.txt" >/dev/null 2>&1; then rm -rf "$_scn_dir"; exit 1; fi
+rm -rf "$_scn_dir"
 # ---------------------------------------------------------------------------------------------------
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json

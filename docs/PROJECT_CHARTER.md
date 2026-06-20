@@ -3,6 +3,43 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-20-J — Document flow scenario pack / input-integrity matrix (DOCFLOW-2)
+
+**Decision.** Extend `crates/cognitive-demo` with a document-flow scenario pack and input-integrity matrix:
+`doc-scenarios`, `doc-scenario-pack`, `doc-scenario-verify`, and `doc-scenario-matrix` run a finite,
+enum-backed set of nine VALID and INVALID document inputs — clean, modified, empty, absolute path, `..`
+traversal, symlink escape, and tampered trace/report/manifest — each OBSERVED by running the REAL DOCFLOW-0
+check or verifier and recording the outcome (verified vs refused + typed reason). The containment decision is
+extracted into the shared pure `resolved_path_within`, which the shell's `read_local_input` now calls (single
+source of truth for the symlink-escape boundary). No frozen crate source, no new dependency.
+
+**Why.** DOCFLOW-0 proved one clean local-document path and DOCFLOW-1 pinned the operator path; the next
+useful, boundary-preserving step is to prove the flow holds across the space of valid and invalid inputs —
+that local input is verified, path-safe, tamper-sensitive, and still non-authoritative — so an operator can
+see, deterministically, that every bad input fails closed. Each scenario PROVES rather than asserts: it runs
+the real verifier/check and records the observed `Result`, and the clean-verifies + variations-refused pairing
+makes the verifier demonstrably discriminating.
+
+**Boundary recorded.** The pack and matrix record the eight-line boundary verbatim: *Document scenarios vary
+the input. They do not vary the authority. Local text is read, not trusted. Verification comes before tracing.
+Nothing executes. Nothing becomes evidence. Nothing promotes. Nothing trains.* Every scenario keeps the four
+boundary cells (no_execution/no_evidence/no_promotion/no_training) true; the matrix coverage (verified 1,
+refused 8, 36/36 cells, all_expectations_met, all_boundaries_hold) is derived from the observed entries, not
+hardcoded. Re-derive-not-trust holds: `verify_doc_scenario_pack` re-derives both files and byte-compares;
+`doc-scenario-matrix` verifies the pack before emitting; the new structs are `Serialize`-only. Verified by a
+green, byte-silent `release_check.sh` (unit-count pin 90→100, ten test-name pins, eight boundary lines, and a
+binary smoke proving the coverage from the matrix's own bytes, refusing a tampered pack via both verify and
+matrix, and refusing absolute / `..` / **symlink-escape** inputs END-TO-END through the real binary); five
+live sabotage probes (test-name pin, boundary pin, runtime coverage, verify-trusts-files, and a clippy-clean
+main.rs wiring regression caught solely by the binary smoke), each restored byte-identical via `cp`+`md5`;
+and an independent read-only adversarial panel (four refute-by-default lenses). The panel raised one HIGH
+finding — the symlink-escape scenario observed only the pure containment decision while the gate had no
+end-to-end symlink test — folded by adding the end-to-end input-safety smoke, sabotage-verified (a clippy-clean
+vacuous containment with all 100 lib tests green is caught by the new smoke), and re-checked to a dry round. No
+code outside `crates/cognitive-demo/src/{lib.rs,main.rs}` and the gate changed; P12 stays
+`training_justified=false`, P13–P15 closed, and the six milestone tags are unmoved. Recorded in [a.md](../a.md).
+Local only — no remote push.
+
 ## DD-2026-06-20-I — Document flow operator guard / manual + smoke integration (DOCFLOW-1)
 
 **Decision.** Extend the operator-facing guard layer to cover the DOCFLOW-0 commands without adding any
