@@ -3,6 +3,38 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-20-F — Add the operator release snapshot / local archive manifest (OPS-2)
+
+**Decision.** Add `OPERATOR_RELEASE_SNAPSHOT.md`, a docs-only local snapshot of the prototype state after
+OPS-1: the post-OPS-1 HEAD commit (`c33dea7`), all five frozen milestone tags with their commits, the
+recovery commands (`git checkout <tag>` / `git checkout c33dea7`), the two verification commands
+(`./scripts/release_check.sh` and `./scripts/operator_smoke.sh` with expected output), what the prototype
+can and cannot do, and the P12 training verdict. `release_check.sh` gains an OPS-2 lock that pins the
+snapshot's load-bearing content. No code crate is touched; no tag is created.
+
+**Why.** Before adding any new behavior, the frozen state deserves a single local record an operator can
+read to know exactly what is frozen, which commit and tags recover it, which commands verify it, and what
+the boundaries are — so the snapshot cannot drift into stale fiction. This is a snapshot/reproducibility
+sprint, not a release: nothing is pushed, published, or uploaded. The snapshot is honest that its own
+commit is a docs-only child of `c33dea7` that changes no capability, and points the operator at the two
+re-verification commands that hold regardless of which commit is checked out.
+
+**Boundary recorded.** The snapshot records the six-line boundary verbatim: *The snapshot records the
+prototype state. It does not release remotely. It does not create authority. It does not execute. It does
+not promote. It does not train.* The `release_check.sh` OPS-2 lock pins, by content inspection, the
+snapshot's existence, the HEAD commit it records, the five frozen tag names AND their commits, the recovery
+and verify commands, the `training_not_justified` verdict, P13–P15 closed, the verbatim no-remote-release
+disclaimer, and the six boundary lines, and guards against any snapshot that falsely claims training has
+opened. Verified by a green byte-silent `release_check.sh`; live sabotage of the OPS-2 lock (drop the HEAD
+commit; drop a frozen tag SHA; drift the no-remote-release boundary; a false training-opened claim; drop
+the `operator_smoke` verify command — every probe failed the gate at exit 1 and was restored byte-identical
+via `cp`+`md5`, never `git checkout`, since the snapshot is untracked); and a read-only adversarial panel
+(4 lenses, refute-by-default) iterated to a fully-dry round. No code crate is touched, all five milestone
+tags (`cognitive-os-governance-v0.1` @ `bbd1113`, `reading-track-v0.1` @ `f6fa55a`, `hypothesis-track-v0.1`
+@ `bb20acf`, `integration-demo-v0.1` @ `95b586d`, `multi-trace-validation-v0.1` @ `460be0c`) are unmoved,
+P12 `training_justified=false`, and P13–P15 closed. Recorded in
+[OPERATOR_RELEASE_SNAPSHOT.md](../OPERATOR_RELEASE_SNAPSHOT.md). Local only — no remote push.
+
 ## DD-2026-06-20-E — Add the operator smoke script / manual drift guard (OPS-1)
 
 **Decision.** Add `scripts/operator_smoke.sh`, a deterministic operator smoke that runs the whole

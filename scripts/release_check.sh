@@ -2076,6 +2076,46 @@ if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' scripts/operato
 # The manual records the operator smoke self-check (a short reference, so the smoke is discoverable).
 grep -qF 'scripts/operator_smoke.sh' OPERATOR_MANUAL.md
 # ---------------------------------------------------------------------------------------------------
+# OPS-2 — operator release snapshot / local archive manifest. OPERATOR_RELEASE_SNAPSHOT.md is a docs-only
+# local snapshot of the prototype state after OPS-1: the current HEAD commit (c33dea7), every frozen tag +
+# its commit, the recovery commands, the release_check + operator_smoke verification commands, what the
+# prototype can and cannot do, and the P12 training verdict. A snapshot/reproducibility sprint — no code
+# crate change, no new behavior, no model, no training, and NO remote release (nothing pushed/published/
+# uploaded). This lock pins the snapshot's existence, the HEAD commit it records, the five frozen tag names
+# + their commits, the recovery + verify commands, the training verdict, P13-P15 closed, and the six
+# boundary lines verbatim, and guards against any snapshot that falsely claims training has opened.
+# Doctrine: The snapshot records the prototype state. It does not release remotely. It does not create
+# authority. It does not execute. It does not promote. It does not train.
+# ---------------------------------------------------------------------------------------------------
+test -f OPERATOR_RELEASE_SNAPSHOT.md
+# The snapshot records the post-OPS-1 HEAD commit (the state it snapshots).
+grep -qF 'c33dea7' OPERATOR_RELEASE_SNAPSHOT.md
+# The snapshot lists all five frozen milestone tags AND their commits (the recovery markers).
+grep -qF 'cognitive-os-governance-v0.1' OPERATOR_RELEASE_SNAPSHOT.md
+grep -qF 'reading-track-v0.1' OPERATOR_RELEASE_SNAPSHOT.md
+grep -qF 'hypothesis-track-v0.1' OPERATOR_RELEASE_SNAPSHOT.md
+grep -qF 'integration-demo-v0.1' OPERATOR_RELEASE_SNAPSHOT.md
+grep -qF 'multi-trace-validation-v0.1' OPERATOR_RELEASE_SNAPSHOT.md
+for _sha in bbd1113 f6fa55a bb20acf 95b586d 460be0c; do
+  if ! grep -qF "$_sha" OPERATOR_RELEASE_SNAPSHOT.md; then exit 1; fi
+done
+# The snapshot records the recovery + verification commands.
+grep -qF 'git checkout' OPERATOR_RELEASE_SNAPSHOT.md
+grep -qF './scripts/release_check.sh' OPERATOR_RELEASE_SNAPSHOT.md
+grep -qF './scripts/operator_smoke.sh' OPERATOR_RELEASE_SNAPSHOT.md
+# The training verdict is stated and P13-P15 are recorded closed.
+grep -q 'training_not_justified' OPERATOR_RELEASE_SNAPSHOT.md
+grep -q 'training_justified=false' OPERATOR_RELEASE_SNAPSHOT.md
+grep -qF 'P13' OPERATOR_RELEASE_SNAPSHOT.md
+# The snapshot records, verbatim, that it does NOT release remotely (the no-remote-release disclaimer).
+grep -qF 'It does not release remotely.' OPERATOR_RELEASE_SNAPSHOT.md
+# The six-line snapshot boundary is recorded verbatim (all six lines).
+for _bl in 'The snapshot records the prototype state.' 'It does not release remotely.' 'It does not create authority.' 'It does not execute.' 'It does not promote.' 'It does not train.'; do
+  if ! grep -qF "$_bl" OPERATOR_RELEASE_SNAPSHOT.md; then exit 1; fi
+done
+# The snapshot makes NO false training claim (it never asserts training opened).
+if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' OPERATOR_RELEASE_SNAPSHOT.md; then exit 1; fi
+# ---------------------------------------------------------------------------------------------------
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json
