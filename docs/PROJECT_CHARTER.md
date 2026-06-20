@@ -3,6 +3,39 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-20-D — Add the operator manual / prototype capability guide (OPS-0)
+
+**Decision.** Add a plain operator manual `OPERATOR_MANUAL.md` documenting the frozen prototype: what it is
+and is not, the five frozen milestone tags with their recovery (`git checkout <tag>`) and verify
+(`./scripts/release_check.sh`) commands, the exact `cognitive-demo` commands to reproduce every demo
+(trace / report / replay / questions / bundle / scenario-pack / scenario-matrix / failure-pack — with the
+real flags and the eight audit-question slugs), the authority boundaries that stay closed, and the P12
+training verdict. A comprehension and reproducibility sprint — it adds no behavior and edits no code crate
+(a.md untouched).
+
+**Why.** Before adding more machinery, the prototype needs a single plain-language guide an operator can
+follow to run each demo, understand what each output means, and confirm what the system explicitly cannot
+do. Every command in the manual was run against the built binary and its output captured, so the guide is
+real, not illustrative. One reproducibility detail is documented because it bites: a replayable trace file
+must be written with `trace --out FILE` (exact bytes), not a shell redirect (`trace > FILE` appends a
+newline and is correctly refused by the re-derive byte-compare).
+
+**Boundary recorded.** The manual records the six-line boundary verbatim: *The manual explains the
+prototype. It does not expand the prototype. It does not create authority. It does not execute. It does not
+promote. It does not train.* It states P12 `training_justified=false` (`training_not_justified`) and that
+P13–P15 stay closed, and it makes no claim of model cognition, training, probe execution, or evidence
+promotion (the forged-authority cases are documented as forged-and-rejected, never as real states). The
+`release_check.sh` OPS-0 manual lock pins the manual's existence, the five frozen tag names it must list,
+the documented command surface (every subcommand by name, plus the recovery and verify commands), a real
+audit-question slug, the training verdict, and the six boundary lines verbatim, and guards against any
+manual that falsely claims training has opened — so the manual cannot silently drift. Verified by a green
+byte-silent `release_check.sh`, live sabotage of the manual lock (each restored byte-identical), and a
+read-only adversarial panel. No code crate is touched, all five milestone tags
+(`cognitive-os-governance-v0.1`, `reading-track-v0.1` @ `f6fa55a`, `hypothesis-track-v0.1` @ `bb20acf`,
+`integration-demo-v0.1` @ `95b586d`, `multi-trace-validation-v0.1` @ `460be0c`) are unmoved, P12
+`training_justified=false`, and P13–P15 closed. Recorded in full in [OPERATOR_MANUAL.md](../OPERATOR_MANUAL.md).
+Local only — no remote push.
+
 ## DD-2026-06-20-C — Freeze the multi-trace validation track (MTRACE-0 → MTRACE-2) as multi-trace-validation-v0.1
 
 **Decision.** Freeze the MTRACE-0 → MTRACE-2 multi-trace validation arc as a named, auditable milestone

@@ -1976,6 +1976,45 @@ done
 # The milestone makes NO false training claim (it never asserts training opened).
 if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' MULTI_TRACE_VALIDATION_MILESTONE.md; then exit 1; fi
 # ---------------------------------------------------------------------------------------------------
+# OPS-0 — operator manual / prototype capability guide. OPERATOR_MANUAL.md is the plain operator guide to the
+# frozen prototype: what it is/is not, the five frozen milestone tags + recovery/verify commands, the exact
+# cognitive-demo commands to reproduce every demo (trace/report/replay/questions/bundle/scenario/matrix/
+# failure-pack, with the real flags + the eight audit-question slugs), the authority boundaries that stay
+# closed, and the P12 training verdict. A comprehension/reproducibility sprint — no code crate change, no new
+# behavior, no model, no training; the manual records training_not_justified. This lock pins the manual's
+# existence, the five frozen tag names it must list, the documented command surface (every subcommand by name
+# + the recovery and verify commands + a real question slug), the training verdict, and the six boundary lines
+# verbatim, and guards against any manual that falsely claims training has opened. Doctrine: The manual explains
+# the prototype. It does not expand the prototype. It does not create authority. It does not execute. It does
+# not promote. It does not train.
+# ---------------------------------------------------------------------------------------------------
+test -f OPERATOR_MANUAL.md
+# The manual lists all five frozen milestone tags (the recovery markers).
+grep -q 'cognitive-os-governance-v0.1' OPERATOR_MANUAL.md
+grep -q 'reading-track-v0.1' OPERATOR_MANUAL.md
+grep -q 'hypothesis-track-v0.1' OPERATOR_MANUAL.md
+grep -q 'integration-demo-v0.1' OPERATOR_MANUAL.md
+grep -q 'multi-trace-validation-v0.1' OPERATOR_MANUAL.md
+# The manual documents the real recovery + verify commands.
+grep -qF 'git checkout' OPERATOR_MANUAL.md
+grep -qF './scripts/release_check.sh' OPERATOR_MANUAL.md
+# The manual documents the real command surface, by exact invocation (not vacuous prose) — every subcommand.
+for _cmd in 'trace --out' 'report --trace' 'replay --trace' 'ask --trace' 'questions' 'bundle --out' 'bundle-verify --path' 'scenarios' 'scenario-pack --out' 'scenario-verify --path' 'scenario-matrix --pack' 'scenario-matrix-report --matrix' 'scenario-matrix-verify --pack' 'failure-cases' 'failure-pack --out' 'failure-verify --path'; do
+  if ! grep -qF "$_cmd" OPERATOR_MANUAL.md; then exit 1; fi
+done
+# At least one real, enumerated audit-question slug is documented (the interrogation surface is real).
+grep -qF 'was-anything-executed' OPERATOR_MANUAL.md
+# The training verdict is stated and P13-P15 are recorded closed.
+grep -q 'training_not_justified' OPERATOR_MANUAL.md
+grep -q 'training_justified=false' OPERATOR_MANUAL.md
+grep -qF 'P13' OPERATOR_MANUAL.md
+# The six-line manual boundary is recorded verbatim (all six lines).
+for _bl in 'The manual explains the prototype.' 'It does not expand the prototype.' 'It does not create authority.' 'It does not execute.' 'It does not promote.' 'It does not train.'; do
+  if ! grep -qF "$_bl" OPERATOR_MANUAL.md; then exit 1; fi
+done
+# The manual makes NO false training claim (it never asserts training opened).
+if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' OPERATOR_MANUAL.md; then exit 1; fi
+# ---------------------------------------------------------------------------------------------------
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json
