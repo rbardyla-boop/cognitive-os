@@ -25,8 +25,8 @@
 //! This binary is ONLY an I/O shell: it parses argv and reads/writes files, then delegates ALL
 //! logic to the pure [`cognitive_demo`] library (`run_trace` / `run_report` / `run_replay` /
 //! `run_ask` / `list_questions` / `canonical_bundle` / `verify_bundle` / `scenario_bundle` /
-//! `verify_scenario_bundle` / `scenario_pack_manifest`). It
-//! holds no executor, spawns no process, opens no socket, and consults no clock or entropy — the
+//! `verify_scenario_pack` / `scenario_matrix` / `verify_scenario_matrix` / `scenario_matrix_report`).
+//! It holds no executor, spawns no process, opens no socket, and consults no clock or entropy — the
 //! trace it serves is a pure function of fixed inputs, and `report`/`replay` re-derive the
 //! canonical trace and REFUSE any provided file that is not byte-for-byte that trace, so a tampered
 //! or foreign trace can never be laundered into a report or a passing replay. `std::fs` lives ONLY
@@ -34,9 +34,9 @@
 
 use cognitive_demo::{
     canonical_bundle, list_questions, list_scenarios, run_ask, run_replay, run_report, run_trace,
-    scenario_bundle, scenario_pack_manifest, verify_bundle, verify_scenario_bundle,
-    verify_scenario_pack_manifest, Scenario, BUNDLE_BOUNDARY_LINES, BUNDLE_FILES,
-    MTRACE_BOUNDARY_LINES, PACK_MANIFEST_FILE,
+    scenario_bundle, scenario_matrix, scenario_matrix_report, scenario_pack_manifest,
+    verify_bundle, verify_scenario_matrix, verify_scenario_pack, Scenario, BUNDLE_BOUNDARY_LINES,
+    BUNDLE_FILES, MATRIX_BOUNDARY_LINES, MTRACE_BOUNDARY_LINES, PACK_MANIFEST_FILE,
 };
 
 fn main() {
@@ -117,17 +117,39 @@ fn dispatch(args: &[String]) -> Result<(), String> {
         Some("scenario-verify") => {
             // Verify every scenario bundle AND the pack manifest by RE-DERIVING each and byte-comparing.
             let dir = flag_value(args, "--path").ok_or("this command requires --path <dir>")?;
-            for scenario in Scenario::ALL {
-                let sub = format!("{dir}/{}", scenario.slug());
-                let provided = read_bundle(&sub)?;
-                verify_scenario_bundle(scenario, &provided)
-                    .map_err(|e| format!("{}: {e}", scenario.slug()))?;
-            }
-            let pack_path = format!("{dir}/{PACK_MANIFEST_FILE}");
-            let pack = std::fs::read_to_string(&pack_path)
-                .map_err(|e| format!("cannot read {pack_path}: {e}"))?;
-            verify_scenario_pack_manifest(&pack).map_err(|e| e.to_string())?;
+            verify_pack_at(dir)?;
             print!("{}", scenario_verify_summary());
+            Ok(())
+        }
+        Some("scenario-matrix") => {
+            // VERIFY the pack at --pack re-derives (refuse a tampered pack), then emit the canonical
+            // coverage matrix to --out. The matrix is purely re-derived; the pack is never trusted.
+            let dir = flag_value(args, "--pack").ok_or("this command requires --pack <dir>")?;
+            verify_pack_at(dir)?;
+            let matrix = scenario_matrix().map_err(|e| e.to_string())?;
+            emit(&matrix, flag_value(args, "--out"))
+        }
+        Some("scenario-matrix-report") => {
+            // Read the provided matrix, verify it IS the canonical matrix, then render the report from
+            // the re-derived canonical matrix (a tampered matrix is refused, never rendered).
+            let path =
+                flag_value(args, "--matrix").ok_or("this command requires --matrix <path>")?;
+            let content =
+                std::fs::read_to_string(path).map_err(|e| format!("cannot read {path}: {e}"))?;
+            let report = scenario_matrix_report(&content).map_err(|e| e.to_string())?;
+            emit(&report, flag_value(args, "--out"))
+        }
+        Some("scenario-matrix-verify") => {
+            // Verify BOTH the pack (re-derive every scenario bundle + manifest) AND the matrix (re-derive
+            // and byte-compare) — a tampered pack OR a tampered matrix is refused.
+            let dir = flag_value(args, "--pack").ok_or("this command requires --pack <dir>")?;
+            verify_pack_at(dir)?;
+            let path =
+                flag_value(args, "--matrix").ok_or("this command requires --matrix <path>")?;
+            let matrix =
+                std::fs::read_to_string(path).map_err(|e| format!("cannot read {path}: {e}"))?;
+            verify_scenario_matrix(&matrix).map_err(|e| e.to_string())?;
+            print!("{}", scenario_matrix_verify_summary());
             Ok(())
         }
         _ => Err(usage()),
@@ -261,10 +283,40 @@ fn scenario_verify_summary() -> String {
     out
 }
 
+/// Read and VERIFY a whole scenario pack at `dir` by RE-DERIVING it: read each scenario's bundle and the
+/// pack manifest from disk and hand them to the pure `verify_scenario_pack`, which byte-compares against
+/// the re-derivation. A tampered/missing/foreign pack is refused. The provided files are never trusted —
+/// only compared. Shared by `scenario-verify`, `scenario-matrix`, and `scenario-matrix-verify`.
+fn verify_pack_at(dir: &str) -> Result<(), String> {
+    let mut bundles = Vec::new();
+    for scenario in Scenario::ALL {
+        let sub = format!("{dir}/{}", scenario.slug());
+        bundles.push((scenario.slug().to_string(), read_bundle(&sub)?));
+    }
+    let pack_path = format!("{dir}/{PACK_MANIFEST_FILE}");
+    let pack =
+        std::fs::read_to_string(&pack_path).map_err(|e| format!("cannot read {pack_path}: {e}"))?;
+    verify_scenario_pack(&bundles, &pack).map_err(|e| e.to_string())
+}
+
+/// The success summary printed after `scenario-matrix-verify` accepts both the pack and the matrix.
+fn scenario_matrix_verify_summary() -> String {
+    let mut out = String::from(
+        "scenario-matrix-verify: OK — the scenario pack and the coverage matrix re-derive byte-identically\n",
+    );
+    out.push_str("BOUNDARY\n");
+    for line in MATRIX_BOUNDARY_LINES {
+        out.push_str(&format!("    {line}\n"));
+    }
+    out
+}
+
 fn usage() -> String {
     "usage: cognitive-demo <trace [--out PATH] | report --trace PATH [--out PATH] | \
      replay --trace PATH | ask --trace PATH --question SLUG [--out PATH] | questions | \
      bundle --out DIR | bundle-verify --path DIR | scenarios | scenario-pack --out DIR | \
-     scenario-verify --path DIR>"
+     scenario-verify --path DIR | scenario-matrix --pack DIR [--out PATH] | \
+     scenario-matrix-report --matrix PATH [--out PATH] | \
+     scenario-matrix-verify --pack DIR --matrix PATH>"
         .to_string()
 }

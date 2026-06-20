@@ -1323,10 +1323,10 @@ grep -q 'fn trace_does_not_change_training_gate' crates/cognitive-demo/src/lib.r
 grep -q 'fn trace_does_not_change_verifier_receipt' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_records_every_stage_id_and_links_the_chain' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_grants_no_new_authority' crates/cognitive-demo/src/lib.rs
-# Unit-test REALITY pin: exactly the 56 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12)
-# tests pass, zero ignored (so gutting/disabling one is caught, independent of the behavioral channels below).
+# Unit-test REALITY pin: exactly the 68 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
+# MTRACE-1 (12) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
 _int0_unit="$(cargo test --offline --lib --manifest-path crates/cognitive-demo/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 56
+test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 68
 test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
 # Determinism / no side effects: the trace is a pure, in-memory function — no clock, entropy, or network
 # anywhere in src/, and no floats anywhere in the crate. (`std::process::exit` in the CLI shell is a clean
@@ -1752,6 +1752,88 @@ if ./target/debug/cognitive-demo scenario-verify --path "$_mt_dir/tx" >/dev/null
 mkdir -p "$_mt_dir/tf"; cp -r "$_mt_dir/pack/." "$_mt_dir/tf/"; for _f in trace.json report.txt questions.txt manifest.json; do echo foreign > "$_mt_dir/tf/high-risk-blocked/$_f"; done
 if ./target/debug/cognitive-demo scenario-verify --path "$_mt_dir/tf" >/dev/null 2>&1; then rm -rf "$_mt_dir"; exit 1; fi
 rm -rf "$_mt_dir"
+# ---------------------------------------------------------------------------------------------------
+# MTRACE-1 — Scenario Matrix / Boundary Coverage Report (crates/cognitive-demo, the `cognitive-demo` binary's
+# `scenario-matrix` + `scenario-matrix-report` + `scenario-matrix-verify` commands). A deterministic coverage
+# matrix DERIVED from the scenario set: for every scenario (path) it records the path's statuses AND proves the
+# four authority boundaries (no_execution / no_evidence / no_promotion / no_training) hold, plus a coverage
+# summary. The matrix is purely RE-DERIVED (it never trusts the pack files); `scenario-matrix` verifies the pack
+# before emitting; verify/report re-derive and byte-compare, refusing any tampered matrix or pack. The matrix
+# summarizes coverage; it does not create authority, execute, promote, or train.
+# ---------------------------------------------------------------------------------------------------
+# The matrix surface exists (signals): the pure builder, the re-deriving verifier, the pure renderer, the
+# whole-pack verifier, and the boundary data + the mismatch error.
+grep -q 'pub fn scenario_matrix' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn verify_scenario_matrix' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn scenario_matrix_report' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn verify_scenario_pack' crates/cognitive-demo/src/lib.rs
+grep -q 'MATRIX_BOUNDARY_LINES' crates/cognitive-demo/src/lib.rs
+grep -q 'MatrixMismatch' crates/cognitive-demo/src/lib.rs
+# Re-derive (not trust): verify/report compare against the freshly re-derived canonical matrix; the matrix is
+# Serialize-only (no Deserialize, pinned far above), so a provided matrix is never parsed into authority.
+grep -q 'provided == scenario_matrix()?' crates/cognitive-demo/src/lib.rs
+grep -q 'struct ScenarioMatrix' crates/cognitive-demo/src/lib.rs
+# The 12 MTRACE-1 tests exist (a gutted/deleted test drops the unit count pinned above).
+grep -q 'fn scenario_matrix_lists_all_scenarios' crates/cognitive-demo/src/lib.rs
+grep -q 'fn scenario_matrix_records_all_statuses' crates/cognitive-demo/src/lib.rs
+grep -q 'fn scenario_matrix_proves_no_execution_for_all' crates/cognitive-demo/src/lib.rs
+grep -q 'fn scenario_matrix_proves_no_evidence_for_all' crates/cognitive-demo/src/lib.rs
+grep -q 'fn scenario_matrix_proves_no_promotion_for_all' crates/cognitive-demo/src/lib.rs
+grep -q 'fn scenario_matrix_proves_training_false_for_all' crates/cognitive-demo/src/lib.rs
+grep -q 'fn scenario_matrix_verify_rejects_tampered_matrix' crates/cognitive-demo/src/lib.rs
+grep -q 'fn scenario_matrix_verify_rejects_tampered_pack' crates/cognitive-demo/src/lib.rs
+grep -q 'fn scenario_matrix_report_contains_boundary_summary' crates/cognitive-demo/src/lib.rs
+grep -q 'fn scenario_matrix_does_not_change_training_gate' crates/cognitive-demo/src/lib.rs
+grep -q 'fn scenario_matrix_distinguishes_all_paths' crates/cognitive-demo/src/lib.rs
+grep -q 'fn scenario_matrix_report_is_not_authority' crates/cognitive-demo/src/lib.rs
+# End-to-end BINARY smoke (real files; the CLI was built in the INT-1 smoke): build a scenario pack, emit the
+# matrix, prove it records every scenario with all statuses + the four boundary cells (all true for every
+# scenario), proves the coverage (16/16, all_boundaries_hold), is byte-identical across runs, the report contains
+# the boundary summary, and that a TAMPERED matrix and a TAMPERED pack are BOTH refused by verify AND report.
+_m1_dir="$(mktemp -d)"
+./target/debug/cognitive-demo scenario-pack --out "$_m1_dir/pack" >/dev/null 2>&1
+./target/debug/cognitive-demo scenario-matrix --pack "$_m1_dir/pack" --out "$_m1_dir/matrix.json" >/dev/null 2>&1
+test -f "$_m1_dir/matrix.json"
+# The matrix lists every scenario and records all status fields.
+for _s in happy-boundary review-rejected review-deferred high-risk-blocked; do
+  if ! grep -qF "$_s" "$_m1_dir/matrix.json"; then rm -rf "$_m1_dir"; exit 1; fi
+done
+for _field in '"review_status"' '"probe_status"' '"intent_status"' '"observation_status"' '"promotion_status"' '"training_verdict"'; do
+  if ! grep -qF "$_field" "$_m1_dir/matrix.json"; then rm -rf "$_m1_dir"; exit 1; fi
+done
+# EVERY scenario proves the four boundaries: the matrix never records a false boundary cell or a granted/justified.
+grep -q '"cells_proven": 16' "$_m1_dir/matrix.json"
+grep -q '"all_boundaries_hold": true' "$_m1_dir/matrix.json"
+if grep -qE '"(no_execution|no_evidence|no_promotion|no_training)": false' "$_m1_dir/matrix.json"; then rm -rf "$_m1_dir"; exit 1; fi
+if grep -q '"training_verdict": "training_justified"' "$_m1_dir/matrix.json"; then rm -rf "$_m1_dir"; exit 1; fi
+# The matrix distinguishes the paths (a requires_operator AND a blocked intent; a queued AND a blocked probe).
+grep -q '"intent_status": "requires_operator"' "$_m1_dir/matrix.json"
+grep -q '"intent_status": "blocked"' "$_m1_dir/matrix.json"
+grep -q '"probe_status": "blocked"' "$_m1_dir/matrix.json"
+# NO-AUTHORITY guard over the matrix: no affirmative executed/promoted/granted/recorded status, no true grant.
+if grep -qE '"(intent_status|execution_status|observation_status|promotion_status)": "(executed|promoted|granted|recorded)"' "$_m1_dir/matrix.json"; then rm -rf "$_m1_dir"; exit 1; fi
+if grep -q '"grants_promotion": true' "$_m1_dir/matrix.json"; then rm -rf "$_m1_dir"; exit 1; fi
+# Determinism: a second matrix is byte-identical.
+./target/debug/cognitive-demo scenario-matrix --pack "$_m1_dir/pack" --out "$_m1_dir/matrix2.json" >/dev/null 2>&1
+if ! cmp -s "$_m1_dir/matrix.json" "$_m1_dir/matrix2.json"; then rm -rf "$_m1_dir"; exit 1; fi
+# The report renders the coverage + the five boundary lines verbatim + the explicit no-execution prose.
+./target/debug/cognitive-demo scenario-matrix-report --matrix "$_m1_dir/matrix.json" --out "$_m1_dir/matrix.txt" >/dev/null 2>&1
+grep -qF 'cells proven:        16/16' "$_m1_dir/matrix.txt"
+grep -qF 'Nothing executes. Nothing becomes evidence. Nothing promotes. Nothing trains.' "$_m1_dir/matrix.txt"
+for _bl in 'The matrix summarizes coverage.' 'It does not create authority.' 'It does not execute.' 'It does not promote.' 'It does not train.'; do
+  if ! grep -qF "$_bl" "$_m1_dir/matrix.txt"; then rm -rf "$_m1_dir"; exit 1; fi
+done
+# scenario-matrix-verify accepts the pristine pack + matrix...
+./target/debug/cognitive-demo scenario-matrix-verify --pack "$_m1_dir/pack" --matrix "$_m1_dir/matrix.json" >/dev/null 2>&1
+# ...and a TAMPERED matrix is refused by BOTH verify and report (a tampered matrix is never laundered)...
+sed 's/"all_boundaries_hold": true/"all_boundaries_hold": false/' "$_m1_dir/matrix.json" > "$_m1_dir/tm.json"
+if ./target/debug/cognitive-demo scenario-matrix-verify --pack "$_m1_dir/pack" --matrix "$_m1_dir/tm.json" >/dev/null 2>&1; then rm -rf "$_m1_dir"; exit 1; fi
+if ./target/debug/cognitive-demo scenario-matrix-report --matrix "$_m1_dir/tm.json" >/dev/null 2>&1; then rm -rf "$_m1_dir"; exit 1; fi
+# ...and a TAMPERED pack is refused by BOTH scenario-matrix (won't emit) and scenario-matrix-verify.
+cp -r "$_m1_dir/pack" "$_m1_dir/tp"; sed -i 's/"review_decision": "rejected"/"review_decision": "approved"/' "$_m1_dir/tp/review-rejected/trace.json"
+if ./target/debug/cognitive-demo scenario-matrix --pack "$_m1_dir/tp" --out "$_m1_dir/x.json" >/dev/null 2>&1; then rm -rf "$_m1_dir"; exit 1; fi
+if ./target/debug/cognitive-demo scenario-matrix-verify --pack "$_m1_dir/tp" --matrix "$_m1_dir/matrix.json" >/dev/null 2>&1; then rm -rf "$_m1_dir"; exit 1; fi
+rm -rf "$_m1_dir"
 # ---------------------------------------------------------------------------------------------------
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json

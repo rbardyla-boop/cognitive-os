@@ -66,6 +66,9 @@ pub enum TraceError {
     /// A provided bundle file (named) did not byte-match the re-derived canonical bundle file
     /// (tampered, stale, or foreign) — so it is refused rather than trusted over the re-derivation.
     BundleMismatch(String),
+    /// A provided scenario-coverage matrix did not byte-match the re-derived canonical matrix
+    /// (tampered, stale, or foreign) — so it is refused rather than trusted over the re-derivation.
+    MatrixMismatch,
 }
 
 impl std::fmt::Display for TraceError {
@@ -94,6 +97,10 @@ impl std::fmt::Display for TraceError {
             TraceError::BundleMismatch(name) => write!(
                 f,
                 "bundle file '{name}' is not the canonical file (tampered, stale, or foreign)"
+            ),
+            TraceError::MatrixMismatch => write!(
+                f,
+                "the provided matrix is not the canonical matrix (tampered, stale, or foreign)"
             ),
         }
     }
@@ -1438,6 +1445,265 @@ pub fn list_scenarios() -> String {
     out
 }
 
+/// Verify a WHOLE provided scenario pack (every scenario's bundle files + the pack manifest) WITHOUT
+/// trusting it: re-derive each scenario bundle and the pack manifest and byte-compare. A missing
+/// scenario is [`TraceError::BundleMissingFile`]; any tampered/stale/foreign file is
+/// [`TraceError::BundleMismatch`]. The pure whole-pack core the matrix commands verify against. Pure.
+pub fn verify_scenario_pack(
+    bundles: &[(String, Vec<(String, String)>)],
+    pack_manifest: &str,
+) -> Result<(), TraceError> {
+    for scenario in Scenario::ALL {
+        match bundles.iter().find(|(slug, _)| slug == scenario.slug()) {
+            None => return Err(TraceError::BundleMissingFile(scenario.slug().to_string())),
+            Some((_, files)) => verify_scenario_bundle(scenario, files)?,
+        }
+    }
+    verify_scenario_pack_manifest(pack_manifest)
+}
+
+// --- MTRACE-1: the scenario boundary-coverage matrix. A deterministic coverage report DERIVED from the
+//     scenario set: for every scenario (path) it records the path's statuses AND proves the four
+//     authority boundaries (no_execution / no_evidence / no_promotion / no_training) hold, plus a
+//     coverage summary. The matrix is purely re-derived (it never trusts the pack files); verify/report
+//     re-derive and byte-compare, refusing any tampered matrix or pack. The matrix summarizes coverage;
+//     it does not create authority. ---
+
+/// The five-line MTRACE-1 boundary, embedded in the matrix. Pinned as data so a test can assert it.
+pub const MATRIX_BOUNDARY_LINES: [&str; 5] = [
+    "The matrix summarizes coverage.",
+    "It does not create authority.",
+    "It does not execute.",
+    "It does not promote.",
+    "It does not train.",
+];
+
+/// One row of the coverage matrix: a scenario's PATH (its review/probe/intent/observation/promotion
+/// statuses + training verdict) and the four BOUNDARY cells it proves (always all true). `Serialize`
+/// but NOT `Deserialize` — re-derived and byte-compared, never parsed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct MatrixRow {
+    slug: String,
+    description: String,
+    review_status: String,
+    probe_status: String,
+    intent_status: String,
+    observation_status: String,
+    promotion_status: String,
+    training_verdict: String,
+    no_execution: bool,
+    no_evidence: bool,
+    no_promotion: bool,
+    no_training: bool,
+}
+
+/// The coverage summary: how many scenarios × boundaries were proven, and the DISTINCT path statuses
+/// (proving the variation is real, not cosmetic). `Serialize` but NOT `Deserialize`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct MatrixCoverage {
+    scenario_count: usize,
+    boundary_count: usize,
+    boundaries: Vec<String>,
+    cells_total: usize,
+    cells_proven: usize,
+    all_boundaries_hold: bool,
+    distinct_review_statuses: Vec<String>,
+    distinct_intent_statuses: Vec<String>,
+    distinct_probe_statuses: Vec<String>,
+}
+
+/// The scenario boundary-coverage matrix: one row per scenario, the coverage summary, and the boundary.
+/// `Serialize` but NOT `Deserialize` — re-derived and byte-compared on verify, never parsed back into
+/// authority.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct ScenarioMatrix {
+    schema: String,
+    scenarios: Vec<MatrixRow>,
+    coverage: MatrixCoverage,
+    boundary: Vec<String>,
+}
+
+/// The training verdict token (always `training_not_justified` here — P12 stays false).
+fn training_verdict_token(training_justified: bool) -> &'static str {
+    if training_justified {
+        "training_justified"
+    } else {
+        "training_not_justified"
+    }
+}
+
+/// Sort + dedup a list of status tokens for a deterministic, stable distinct-set in the coverage.
+fn sorted_unique(mut values: Vec<String>) -> Vec<String> {
+    values.sort();
+    values.dedup();
+    values
+}
+
+/// Build the canonical coverage matrix from the scenario set. Pure and deterministic: every row and the
+/// coverage summary are computed from each scenario's re-derived trace via read-only accessors.
+fn canonical_scenario_matrix() -> Result<ScenarioMatrix, TraceError> {
+    let mut rows = Vec::new();
+    let mut review_statuses = Vec::new();
+    let mut intent_statuses = Vec::new();
+    let mut probe_statuses = Vec::new();
+    let mut cells_proven = 0usize;
+    for scenario in Scenario::ALL {
+        let trace = scenario_trace(scenario)?;
+        let no_execution = trace.nothing_executed();
+        let no_evidence = trace.nothing_becomes_evidence();
+        let no_promotion = trace.promotion_refused();
+        let no_training = !trace.training_justified();
+        cells_proven += [no_execution, no_evidence, no_promotion, no_training]
+            .iter()
+            .filter(|cell| **cell)
+            .count();
+        review_statuses.push(trace.review_decision().to_string());
+        intent_statuses.push(trace.execution_status().to_string());
+        probe_statuses.push(trace.probe_status.clone());
+        rows.push(MatrixRow {
+            slug: scenario.slug().to_string(),
+            description: scenario.describe().to_string(),
+            review_status: trace.review_decision().to_string(),
+            probe_status: trace.probe_status.clone(),
+            intent_status: trace.execution_status().to_string(),
+            observation_status: trace.observation_status().to_string(),
+            promotion_status: trace.promotion_status().to_string(),
+            training_verdict: training_verdict_token(trace.training_justified()).to_string(),
+            no_execution,
+            no_evidence,
+            no_promotion,
+            no_training,
+        });
+    }
+    let scenario_count = rows.len();
+    let boundary_count = 4;
+    let cells_total = scenario_count * boundary_count;
+    let coverage = MatrixCoverage {
+        scenario_count,
+        boundary_count,
+        boundaries: vec![
+            "no_execution".to_string(),
+            "no_evidence".to_string(),
+            "no_promotion".to_string(),
+            "no_training".to_string(),
+        ],
+        cells_total,
+        cells_proven,
+        all_boundaries_hold: cells_proven == cells_total,
+        distinct_review_statuses: sorted_unique(review_statuses),
+        distinct_intent_statuses: sorted_unique(intent_statuses),
+        distinct_probe_statuses: sorted_unique(probe_statuses),
+    };
+    Ok(ScenarioMatrix {
+        schema: "cognitive-scenario-matrix-v0.1".to_string(),
+        scenarios: rows,
+        coverage,
+        boundary: MATRIX_BOUNDARY_LINES
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+    })
+}
+
+/// The deterministic scenario coverage matrix as pretty JSON. Pure: every cell is derived from the
+/// scenario set's re-derived traces. This is what `scenario-matrix --out` writes.
+pub fn scenario_matrix() -> Result<String, TraceError> {
+    Ok(serde_json::to_string_pretty(&canonical_scenario_matrix()?)
+        .expect("ScenarioMatrix serializes"))
+}
+
+/// Verify a provided matrix JSON by RE-DERIVING the canonical matrix and byte-comparing. A mismatch
+/// (tampered/stale/foreign) is refused ([`TraceError::MatrixMismatch`]). Pure (no I/O).
+pub fn verify_scenario_matrix(provided: &str) -> Result<(), TraceError> {
+    if provided == scenario_matrix()? {
+        Ok(())
+    } else {
+        Err(TraceError::MatrixMismatch)
+    }
+}
+
+/// Render the plain-text coverage report for a provided matrix JSON — but only after RE-DERIVING the
+/// canonical matrix and confirming the provided JSON IS it (byte-for-byte). The report is then rendered
+/// from the RE-DERIVED canonical matrix struct (never the provided file's claims), so a tampered matrix
+/// can never be laundered into a clean report. This is what `scenario-matrix-report` writes. Pure.
+pub fn scenario_matrix_report(provided: &str) -> Result<String, TraceError> {
+    let canonical = canonical_scenario_matrix()?;
+    let canonical_json =
+        serde_json::to_string_pretty(&canonical).expect("ScenarioMatrix serializes");
+    if provided != canonical_json {
+        return Err(TraceError::MatrixMismatch);
+    }
+    Ok(render_scenario_matrix(&canonical))
+}
+
+/// Render the coverage matrix as a plain operator report — pure FORMATTING of the matrix's recorded
+/// fields (no new verdict, no authority object). Shows each scenario's path × boundary cells, the
+/// coverage summary, and the boundary.
+fn render_scenario_matrix(matrix: &ScenarioMatrix) -> String {
+    let mut out = String::new();
+    out.push_str("COGNITIVE OS — SCENARIO BOUNDARY COVERAGE MATRIX\n");
+    out.push_str(&format!("schema: {}\n", matrix.schema));
+    out.push_str("(a coverage view of the scenario pack; it summarizes, it does not act)\n\n");
+
+    out.push_str("PER-SCENARIO PATH x BOUNDARY\n");
+    for row in &matrix.scenarios {
+        out.push_str(&format!("[{}]\n", row.slug));
+        out.push_str(&format!("    review:       {}\n", row.review_status));
+        out.push_str(&format!("    probe:        {}\n", row.probe_status));
+        out.push_str(&format!("    intent:       {}\n", row.intent_status));
+        out.push_str(&format!("    observation:  {}\n", row.observation_status));
+        out.push_str(&format!("    promotion:    {}\n", row.promotion_status));
+        out.push_str(&format!("    training:     {}\n", row.training_verdict));
+        out.push_str(&format!(
+            "    boundary:     no_execution={} no_evidence={} no_promotion={} no_training={}\n",
+            row.no_execution, row.no_evidence, row.no_promotion, row.no_training
+        ));
+    }
+
+    out.push_str("\nCOVERAGE\n");
+    out.push_str(&format!(
+        "    scenarios:           {}\n",
+        matrix.coverage.scenario_count
+    ));
+    out.push_str(&format!(
+        "    boundaries:          {} ({})\n",
+        matrix.coverage.boundary_count,
+        matrix.coverage.boundaries.join(", ")
+    ));
+    out.push_str(&format!(
+        "    cells proven:        {}/{}\n",
+        matrix.coverage.cells_proven, matrix.coverage.cells_total
+    ));
+    out.push_str(&format!(
+        "    all_boundaries_hold: {}\n",
+        matrix.coverage.all_boundaries_hold
+    ));
+    out.push_str(&format!(
+        "    distinct review:     {}\n",
+        matrix.coverage.distinct_review_statuses.join(", ")
+    ));
+    out.push_str(&format!(
+        "    distinct intent:     {}\n",
+        matrix.coverage.distinct_intent_statuses.join(", ")
+    ));
+    out.push_str(&format!(
+        "    distinct probe:      {}\n",
+        matrix.coverage.distinct_probe_statuses.join(", ")
+    ));
+
+    out.push_str("\nSUMMARY\n");
+    out.push_str("    Every scenario varies the path but preserves the authority boundary.\n");
+    out.push_str(
+        "    Nothing executes. Nothing becomes evidence. Nothing promotes. Nothing trains.\n\n",
+    );
+
+    out.push_str("BOUNDARY\n");
+    for line in MATRIX_BOUNDARY_LINES {
+        out.push_str(&format!("    {line}\n"));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2461,5 +2727,236 @@ mod tests {
         assert!(pack.contains("\"review_decision\": \"rejected\""));
         assert!(!pack.contains("\"grants_promotion\": true"));
         assert!(!pack.contains("\"training_justified\": true"));
+    }
+
+    // --- MTRACE-1: the scenario boundary-coverage matrix. The matrix is purely re-derived from the
+    //     scenario set and proves the four boundaries hold for every path; verify/report re-derive and
+    //     byte-compare, refusing tampered matrices or packs. ---
+
+    /// The canonical scenario pack as the (slug, files) shape `verify_scenario_pack` consumes.
+    fn canonical_pack_owned() -> Vec<(String, Vec<(String, String)>)> {
+        Scenario::ALL
+            .iter()
+            .map(|s| {
+                let files = scenario_bundle(*s)
+                    .unwrap()
+                    .into_iter()
+                    .map(|(name, content)| (name.to_string(), content))
+                    .collect();
+                (s.slug().to_string(), files)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn scenario_matrix_lists_all_scenarios() {
+        // The matrix has one row per scenario and names every scenario slug.
+        let matrix = scenario_matrix().unwrap();
+        assert_eq!(canonical_scenario_matrix().unwrap().scenarios.len(), 4);
+        for s in Scenario::ALL {
+            assert!(matrix.contains(s.slug()), "matrix must list {}", s.slug());
+        }
+        assert!(matrix.contains("\"scenario_count\": 4"));
+    }
+
+    #[test]
+    fn scenario_matrix_records_all_statuses() {
+        // Every row records the review, probe, intent, observation, promotion status and the training
+        // verdict (the full path), for every scenario.
+        let matrix = scenario_matrix().unwrap();
+        for field in [
+            "review_status",
+            "probe_status",
+            "intent_status",
+            "observation_status",
+            "promotion_status",
+            "training_verdict",
+        ] {
+            assert!(matrix.contains(field), "matrix must record {field}");
+        }
+        // The recorded statuses match each scenario's trace exactly.
+        for s in Scenario::ALL {
+            let trace = scenario_trace(s).unwrap();
+            assert!(matrix.contains(&format!(
+                "\"intent_status\": \"{}\"",
+                trace.execution_status()
+            )));
+        }
+    }
+
+    #[test]
+    fn scenario_matrix_proves_no_execution_for_all() {
+        // Every row proves no_execution=true; the matrix never records no_execution=false.
+        let m = canonical_scenario_matrix().unwrap();
+        assert_eq!(m.scenarios.len(), 4);
+        assert!(m.scenarios.iter().all(|r| r.no_execution));
+        assert!(!scenario_matrix()
+            .unwrap()
+            .contains("\"no_execution\": false"));
+    }
+
+    #[test]
+    fn scenario_matrix_proves_no_evidence_for_all() {
+        let m = canonical_scenario_matrix().unwrap();
+        assert!(m.scenarios.iter().all(|r| r.no_evidence));
+        assert!(!scenario_matrix()
+            .unwrap()
+            .contains("\"no_evidence\": false"));
+    }
+
+    #[test]
+    fn scenario_matrix_proves_no_promotion_for_all() {
+        let m = canonical_scenario_matrix().unwrap();
+        assert!(m.scenarios.iter().all(|r| r.no_promotion));
+        assert!(!scenario_matrix()
+            .unwrap()
+            .contains("\"no_promotion\": false"));
+    }
+
+    #[test]
+    fn scenario_matrix_proves_training_false_for_all() {
+        // Every row proves no_training=true and records the training_not_justified verdict; the matrix
+        // never records a training_justified verdict or no_training=false.
+        let m = canonical_scenario_matrix().unwrap();
+        assert!(m.scenarios.iter().all(|r| r.no_training));
+        assert!(m
+            .scenarios
+            .iter()
+            .all(|r| r.training_verdict == "training_not_justified"));
+        let matrix = scenario_matrix().unwrap();
+        assert!(!matrix.contains("\"no_training\": false"));
+        assert!(!matrix.contains("\"training_verdict\": \"training_justified\""));
+    }
+
+    #[test]
+    fn scenario_matrix_verify_rejects_tampered_matrix() {
+        // A tampered matrix is refused: verify re-derives the canonical matrix and byte-compares.
+        let matrix = scenario_matrix().unwrap();
+        assert!(verify_scenario_matrix(&matrix).is_ok());
+        let tampered = matrix.replace("\"no_execution\": true", "\"no_execution\": false");
+        assert_ne!(tampered, matrix, "the tamper changed the bytes");
+        assert!(matches!(
+            verify_scenario_matrix(&tampered),
+            Err(TraceError::MatrixMismatch)
+        ));
+        // A foreign matrix is likewise refused.
+        assert!(verify_scenario_matrix("{\"not\":\"a matrix\"}").is_err());
+    }
+
+    #[test]
+    fn scenario_matrix_verify_rejects_tampered_pack() {
+        // A tampered scenario pack is refused by the whole-pack verifier (it re-derives and
+        // byte-compares each scenario bundle), and a missing scenario is reported.
+        let pack = canonical_pack_owned();
+        assert!(verify_scenario_pack(&pack, &scenario_pack_manifest().unwrap()).is_ok());
+        let mut tampered = canonical_pack_owned();
+        let trace_idx = tampered[1]
+            .1
+            .iter()
+            .position(|(n, _)| n == BUNDLE_TRACE_FILE)
+            .unwrap();
+        tampered[1].1[trace_idx].1 = tampered[1].1[trace_idx].1.replace(
+            "\"review_decision\": \"rejected\"",
+            "\"review_decision\": \"approved\"",
+        );
+        assert!(matches!(
+            verify_scenario_pack(&tampered, &scenario_pack_manifest().unwrap()),
+            Err(TraceError::BundleMismatch(_))
+        ));
+        // A tampered pack manifest is also refused.
+        let bad_manifest = scenario_pack_manifest()
+            .unwrap()
+            .replace("cognitive-scenario-pack-v0.1", "forged");
+        assert!(verify_scenario_pack(&pack, &bad_manifest).is_err());
+    }
+
+    #[test]
+    fn scenario_matrix_report_contains_boundary_summary() {
+        // The report renders the coverage and states the boundary explicitly, in prose, including all
+        // five MTRACE-1 boundary lines verbatim.
+        let report = scenario_matrix_report(&scenario_matrix().unwrap()).unwrap();
+        assert!(report.contains("COVERAGE"));
+        assert!(report.contains("cells proven:        16/16"));
+        assert!(report.contains("all_boundaries_hold: true"));
+        assert!(report.contains(
+            "Nothing executes. Nothing becomes evidence. Nothing promotes. Nothing trains."
+        ));
+        for line in MATRIX_BOUNDARY_LINES {
+            assert!(
+                report.contains(line),
+                "report must contain boundary: {line}"
+            );
+        }
+        // The report refuses a tampered matrix (it never renders an untrusted matrix's claims).
+        let tampered = scenario_matrix().unwrap().replace(
+            "\"all_boundaries_hold\": true",
+            "\"all_boundaries_hold\": false",
+        );
+        assert!(matches!(
+            scenario_matrix_report(&tampered),
+            Err(TraceError::MatrixMismatch)
+        ));
+    }
+
+    #[test]
+    fn scenario_matrix_does_not_change_training_gate() {
+        // Building the matrix (and verifying/reporting it) is orthogonal to P12: the training decision
+        // is unmoved and the matrix records training stays false.
+        let before = decide(&[], &[]);
+        let matrix = scenario_matrix().unwrap();
+        let _ = scenario_matrix_report(&matrix).unwrap();
+        verify_scenario_matrix(&matrix).unwrap();
+        let after = decide(&[], &[]);
+        assert_eq!(before, after);
+        assert!(!after.training_justified);
+        assert!(matrix.contains("training_not_justified"));
+    }
+
+    #[test]
+    fn scenario_matrix_distinguishes_all_paths() {
+        // The coverage distinguishes the four paths: it records both a requires_operator and a blocked
+        // intent, all three review decisions, and both a queued and a blocked probe.
+        let m = canonical_scenario_matrix().unwrap();
+        assert_eq!(
+            m.coverage.distinct_intent_statuses,
+            vec!["blocked".to_string(), "requires_operator".to_string()]
+        );
+        assert_eq!(
+            m.coverage.distinct_review_statuses,
+            vec![
+                "approved".to_string(),
+                "deferred".to_string(),
+                "rejected".to_string()
+            ]
+        );
+        assert_eq!(
+            m.coverage.distinct_probe_statuses,
+            vec!["blocked".to_string(), "queued".to_string()]
+        );
+        // The four scenario slugs each appear exactly once.
+        for s in Scenario::ALL {
+            assert_eq!(m.scenarios.iter().filter(|r| r.slug == s.slug()).count(), 1);
+        }
+    }
+
+    #[test]
+    fn scenario_matrix_report_is_not_authority() {
+        // The matrix and its report are output, not authority: no affirmative executed/promoted/granted/
+        // recorded status, no true grant, no training_justified verdict — and the frozen canonical trace
+        // is still byte-identical (the matrix did not perturb it).
+        let matrix = scenario_matrix().unwrap();
+        let report = scenario_matrix_report(&matrix).unwrap();
+        for blob in [&matrix, &report] {
+            assert!(!blob.contains(": executed"));
+            assert!(!blob.contains(": promoted"));
+            assert!(!blob.contains(": granted"));
+            assert!(!blob.contains(": recorded"));
+            assert!(!blob.contains("\"grants_promotion\": true"));
+        }
+        assert!(!matrix.contains("\"training_verdict\": \"training_justified\""));
+        assert_eq!(
+            scenario_trace(Scenario::HappyBoundary).unwrap().to_json(),
+            CognitiveTrace::demo().unwrap().to_json()
+        );
     }
 }

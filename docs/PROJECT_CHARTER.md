@@ -3,6 +3,48 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-20-A — Add the scenario boundary-coverage matrix (MTRACE-1)
+
+**Decision.** Extend `crates/cognitive-demo` (the `cognitive-demo` binary) with a deterministic boundary-coverage
+matrix over the MTRACE-0 scenario pack: `scenario-matrix --pack DIR --out matrix.json` emits the canonical
+coverage matrix, `scenario-matrix-report --matrix matrix.json --out matrix.txt` renders a plain report, and
+`scenario-matrix-verify --pack DIR --matrix matrix.json` re-derives and checks both. It adds NO capability and NO
+model behavior, no new dependency, no new file, no Cargo.toml change, and edits no frozen crate.
+
+**Why.** MTRACE-0 creates scenario bundles; the next useful step was to summarize them into a machine-checkable
+coverage matrix so an operator can see, at a glance, which authority boundaries were proven across which paths.
+The doctrine is sharpened for this surface: *The matrix summarizes coverage. It does not create authority. It
+does not execute. It does not promote. It does not train.*
+
+**Boundary recorded.** The matrix has one row per scenario (its review/probe/intent/observation/promotion status
++ the `training_not_justified` verdict) and, for every scenario, the four boundary cells `no_execution`/
+`no_evidence`/`no_promotion`/`no_training` (all true), plus a coverage summary (16/16 cells proven,
+`all_boundaries_hold=true`, and the distinct review/intent/probe statuses proving the variation is real). It
+PROVES rather than asserts: every cell is the trace's REAL verdict (`no_execution=trace.nothing_executed()`, etc.)
+and every status row matches the scenario's trace. The load-bearing discipline is re-derive-never-trust: the
+matrix is purely re-derived from `Scenario::ALL` (it never reads the pack files for its content);
+`scenario-matrix --pack` first VERIFIES the pack (re-deriving every scenario bundle + the pack manifest via the
+new pure `verify_scenario_pack`) and refuses a tampered pack before emitting; `verify_scenario_matrix` and
+`scenario_matrix_report` re-derive the canonical matrix and byte-compare the provided JSON
+(`TraceError::MatrixMismatch`), and the report renders from the re-derived canonical struct, never the provided
+file. `ScenarioMatrix`/`MatrixRow`/`MatrixCoverage` derive `Serialize` but NOT `Deserialize`, so a provided matrix
+is never parsed into authority — a tampered matrix OR a tampered pack is refused by verify, report, and emit. No
+matrix/report field shows an affirmative executed/promoted/granted/recorded status, a true grant, or a
+`training_justified` verdict; the frozen canonical trace is unchanged (happy-boundary still == `demo()`).
+`release_check.sh` gates it (surface signals, the re-derive pin, twelve MTRACE-1 test-name pins, the unit-count
+pin raised 56→68, and a binary smoke proving the matrix records all scenarios + status fields + boundary cells +
+coverage, determinism, the report boundary summary, and refusal of a tampered matrix by verify AND report + a
+tampered pack by emit AND verify) and stays green + byte-silent. Verified by three live sabotage probes (a
+verify-trusts-the-matrix, a pack-verify-skips-bundles, and a boundary-line drift that kept the suite green but
+failed the gate via the verbatim report-boundary loop — each restored byte-identical) and a read-only adversarial
+panel (four Explore lenses, 0 real findings, no debris; the first attempt was abandoned mid-run by a session-usage
+limit — treated as absence of verification, not a pass — and re-run to a genuine dry round before close). Purely
+additive: only `crates/cognitive-demo/src/{lib.rs,main.rs}` and the gate block; no frozen crate source touched,
+the `reading-track-v0.1` (`f6fa55a`), `hypothesis-track-v0.1` (`bb20acf`), and `integration-demo-v0.1`
+(`95b586d`) tags unmoved, P12 `training_justified=false`, and P13–P15 closed. Recorded in full in [a.md](../a.md)
+(the MTRACE-1 checklist entry and the "Scenario Matrix / Boundary Coverage Report (MTRACE-1)" detail section).
+Local only — no remote push.
+
 ## DD-2026-06-19-I — Add the multi-trace scenario pack (MTRACE-0), variation without authority expansion
 
 **Decision.** Extend `crates/cognitive-demo` (the `cognitive-demo` binary) with a small deterministic scenario
