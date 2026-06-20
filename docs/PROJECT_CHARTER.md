@@ -3,6 +3,34 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-20-K — Freeze the document flow milestone (DOCFLOW-0 → DOCFLOW-2) as document-flow-v0.1
+
+**Decision.** Freeze the DOCFLOW-0 → DOCFLOW-2 local-document-flow arc as the named, auditable tag
+`document-flow-v0.1`. A new `DOCUMENT_FLOW_MILESTONE.md` records the freeze: the DOCFLOW-0 (`c9bd1e5`,
+capability), DOCFLOW-1 (`b288196`, operator guard), and DOCFLOW-2 (`4a04759`, input-integrity scenarios)
+commit lineage; the frozen base `operator-controls-v0.1` @ `34b4f47` plus the five deeper frozen milestones;
+the demonstrated capability; the read-not-trust boundary; the P12 verdict; and the honest residuals. A
+documentation freeze only — no code-crate edit (the `cognitive-demo` tree is byte-identical to `4a04759`),
+no model, no training.
+
+**Why.** The document flow is now a complete mini-arc — operator-supplied capability, operator guard, and
+input-integrity scenario coverage — and should be frozen as a recoverable checkpoint before any further
+document behavior is added, exactly as the reading, hypothesis, integration, multi-trace, and
+operator-controls arcs were each frozen before the next layer.
+
+**Boundary recorded.** The milestone records the nine-line boundary verbatim: *The document flow reads local
+input. It does not trust local input. Document scenarios vary the input. They do not vary the authority.
+Verification comes before tracing. Nothing executes. Nothing becomes evidence. Nothing promotes. Nothing
+trains.* The freeze edits no frozen crate source (`git diff 460be0c..4a04759` over the reading/hypothesis/
+train-gate crates is empty); P12 stays `training_justified=false`, P13–P15 closed. A `release_check.sh`
+DOCFLOW-3 lock pins the milestone record (existence, FROZEN, the tag name, the DOCFLOW-0..DOCFLOW-2 hashes,
+the frozen-base tags and commits, the document-flow surfaces by name, and the nine boundary lines) and guards
+against any milestone that falsely claims training has opened; the lock stays git-free and does NOT require
+the tag to exist. The tag is created only after a clean tree and a green, byte-silent gate. Verified by a
+green gate, live sabotage of the lock (restored byte-identical via `cp`+`md5`), and an independent read-only
+adversarial panel. Recorded in [DOCUMENT_FLOW_MILESTONE.md](../DOCUMENT_FLOW_MILESTONE.md). Local only — no
+remote push.
+
 ## DD-2026-06-20-J — Document flow scenario pack / input-integrity matrix (DOCFLOW-2)
 
 **Decision.** Extend `crates/cognitive-demo` with a document-flow scenario pack and input-integrity matrix:

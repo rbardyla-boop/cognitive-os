@@ -2357,6 +2357,48 @@ ln -s /etc/hostname "$_scn_dir/escape.txt" 2>/dev/null
 if ./target/debug/cognitive-demo doc-trace --input "$_scn_rel/escape.txt" >/dev/null 2>&1; then rm -rf "$_scn_dir"; exit 1; fi
 rm -rf "$_scn_dir"
 # ---------------------------------------------------------------------------------------------------
+# DOCFLOW-3 — document flow milestone freeze. The DOCFLOW-0 -> DOCFLOW-2 local-document-flow arc (the
+# operator-supplied document trace, the operator manual + smoke guard for the doc commands, and the
+# input-integrity scenario pack / matrix) is frozen as document-flow-v0.1. The milestone record
+# (DOCUMENT_FLOW_MILESTONE.md) pins the DOCFLOW-0..DOCFLOW-2 commit lineage, the frozen base
+# (operator-controls-v0.1 + the five deeper milestone tags + commits), the demonstrated capability, the
+# read-not-trust boundary, the P12 training verdict, and the honest residuals, and is locked here so the
+# freeze cannot silently drift. The pinned commit hashes are auditable against `git log`; this lock stays
+# git-free and does NOT require the tag to exist (the tag is created only after a clean tree + green gate).
+# Documentation freeze only — no code crate change, no model, no training; the milestone records
+# training_not_justified. Doctrine: The document flow reads local input. It does not trust local input.
+# Document scenarios vary the input. They do not vary the authority. Verification comes before tracing.
+# Nothing executes. Nothing becomes evidence. Nothing promotes. Nothing trains.
+# ---------------------------------------------------------------------------------------------------
+test -f DOCUMENT_FLOW_MILESTONE.md
+grep -q 'FROZEN' DOCUMENT_FLOW_MILESTONE.md
+grep -q 'document-flow-v0.1' DOCUMENT_FLOW_MILESTONE.md
+grep -q 'DOCFLOW-0' DOCUMENT_FLOW_MILESTONE.md
+grep -q 'DOCFLOW-2' DOCUMENT_FLOW_MILESTONE.md
+grep -q 'training_not_justified' DOCUMENT_FLOW_MILESTONE.md
+grep -q 'training_justified=false' DOCUMENT_FLOW_MILESTONE.md
+# Full DOCFLOW-0..DOCFLOW-2 commit lineage is pinned (cross-checkable against git log).
+grep -qF 'c9bd1e5' DOCUMENT_FLOW_MILESTONE.md
+grep -qF 'b288196' DOCUMENT_FLOW_MILESTONE.md
+grep -qF '4a04759' DOCUMENT_FLOW_MILESTONE.md
+# The frozen base (operator-controls-v0.1) and the five deeper frozen milestones are referenced (tag + commit).
+for _t in operator-controls-v0.1 multi-trace-validation-v0.1 integration-demo-v0.1 hypothesis-track-v0.1 reading-track-v0.1 cognitive-os-governance-v0.1; do
+  if ! grep -qF "$_t" DOCUMENT_FLOW_MILESTONE.md; then exit 1; fi
+done
+for _sha in 34b4f47 460be0c 95b586d bb20acf f6fa55a bbd1113; do
+  if ! grep -qF "$_sha" DOCUMENT_FLOW_MILESTONE.md; then exit 1; fi
+done
+# The three frozen document-flow capabilities are referenced by name (capability, operator guard, scenarios).
+grep -qF 'doc-trace' DOCUMENT_FLOW_MILESTONE.md
+grep -qF 'OPERATOR_MANUAL.md' DOCUMENT_FLOW_MILESTONE.md
+grep -qF 'doc-scenario-matrix' DOCUMENT_FLOW_MILESTONE.md
+# The nine-line document-flow boundary is recorded verbatim (all nine lines).
+for _bl in 'The document flow reads local input.' 'It does not trust local input.' 'Document scenarios vary the input.' 'They do not vary the authority.' 'Verification comes before tracing.' 'Nothing executes.' 'Nothing becomes evidence.' 'Nothing promotes.' 'Nothing trains.'; do
+  if ! grep -qF "$_bl" DOCUMENT_FLOW_MILESTONE.md; then exit 1; fi
+done
+# The milestone makes NO false training claim (it never asserts training opened).
+if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' DOCUMENT_FLOW_MILESTONE.md; then exit 1; fi
+# ---------------------------------------------------------------------------------------------------
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json
