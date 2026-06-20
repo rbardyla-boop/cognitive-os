@@ -2015,6 +2015,67 @@ done
 # The manual makes NO false training claim (it never asserts training opened).
 if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' OPERATOR_MANUAL.md; then exit 1; fi
 # ---------------------------------------------------------------------------------------------------
+# OPS-1 — operator smoke script / manual drift guard. scripts/operator_smoke.sh runs the WHOLE documented
+# operator path end-to-end against the built cognitive-demo binary (trace --out, report, replay, questions,
+# ask, bundle+bundle-verify, scenario-pack+scenario-verify, scenario-matrix+report+verify, failure-pack+
+# failure-verify) in a throwaway temp dir, and fails closed if any documented command, boundary line, or
+# verify step has drifted from OPERATOR_MANUAL.md. It re-derives every generated artifact through the
+# binary's OWN verify subcommands (never trusts the bytes), proves tamper is still refused (re-derive is
+# load-bearing), uses --out (never a shell redirect), and leaves no repo debris. This lock RUNS the smoke
+# (a failed operator path aborts the gate) and pins the script's load-bearing properties by source
+# inspection so it cannot silently degrade. No code crate change, no new authority, no execution, no
+# training. Doctrine: The smoke test verifies the operator path. It does not create authority. It does not
+# execute. It does not promote. It does not train.
+# ---------------------------------------------------------------------------------------------------
+test -f scripts/operator_smoke.sh
+test -x scripts/operator_smoke.sh
+# RUN the operator smoke: it exercises the documented path end-to-end and fails closed on any drift.
+# Capture combined output (so release_check stays byte-silent on the GREEN path) and REQUIRE the
+# completion sentinel: the OK line is printed only if the whole script ran, so a short-circuited /
+# early-`exit 0` smoke that runs no commands is caught here even though it exits 0. On ANY failure (the
+# smoke exits non-zero OR the sentinel is missing) the captured output — including the smoke's drift
+# reason — is surfaced to stderr before aborting, so the operator sees WHY without re-running. The gate
+# is already failing at that point, so this never breaks green-silence.
+if _ops1_smoke_out="$(./scripts/operator_smoke.sh 2>&1)"; then
+  case "$_ops1_smoke_out" in
+    *'operator-smoke: OK — the documented operator path runs and the manual matches the binary'*) : ;;
+    *) printf '%s\n' "$_ops1_smoke_out" >&2; exit 1 ;;
+  esac
+else
+  printf '%s\n' "$_ops1_smoke_out" >&2; exit 1
+fi
+# Source pins (sabotage-detectable — the smoke cannot silently weaken):
+# Fail-closed shell, and the canonical trace is written with --out, NEVER a shell redirect (`trace > FILE`
+# appends a newline and is correctly refused by re-derive; `--out` writes exact replayable bytes).
+grep -q 'set -eu' scripts/operator_smoke.sh
+grep -qF 'trace --out' scripts/operator_smoke.sh
+test "$(grep -cE 'trace[[:space:]]*>' scripts/operator_smoke.sh)" -eq 0
+# Temp-dir only with cleanup (no repo debris).
+grep -qF 'mktemp -d' scripts/operator_smoke.sh
+grep -q "trap 'rm -rf" scripts/operator_smoke.sh
+# The smoke runs every documented operator command (it cannot silently drop one).
+for _cmd in 'trace --out' 'report --trace' 'replay --trace' 'questions' 'ask --trace' 'bundle --out' 'bundle-verify --path' 'scenario-pack --out' 'scenario-verify --path' 'scenario-matrix --pack' 'scenario-matrix-report --matrix' 'scenario-matrix-verify --pack' 'failure-pack --out' 'failure-verify --path'; do
+  if ! grep -qF "$_cmd" scripts/operator_smoke.sh; then exit 1; fi
+done
+# It re-derives generated artifacts through the binary's OWN verify subcommands (never trusts the bytes),
+# and proves tamper is refused (so the re-derive is load-bearing, not vacuous).
+grep -qF 'replay --trace' scripts/operator_smoke.sh
+grep -qF 'accepted a tampered trace' scripts/operator_smoke.sh
+grep -qF 'accepted a tampered bundle' scripts/operator_smoke.sh
+# Boundary drift guard: the smoke embeds the BINARY's report boundary and the MANUAL's boundary to compare.
+grep -qF 'binary report boundary line drifted' scripts/operator_smoke.sh
+grep -qF 'manual boundary line drifted' scripts/operator_smoke.sh
+grep -qF 'The manual explains the prototype.' scripts/operator_smoke.sh
+grep -qF 'Nothing trains.' scripts/operator_smoke.sh
+# The OPS-1 five-line boundary is recorded verbatim in the smoke (all five lines).
+for _bl in 'The smoke test verifies the operator path.' 'It does not create authority.' 'It does not execute.' 'It does not promote.' 'It does not train.'; do
+  if ! grep -qF "$_bl" scripts/operator_smoke.sh; then exit 1; fi
+done
+# The smoke makes NO false training claim (it never asserts training opened).
+if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' scripts/operator_smoke.sh; then exit 1; fi
+# The manual records the operator smoke self-check (a short reference, so the smoke is discoverable).
+grep -qF 'scripts/operator_smoke.sh' OPERATOR_MANUAL.md
+# ---------------------------------------------------------------------------------------------------
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json

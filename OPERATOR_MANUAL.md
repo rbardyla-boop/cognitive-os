@@ -88,6 +88,23 @@ git checkout reading-track-v0.1
 ./scripts/release_check.sh ; echo "exit=$?"
 ```
 
+### Self-check: the operator smoke test
+
+`./scripts/operator_smoke.sh` runs the whole documented operator path end-to-end against the freshly
+built binary — `trace --out`, `report`, `replay`, `questions`, `ask`, `bundle`/`bundle-verify`,
+`scenario-pack`/`scenario-verify`, `scenario-matrix`/`scenario-matrix-verify`, and
+`failure-pack`/`failure-verify` — inside a throwaway temp dir (no repo debris), and **fails closed** if any
+documented command, boundary line, or verify step has drifted from this manual. It re-derives every
+generated artifact through the binary's own verify subcommands (it never trusts the bytes) and confirms a
+tampered artifact is still refused. It runs as part of `./scripts/release_check.sh`, so manual drift breaks
+the gate. The smoke only reproduces the operator path: it creates no authority, executes nothing, promotes
+nothing, and trains nothing.
+
+```sh
+./scripts/operator_smoke.sh ; echo "exit=$?"
+# -> operator-smoke: OK — the documented operator path runs and the manual matches the binary
+```
+
 ## 4. How to run the canonical demo
 
 The canonical demo is one deterministic `CognitiveTrace`: a verified reading receipt, a hypothesis that

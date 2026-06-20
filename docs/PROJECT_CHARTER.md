@@ -3,6 +3,49 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-20-E — Add the operator smoke script / manual drift guard (OPS-1)
+
+**Decision.** Add `scripts/operator_smoke.sh`, a deterministic operator smoke that runs the whole
+documented operator path end-to-end against the built `cognitive-demo` binary (`trace --out`, `report`,
+`replay`, `questions`, `ask`, `bundle`/`bundle-verify`, `scenario-pack`/`scenario-verify`,
+`scenario-matrix`/`scenario-matrix-report`/`scenario-matrix-verify`, `failure-pack`/`failure-verify`) in a
+throwaway temp dir, and fails closed if any documented command, boundary line, or verify step has drifted
+from `OPERATOR_MANUAL.md`. `release_check.sh` runs the smoke and pins its load-bearing properties by source
+inspection; the manual gains a short self-check reference. No code crate is touched.
+
+**Why.** OPS-0 documented the operator commands, but nothing kept the manual honest as the binary evolves.
+The smoke makes the documented operator flow a *checked* artifact: every command actually runs, every
+generated artifact (trace, bundle, scenario pack, matrix, failure pack) is re-derived byte-identically
+through the binary's own verify subcommands (`replay`, `bundle-verify`, `scenario-verify`,
+`scenario-matrix-verify`, `failure-verify`) and never trusted from its bytes, a tampered artifact is still
+refused (so the re-derive is load-bearing, not cosmetic), and the boundary lines the manual leads an
+operator to expect are still emitted verbatim by the binary AND recorded verbatim in the manual. Manual
+drift now breaks the gate.
+
+**Boundary recorded.** The smoke records the five-line boundary verbatim: *The smoke test verifies the
+operator path. It does not create authority. It does not execute. It does not promote. It does not train.*
+It writes the trace with `--out` (never a shell redirect, which the re-derive correctly refuses), writes
+only under a temp dir removed on exit (no repo debris), and is fail-closed (`set -e`; failures abort and
+are never swallowed). The `release_check.sh` OPS-1 lock RUNS the smoke (requiring its completion sentinel,
+so a short-circuited / vacuous smoke that runs nothing is caught even though it exits 0) and pins, by
+source inspection, that the smoke uses `--out` (and never `trace >`), keeps the `mktemp`+`trap` cleanup,
+runs every documented command, re-derives through the verify subcommands, proves tamper is refused, embeds
+the binary and manual boundary lines, records the five-line boundary verbatim, and makes no false training
+claim; on smoke failure the reason is surfaced to the gate's stderr while the green path stays byte-silent.
+Verified by a green byte-silent `release_check.sh`; live sabotage of the OPS-1 lock (a vacuous early-`exit
+0` smoke caught by the completion sentinel; a `trace >` redirect caught by the no-redirect pin; a dropped
+verify caught by the command pin; a gutted matrix-report content check and a manual boundary drift each
+caught at smoke runtime — every probe restored byte-identical via `cp`+`md5`, never `git checkout`); and a
+read-only adversarial panel (4 lenses, refute-by-default) iterated to a fully-dry round — two findings were
+folded (the gate suppressed the smoke's failure stderr → now surfaced on failure; `scenario-matrix-report`
+wrote an unvalidated file → now content-validated against the 16/16 coverage proof with no leftover file),
+then a clean 4/4-lens round with zero real findings. No code crate is touched, all five milestone tags
+(`cognitive-os-governance-v0.1`, `reading-track-v0.1` @ `f6fa55a`, `hypothesis-track-v0.1` @ `bb20acf`,
+`integration-demo-v0.1` @ `95b586d`, `multi-trace-validation-v0.1` @ `460be0c`) are unmoved, P12
+`training_justified=false`, and P13–P15 closed. Recorded in
+[OPERATOR_MANUAL.md](../OPERATOR_MANUAL.md) (the self-check section) and the smoke script itself. Local
+only — no remote push.
+
 ## DD-2026-06-20-D — Add the operator manual / prototype capability guide (OPS-0)
 
 **Decision.** Add a plain operator manual `OPERATOR_MANUAL.md` documenting the frozen prototype: what it is
