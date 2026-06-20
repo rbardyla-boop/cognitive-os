@@ -33,7 +33,8 @@ use hypothesis_layer::{
     ProbeObservationReceipt, ProbeRequest, PromotionRequest, PromotionTarget, ReviewDecision,
     ReviewError, ReviewReceipt, ReviewerAuthority,
 };
-use reading_cli::{produce_run, verify_file, CliError};
+use reading_cli::{corpus_from_documents, produce_run, verify_file, CliError};
+use reading_substrate::SpanId;
 use reading_train_gate::decide;
 use serde::Serialize;
 
@@ -69,6 +70,17 @@ pub enum TraceError {
     /// A provided scenario-coverage matrix did not byte-match the re-derived canonical matrix
     /// (tampered, stale, or foreign) — so it is refused rather than trusted over the re-derivation.
     MatrixMismatch,
+    /// DOCFLOW-0: the operator-supplied document has no readable sentence span, so no verified
+    /// reading receipt can be produced from it — the document flow fails closed rather than tracing
+    /// an empty/ungrounded read.
+    EmptyDocument,
+    /// DOCFLOW-0: a provided document trace JSON is not byte-for-byte the trace re-derived from the
+    /// SAME operator document (tampered, stale, or foreign) — so it is refused for doc-report/replay
+    /// rather than laundered into authority.
+    DocTraceMismatch,
+    /// DOCFLOW-0: the operator-supplied input path is not a safe local path (absolute, parent-dir
+    /// traversal, or otherwise escaping the working directory) — the document flow refuses to read it.
+    UnsafeInputPath(String),
 }
 
 impl std::fmt::Display for TraceError {
@@ -101,6 +113,18 @@ impl std::fmt::Display for TraceError {
             TraceError::MatrixMismatch => write!(
                 f,
                 "the provided matrix is not the canonical matrix (tampered, stale, or foreign)"
+            ),
+            TraceError::EmptyDocument => write!(
+                f,
+                "the document has no readable sentence span, so no verified reading receipt can be produced"
+            ),
+            TraceError::DocTraceMismatch => write!(
+                f,
+                "the provided trace is not the trace re-derived from this document (tampered, stale, or foreign)"
+            ),
+            TraceError::UnsafeInputPath(path) => write!(
+                f,
+                "refusing unsafe input path '{path}' — the document flow reads only a local file inside the working directory"
             ),
         }
     }
@@ -2217,6 +2241,158 @@ pub fn list_failure_cases() -> String {
     out
 }
 
+// --- DOCFLOW-0: operator-supplied document trace. The SAME end-to-end pipeline as the canonical demo,
+//     but the reading corpus is ONE operator-supplied LOCAL text document instead of the fixed canonical
+//     corpus. The operator's bytes are READ (the shell passes the content in as `&str`) but never
+//     TRUSTED: the flow asks the FROZEN reading codec for the document's OWN first span, builds a plan
+//     that grounds and synthesizes EXACTLY that span, runs the FROZEN read0 verifier, and only proceeds
+//     from a PASSED receipt — so a document that cannot ground a verified read fails closed. Every
+//     downstream stage and boundary is identical to `CognitiveTrace::build` (hypothesis cites the receipt
+//     hash; probe queued, never executed; observation quarantined; promotion refused; P12 unmoved). The
+//     bundle re-derives from the SAME document, so a tampered document OR a tampered bundle file is
+//     refused. No filesystem access here — the shell reads the file and validates its path. ---
+
+/// The seven-line DOCFLOW-0 boundary, printed as the doc-trace / doc-bundle summary and pinned as data
+/// so a test/gate can assert every line is present.
+pub const DOC_BOUNDARY_LINES: [&str; 7] = [
+    "The document flow reads local input.",
+    "It does not trust local input.",
+    "It verifies before tracing.",
+    "It does not create authority.",
+    "It does not execute.",
+    "It does not promote.",
+    "It does not train.",
+];
+
+/// The fixed title the document is read under. A CONSTANT (never the operator's filename), so the doc
+/// trace is a pure function of the document CONTENT alone: two runs over the same content are
+/// byte-identical, and the bundle re-derives.
+pub const DOC_TITLE: &str = "operator-document";
+
+/// The fixed question the document flow asks. Constant, so the trace stays a pure function of content.
+pub const DOC_QUESTION: &str = "What does the document state in its first span?";
+
+/// Validate that an operator-supplied input path is a SAFE LOCAL path WITHOUT touching the filesystem:
+/// it must be non-empty, must not start with `~`, must be relative (not absolute), and must contain no
+/// parent-dir (`..`), root, or prefix component. This is a PURE, unit-testable check — it uses
+/// `std::path` for parsing only, never the filesystem. The shell performs the actual read and an additional
+/// canonicalize-and-contain check as defense in depth. A failing path is refused, never read.
+pub fn check_local_input_path(path: &str) -> Result<(), TraceError> {
+    use std::path::{Component, Path};
+    let reject = || TraceError::UnsafeInputPath(path.to_string());
+    if path.trim().is_empty() || path.starts_with('~') {
+        return Err(reject());
+    }
+    let parsed = Path::new(path);
+    if parsed.is_absolute() {
+        return Err(reject());
+    }
+    for component in parsed.components() {
+        match component {
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
+                return Err(reject())
+            }
+            Component::Normal(_) | Component::CurDir => {}
+        }
+    }
+    Ok(())
+}
+
+/// The reading inputs the document flow feeds to [`CognitiveTrace::build`]: the one-document corpus,
+/// the fixed question, and the generated grounding plan.
+type DocReadingInputs = (Vec<(String, String)>, String, String);
+
+/// Build the `(documents, question, plan)` reading inputs for an operator-supplied document. The plan is
+/// constructed from the document's OWN first span — read through the frozen corpus builder, the same one
+/// `produce_run` uses — so the claim and the synthesized answer ground EXACTLY against span 0: a verified
+/// read of the operator's own text, never a trusted assertion about it. Returns
+/// [`TraceError::EmptyDocument`] if the document yields no span. Pure (no I/O).
+fn doc_inputs(doc_text: &str) -> Result<DocReadingInputs, TraceError> {
+    let documents = vec![(DOC_TITLE.to_string(), doc_text.to_string())];
+    // Ask the FROZEN corpus builder for the document's first span — the exact text the verifier will
+    // ground against — so the generated plan can never drift from the codec's own sentence split.
+    let corpus = corpus_from_documents(&documents);
+    let first_id = corpus
+        .metadata()
+        .first()
+        .and_then(|doc| doc.span_ids.first().copied())
+        .ok_or(TraceError::EmptyDocument)?;
+    let first_text = corpus
+        .read_span(first_id)
+        .map(|span| span.text().to_string())
+        .ok_or(TraceError::EmptyDocument)?;
+    let plan = doc_reading_plan(first_id, &first_text);
+    Ok((documents, DOC_QUESTION.to_string(), plan))
+}
+
+/// Build the deterministic reading plan that reads span `id`, extracts a claim whose statement IS that
+/// span's text, and synthesizes the answer from that single claim. Built via `serde_json` so the span
+/// text — operator-supplied, possibly containing quotes/backslashes — is correctly JSON-escaped. The
+/// resulting receipt grounds and answer-supports exactly, so the frozen verifier passes. Pure.
+fn doc_reading_plan(id: SpanId, span_text: &str) -> String {
+    serde_json::json!([
+        {"action": "inspect_corpus"},
+        {"action": "read_span", "span_id": id.0},
+        {"action": "extract_claim", "statement": span_text, "source_span_ids": [id.0]},
+        {"action": "synthesize", "answer_text": span_text, "supporting_claims": [0]}
+    ])
+    .to_string()
+}
+
+/// Build the end-to-end trace for an operator-supplied document. Identical pipeline to
+/// [`CognitiveTrace::build`] — it starts from a FROZEN-VERIFIED reading receipt over the document and
+/// fails closed ([`TraceError::VerifierRejected`]) if that read does not verify. Pure (no I/O); the
+/// shell reads the file and passes its content as `doc_text`.
+pub fn doc_trace(doc_text: &str) -> Result<CognitiveTrace, TraceError> {
+    let (documents, question, plan) = doc_inputs(doc_text)?;
+    CognitiveTrace::build(&documents, &question, &plan)
+}
+
+/// The `doc-trace` command body: build the document trace and serialize it. Pure.
+pub fn run_doc_trace(doc_text: &str) -> Result<String, TraceError> {
+    Ok(doc_trace(doc_text)?.to_json())
+}
+
+/// Re-derive the document trace from `doc_text` and confirm the PROVIDED trace JSON is byte-for-byte
+/// that trace. Like [`verify_trace_json`], the provided trace is NEVER parsed back into authority
+/// (`CognitiveTrace` is `Serialize` but not `Deserialize`) — it is only COMPARED against the freshly
+/// re-derived trace, so a tampered/stale/foreign trace is REFUSED ([`TraceError::DocTraceMismatch`]).
+/// The document is the source of truth, which is why doc-report requires `--input`. Pure (no I/O).
+pub fn verify_doc_trace_json(doc_text: &str, provided: &str) -> Result<CognitiveTrace, TraceError> {
+    let canonical = doc_trace(doc_text)?;
+    if provided == canonical.to_json() {
+        Ok(canonical)
+    } else {
+        Err(TraceError::DocTraceMismatch)
+    }
+}
+
+/// The `doc-report` command body: render the operator report for a provided document trace — but only
+/// after [`verify_doc_trace_json`] confirms it IS the trace re-derived from `doc_text`, so the report
+/// always describes the real verified trace and never an untrusted file's claims. Pure (no I/O).
+pub fn run_doc_report(doc_text: &str, provided_trace_json: &str) -> Result<String, TraceError> {
+    Ok(verify_doc_trace_json(doc_text, provided_trace_json)?.to_report())
+}
+
+/// The full repro bundle for an operator document as (filename, content) pairs in write order. Pure:
+/// every file is derived from the document's verified trace via the shared [`trace_bundle`] core, so the
+/// doc bundle is a reproducible DEMONSTRATION over the operator's own document, never trusted authority.
+pub fn doc_bundle(doc_text: &str) -> Result<Vec<(&'static str, String)>, TraceError> {
+    Ok(trace_bundle(
+        &doc_trace(doc_text)?,
+        "trace.json re-derives byte-identically from the operator document",
+    ))
+}
+
+/// Verify a provided document bundle WITHOUT trusting it: re-derive the bundle from the SAME `doc_text`
+/// and require every file present and byte-identical. A missing file is [`TraceError::BundleMissingFile`];
+/// any tampered/stale/foreign file (including the manifest) is [`TraceError::BundleMismatch`]; and a
+/// TAMPERED DOCUMENT yields a different trace, so the whole bundle fails to match. Returns `Ok(())` only
+/// on a full, exact re-derivation. Pure (no I/O).
+pub fn verify_doc_bundle(doc_text: &str, provided: &[(String, String)]) -> Result<(), TraceError> {
+    compare_bundle(&doc_bundle(doc_text)?, provided)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3698,5 +3874,130 @@ mod tests {
         assert!(
             matches!(verify_failure_pack(&missing), Err(TraceError::BundleMissingFile(ref f)) if f == FAILURE_REPORT_FILE)
         );
+    }
+
+    // --- DOCFLOW-0: operator-supplied document trace ---
+
+    /// A well-formed multi-sentence operator document (two sentences → two spans).
+    const DOC_SAMPLE: &str = "The east bridge reopened today. Traffic resumed by noon.";
+
+    /// The doc bundle for `doc` as owned (name, content) pairs, the shape a verifier reads from disk.
+    fn doc_provided(doc: &str) -> Vec<(String, String)> {
+        doc_bundle(doc)
+            .unwrap()
+            .iter()
+            .map(|(name, content)| (name.to_string(), content.clone()))
+            .collect()
+    }
+
+    #[test]
+    fn doc_trace_starts_from_verified_receipt() {
+        // The document flow must VERIFY before tracing: the trace starts from a passed read0 receipt.
+        let trace =
+            doc_trace(DOC_SAMPLE).expect("a well-formed document produces a verified trace");
+        assert!(trace.starts_from_verified_receipt());
+        assert!(trace.reading_passed());
+    }
+
+    #[test]
+    fn doc_trace_cites_document_receipt_hash() {
+        // The hypothesis cites the DOCUMENT's own receipt by hash (provenance from the verified read).
+        let trace = doc_trace(DOC_SAMPLE).unwrap();
+        assert!(trace.hypothesis_cites_receipt());
+        assert_eq!(trace.cited_answer_hash(), trace.reading_answer_hash());
+        assert_eq!(trace.cited_memory_hash(), trace.reading_memory_hash());
+    }
+
+    #[test]
+    fn doc_bundle_verifies_clean_input() {
+        // A bundle re-derives byte-identically from the SAME document.
+        let provided = doc_provided(DOC_SAMPLE);
+        assert!(verify_doc_bundle(DOC_SAMPLE, &provided).is_ok());
+    }
+
+    #[test]
+    fn doc_bundle_rejects_tampered_document() {
+        // A bundle built from one document must NOT verify against a DIFFERENT document — the trace
+        // (and every derived file) re-derives differently, so the bundle fails to match.
+        let provided = doc_provided(DOC_SAMPLE);
+        let tampered_doc = "The west bridge collapsed today. Traffic stopped by noon.";
+        assert!(matches!(
+            verify_doc_bundle(tampered_doc, &provided),
+            Err(TraceError::BundleMismatch(_))
+        ));
+    }
+
+    #[test]
+    fn doc_bundle_rejects_tampered_trace() {
+        let mut provided = doc_provided(DOC_SAMPLE);
+        for (name, content) in provided.iter_mut() {
+            if name == BUNDLE_TRACE_FILE {
+                content.push_str("\n{tampered}");
+            }
+        }
+        assert!(matches!(
+            verify_doc_bundle(DOC_SAMPLE, &provided),
+            Err(TraceError::BundleMismatch(ref f)) if f == BUNDLE_TRACE_FILE
+        ));
+    }
+
+    #[test]
+    fn doc_bundle_rejects_tampered_report() {
+        let mut provided = doc_provided(DOC_SAMPLE);
+        for (name, content) in provided.iter_mut() {
+            if name == BUNDLE_REPORT_FILE {
+                content.push_str("\nexecuted: true");
+            }
+        }
+        assert!(matches!(
+            verify_doc_bundle(DOC_SAMPLE, &provided),
+            Err(TraceError::BundleMismatch(ref f)) if f == BUNDLE_REPORT_FILE
+        ));
+    }
+
+    #[test]
+    fn doc_bundle_rejects_tampered_manifest() {
+        let mut provided = doc_provided(DOC_SAMPLE);
+        for (name, content) in provided.iter_mut() {
+            if name == BUNDLE_MANIFEST_FILE {
+                content.push_str("\n{tampered}");
+            }
+        }
+        assert!(matches!(
+            verify_doc_bundle(DOC_SAMPLE, &provided),
+            Err(TraceError::BundleMismatch(ref f)) if f == BUNDLE_MANIFEST_FILE
+        ));
+    }
+
+    #[test]
+    fn doc_input_path_is_local_and_safe() {
+        // Safe local paths are accepted.
+        assert!(check_local_input_path("doc.txt").is_ok());
+        assert!(check_local_input_path("sub/dir/notes.txt").is_ok());
+        assert!(check_local_input_path("./notes.txt").is_ok());
+        // Unsafe paths are refused (absolute, parent traversal, embedded escape, tilde, empty).
+        assert!(check_local_input_path("/etc/passwd").is_err());
+        assert!(check_local_input_path("../secrets.txt").is_err());
+        assert!(check_local_input_path("sub/../../escape.txt").is_err());
+        assert!(check_local_input_path("~/secret").is_err());
+        assert!(check_local_input_path("").is_err());
+    }
+
+    #[test]
+    fn doc_flow_does_not_change_training_gate() {
+        let trace = doc_trace(DOC_SAMPLE).unwrap();
+        assert!(trace.training_gate_unchanged());
+        assert!(!trace.training_justified());
+    }
+
+    #[test]
+    fn doc_flow_does_not_execute_or_promote() {
+        let trace = doc_trace(DOC_SAMPLE).unwrap();
+        assert!(trace.nothing_executed());
+        assert!(trace.observation_quarantined());
+        assert!(trace.promotion_refused());
+        assert!(trace.nothing_becomes_evidence());
+        assert_eq!(trace.execution_status(), "requires_operator");
+        assert_eq!(trace.promotion_status(), "rejected");
     }
 }

@@ -13,6 +13,17 @@
 //!   cognitive-demo failure-cases                             # list the finite negative-scenario set
 //!   cognitive-demo failure-pack   --out DIR                  # forge forbidden authority; prove each rejected
 //!   cognitive-demo failure-verify --path DIR                 # re-derive the failure pack and refuse any tamper
+//!   cognitive-demo doc-trace        --input PATH [--out PATH] # trace a LOCAL operator document (verify-first)
+//!   cognitive-demo doc-report       --input PATH --trace PATH # render the doc report (re-derive + refuse tamper)
+//!   cognitive-demo doc-bundle       --input PATH --out DIR    # repro bundle over the operator document
+//!   cognitive-demo doc-bundle-verify --input PATH --path DIR  # re-derive the doc bundle and refuse any tamper
+//!
+//! DOCFLOW-0 adds the operator-supplied document flow: `doc-trace` reads a LOCAL text file (path-validated
+//! in this shell — absolute / `..` / symlink-escape refused), asks the FROZEN reader for the document's own
+//! first span, and builds the SAME end-to-end trace from a VERIFIED reading receipt over that document; it
+//! fails closed if the read does not verify. `doc-report`/`doc-bundle-verify` re-derive from the SAME
+//! document and REFUSE a tampered document, trace, report, questions, or manifest. The flow reads local
+//! input but never trusts it: it executes nothing, promotes nothing, and trains nothing.
 //!
 //! INT-2 adds the interrogation surface: `questions` lists the finite, enumerated audit-question set,
 //! and `ask` answers exactly one of those questions about a provided trace — there is no free-form /
@@ -42,10 +53,11 @@
 //! here (never in the library or the example), which the release gate enforces.
 
 use cognitive_demo::{
-    canonical_bundle, failure_pack_files, list_failure_cases, list_questions, list_scenarios,
-    run_ask, run_replay, run_report, run_trace, scenario_bundle, scenario_matrix,
-    scenario_matrix_report, scenario_pack_manifest, verify_bundle, verify_failure_pack,
-    verify_scenario_matrix, verify_scenario_pack, Scenario, BUNDLE_BOUNDARY_LINES, BUNDLE_FILES,
+    canonical_bundle, check_local_input_path, doc_bundle, failure_pack_files, list_failure_cases,
+    list_questions, list_scenarios, run_ask, run_doc_report, run_doc_trace, run_replay, run_report,
+    run_trace, scenario_bundle, scenario_matrix, scenario_matrix_report, scenario_pack_manifest,
+    verify_bundle, verify_doc_bundle, verify_failure_pack, verify_scenario_matrix,
+    verify_scenario_pack, Scenario, BUNDLE_BOUNDARY_LINES, BUNDLE_FILES, DOC_BOUNDARY_LINES,
     FAILURE_BOUNDARY_LINES, FAILURE_PACK_FILES, MATRIX_BOUNDARY_LINES, MTRACE_BOUNDARY_LINES,
     PACK_MANIFEST_FILE,
 };
@@ -186,6 +198,44 @@ fn dispatch(args: &[String]) -> Result<(), String> {
             print!("{}", failure_verify_summary());
             Ok(())
         }
+        Some("doc-trace") => {
+            // Read a LOCAL operator document (path-validated), then build the SAME end-to-end trace from
+            // a FROZEN-VERIFIED reading receipt over the document. The document is read, never trusted —
+            // doc_trace fails closed if the read does not verify.
+            let doc = read_local_input(args)?;
+            let json = run_doc_trace(&doc).map_err(|e| e.to_string())?;
+            emit(&json, flag_value(args, "--out"))
+        }
+        Some("doc-report") => {
+            // Re-derive the document trace from the SAME --input, confirm the provided --trace IS that
+            // trace (refuse a tampered/foreign trace), then render the operator report. The document is
+            // the source of truth, so this command requires --input as well as --trace.
+            let doc = read_local_input(args)?;
+            let trace = read_trace(args)?;
+            let report = run_doc_report(&doc, &trace).map_err(|e| e.to_string())?;
+            emit(&report, flag_value(args, "--out"))
+        }
+        Some("doc-bundle") => {
+            // Derive the repro bundle purely from the document's verified trace and write every file with
+            // exact bytes into --out (the only side effect lives in this shell).
+            let doc = read_local_input(args)?;
+            let out_dir = flag_value(args, "--out").ok_or("this command requires --out <dir>")?;
+            let files = doc_bundle(&doc).map_err(|e| e.to_string())?;
+            write_bundle(out_dir, &files)?;
+            print!("{}", doc_bundle_summary(out_dir, &files));
+            Ok(())
+        }
+        Some("doc-bundle-verify") => {
+            // Read the provided pack AND the SAME --input document, then verify by RE-DERIVING the bundle
+            // from the document and byte-comparing every file. A tampered document OR a tampered/missing
+            // bundle file is refused; nothing on disk is trusted.
+            let doc = read_local_input(args)?;
+            let dir = flag_value(args, "--path").ok_or("this command requires --path <dir>")?;
+            let provided = read_bundle(dir)?;
+            verify_doc_bundle(&doc, &provided).map_err(|e| e.to_string())?;
+            print!("{}", doc_bundle_verify_summary());
+            Ok(())
+        }
         _ => Err(usage()),
     }
 }
@@ -195,6 +245,34 @@ fn dispatch(args: &[String]) -> Result<(), String> {
 fn read_trace(args: &[String]) -> Result<String, String> {
     let path = flag_value(args, "--trace").ok_or("this command requires --trace <path>")?;
     std::fs::read_to_string(path).map_err(|e| format!("cannot read {path}: {e}"))
+}
+
+/// Read the LOCAL operator document named by `--input PATH`, validating that the path is safe and local
+/// before touching it. Two layers: (1) the pure [`check_local_input_path`] rejects an absolute path, a
+/// `..` traversal, a `~` prefix, or an empty path WITHOUT any filesystem access; (2) defense in depth —
+/// canonicalize the path and the working directory and require the resolved path to stay INSIDE the
+/// working directory (so a symlink cannot escape to a non-local file), and require a regular file. Only
+/// then is the document read. The bytes are passed to the library as untrusted CONTENT — the library
+/// verifies them through the frozen reader before tracing. The filesystem access lives ONLY here, in the
+/// shell.
+fn read_local_input(args: &[String]) -> Result<String, String> {
+    let path = flag_value(args, "--input").ok_or("this command requires --input <path>")?;
+    check_local_input_path(path).map_err(|e| e.to_string())?;
+    let cwd = std::env::current_dir()
+        .and_then(|d| d.canonicalize())
+        .map_err(|e| format!("cannot resolve the working directory: {e}"))?;
+    let resolved = std::fs::canonicalize(path).map_err(|e| format!("cannot read {path}: {e}"))?;
+    if !resolved.starts_with(&cwd) {
+        return Err(format!(
+            "refusing unsafe input path '{path}' — it escapes the working directory"
+        ));
+    }
+    if !resolved.is_file() {
+        return Err(format!(
+            "refusing input path '{path}' — it is not a regular local file"
+        ));
+    }
+    std::fs::read_to_string(&resolved).map_err(|e| format!("cannot read {path}: {e}"))
 }
 
 /// Write `content` to `--out PATH` if given, otherwise print it to stdout. A file write stores the
@@ -266,6 +344,33 @@ fn bundle_verify_summary() -> String {
     );
     out.push_str("BOUNDARY\n");
     for line in BUNDLE_BOUNDARY_LINES {
+        out.push_str(&format!("    {line}\n"));
+    }
+    out
+}
+
+/// The human summary printed after `doc-bundle` writes the pack: the files written and the DOCFLOW-0
+/// boundary (the document flow reads local input but does not trust it, and acts on nothing).
+fn doc_bundle_summary(dir: &str, files: &[(&str, String)]) -> String {
+    let mut out = format!("doc-bundle: wrote {} files to {dir}\n", files.len());
+    for (name, content) in files {
+        out.push_str(&format!("    {name} ({} bytes)\n", content.len()));
+    }
+    out.push_str("BOUNDARY\n");
+    for line in DOC_BOUNDARY_LINES {
+        out.push_str(&format!("    {line}\n"));
+    }
+    out
+}
+
+/// The success summary printed after `doc-bundle-verify` accepts a document bundle (every file
+/// re-derived byte-identically from the SAME operator document).
+fn doc_bundle_verify_summary() -> String {
+    let mut out = String::from(
+        "doc-bundle-verify: OK — every bundle file re-derives byte-identically from the operator document\n",
+    );
+    out.push_str("BOUNDARY\n");
+    for line in DOC_BOUNDARY_LINES {
         out.push_str(&format!("    {line}\n"));
     }
     out
@@ -402,6 +507,8 @@ fn usage() -> String {
      scenario-verify --path DIR | scenario-matrix --pack DIR [--out PATH] | \
      scenario-matrix-report --matrix PATH [--out PATH] | \
      scenario-matrix-verify --pack DIR --matrix PATH | failure-cases | \
-     failure-pack --out DIR | failure-verify --path DIR>"
+     failure-pack --out DIR | failure-verify --path DIR | \
+     doc-trace --input PATH [--out PATH] | doc-report --input PATH --trace PATH [--out PATH] | \
+     doc-bundle --input PATH --out DIR | doc-bundle-verify --input PATH --path DIR>"
         .to_string()
 }

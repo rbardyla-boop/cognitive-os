@@ -1323,10 +1323,10 @@ grep -q 'fn trace_does_not_change_training_gate' crates/cognitive-demo/src/lib.r
 grep -q 'fn trace_does_not_change_verifier_receipt' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_records_every_stage_id_and_links_the_chain' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_grants_no_new_authority' crates/cognitive-demo/src/lib.rs
-# Unit-test REALITY pin: exactly the 80 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
-# MTRACE-1 (12) + MTRACE-2 (12) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
+# Unit-test REALITY pin: exactly the 90 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
+# MTRACE-1 (12) + MTRACE-2 (12) + DOCFLOW-0 (10) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
 _int0_unit="$(cargo test --offline --lib --manifest-path crates/cognitive-demo/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 80
+test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 90
 test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
 # Determinism / no side effects: the trace is a pure, in-memory function — no clock, entropy, or network
 # anywhere in src/, and no floats anywhere in the crate. (`std::process::exit` in the CLI shell is a clean
@@ -2156,6 +2156,88 @@ for _bl in 'The operator controls explain and verify the prototype.' 'They do no
 done
 # The milestone makes NO false training claim (it never asserts training opened).
 if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' OPERATOR_CONTROLS_MILESTONE.md; then exit 1; fi
+# ---------------------------------------------------------------------------------------------------
+# DOCFLOW-0 — operator-supplied document trace (crates/cognitive-demo). The doc flow runs the SAME
+# end-to-end pipeline from a LOCAL operator-supplied text document instead of the fixed canonical corpus:
+# the shell reads the file (path-validated — absolute / `..` / symlink-escape refused), the library asks the
+# FROZEN reader for the document's OWN first span (corpus_from_documents — the same builder produce_run uses),
+# builds a grounding plan, and starts the trace from a VERIFIED read0 receipt (fails closed if the read does
+# not verify). The hypothesis cites the document receipt by hash; the probe is queued never executed; the
+# observation is quarantined; promotion is refused; P12 stays training_justified=false. doc-bundle /
+# doc-bundle-verify re-derive from the SAME document, so a tampered document, trace, report, questions, or
+# manifest is refused. The document is READ, never TRUSTED — no std::fs in the library (already pinned). It
+# adds NO Deserialize (already pinned), executes nothing, promotes nothing, trains nothing. Doctrine: The
+# document flow reads local input. It does not trust local input. It verifies before tracing. It does not
+# create authority. It does not execute. It does not promote. It does not train.
+# ---------------------------------------------------------------------------------------------------
+# Surface signals: the doc-flow API + commands exist and go through the frozen reader (not a hardcoded trace).
+grep -q 'pub fn doc_trace' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn run_doc_trace' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn run_doc_report' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn doc_bundle' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn verify_doc_bundle' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn verify_doc_trace_json' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn check_local_input_path' crates/cognitive-demo/src/lib.rs
+# The doc trace REALLY goes through the frozen pipeline: it builds via CognitiveTrace::build (which runs
+# produce_run + verify_file) and reads the document's own span via the frozen corpus builder, so it cannot
+# fake a receipt. A new direct dependency on the frozen reading-substrate gives the canonical sentence split.
+grep -q 'CognitiveTrace::build(' crates/cognitive-demo/src/lib.rs
+grep -q 'corpus_from_documents(' crates/cognitive-demo/src/lib.rs
+grep -q 'reading-substrate' crates/cognitive-demo/Cargo.toml
+# The 10 DOCFLOW-0 first-tests exist by name (a gutted/deleted test also drops the unit count pinned at 90 above).
+for _dt in doc_trace_starts_from_verified_receipt doc_trace_cites_document_receipt_hash doc_bundle_verifies_clean_input doc_bundle_rejects_tampered_document doc_bundle_rejects_tampered_trace doc_bundle_rejects_tampered_report doc_bundle_rejects_tampered_manifest doc_input_path_is_local_and_safe doc_flow_does_not_change_training_gate doc_flow_does_not_execute_or_promote; do
+  if ! grep -q "fn $_dt" crates/cognitive-demo/src/lib.rs; then exit 1; fi
+done
+# The seven-line DOCFLOW-0 boundary is recorded verbatim in the source (all seven lines).
+for _dbl in 'The document flow reads local input.' 'It does not trust local input.' 'It verifies before tracing.' 'It does not create authority.' 'It does not execute.' 'It does not promote.' 'It does not train.'; do
+  if ! grep -qF "$_dbl" crates/cognitive-demo/src/lib.rs; then exit 1; fi
+done
+# The shell validates the input path before reading (defense in depth: pure check + canonicalize+contain).
+grep -q 'fn read_local_input' crates/cognitive-demo/src/main.rs
+grep -q 'check_local_input_path' crates/cognitive-demo/src/main.rs
+grep -q 'canonicalize' crates/cognitive-demo/src/main.rs
+grep -q 'escapes the working directory' crates/cognitive-demo/src/main.rs
+# BEHAVIORAL smoke: run the WHOLE doc flow end-to-end against a real local document, prove the boundary from
+# the trace's OWN serialized output, and prove every tamper / unsafe-path is refused. The input doc lives
+# under target/ (gitignored, inside the working dir) so the local-only path check accepts a relative path and
+# no git debris is left. Fail-closed: any unexpected success removes the dir and aborts the gate.
+cargo build --offline --quiet --manifest-path crates/cognitive-demo/Cargo.toml --bin cognitive-demo >/dev/null 2>&1
+_doc_dir="$(mktemp -d "$PWD/target/.docflow_gate.XXXXXX")"
+_doc_rel="target/$(basename "$_doc_dir")"
+printf 'The east bridge reopened today. Traffic resumed by noon.' > "$_doc_dir/doc.txt"
+# doc-trace from a LOCAL relative path: writes the trace; the trace carries the document's own verified read
+# and every boundary marker (verified receipt, cited hash, requires_operator, rejected, no evidence, training false).
+./target/debug/cognitive-demo doc-trace --input "$_doc_rel/doc.txt" --out "$_doc_dir/trace.json" >/dev/null 2>&1 || { rm -rf "$_doc_dir"; exit 1; }
+for _m in '"starts_from_verified_receipt": true' '"hypothesis_cites_receipt": true' '"reading_passed": true' '"nothing_executed": true' '"observation_quarantined": true' '"promotion_refused": true' '"nothing_becomes_evidence": true' '"execution_status": "requires_operator"' '"promotion_status": "rejected"' '"training_justified": false' '"training_gate_unchanged": true'; do
+  if ! grep -qF "$_m" "$_doc_dir/trace.json"; then rm -rf "$_doc_dir"; exit 1; fi
+done
+# The trace REALLY read the operator's own text (not the canonical corpus): the answer is the document's first span.
+grep -qF '"reading_answer": "The east bridge reopened today."' "$_doc_dir/trace.json" || { rm -rf "$_doc_dir"; exit 1; }
+# No affirmative-authority status leaked into the doc trace.
+if grep -qE '"(execution_status|observation_status|promotion_status)": "(executed|recorded|promoted|granted|evidence)"' "$_doc_dir/trace.json"; then rm -rf "$_doc_dir"; exit 1; fi
+# doc-report re-derives from the SAME input and renders (with the 9-line trace boundary).
+./target/debug/cognitive-demo doc-report --input "$_doc_rel/doc.txt" --trace "$_doc_dir/trace.json" --out "$_doc_dir/report.txt" >/dev/null 2>&1 || { rm -rf "$_doc_dir"; exit 1; }
+grep -qF 'Nothing trains.' "$_doc_dir/report.txt" || { rm -rf "$_doc_dir"; exit 1; }
+# doc-bundle + doc-bundle-verify (clean) re-derive byte-identically and print the seven-line DOCFLOW boundary.
+./target/debug/cognitive-demo doc-bundle --input "$_doc_rel/doc.txt" --out "$_doc_dir/pack" >/dev/null 2>&1 || { rm -rf "$_doc_dir"; exit 1; }
+_doc_verify_out="$(./target/debug/cognitive-demo doc-bundle-verify --input "$_doc_rel/doc.txt" --path "$_doc_dir/pack" 2>/dev/null)" || { rm -rf "$_doc_dir"; exit 1; }
+case "$_doc_verify_out" in *'doc-bundle-verify: OK'*) : ;; *) rm -rf "$_doc_dir"; exit 1 ;; esac
+case "$_doc_verify_out" in *'The document flow reads local input.'*) : ;; *) rm -rf "$_doc_dir"; exit 1 ;; esac
+# RE-DERIVE IS LOAD-BEARING: a tampered DOCUMENT must be refused (different doc -> different trace -> mismatch).
+printf 'The west bridge collapsed today. Traffic stopped by noon.' > "$_doc_dir/doc2.txt"
+if ./target/debug/cognitive-demo doc-bundle-verify --input "$_doc_rel/doc2.txt" --path "$_doc_dir/pack" >/dev/null 2>&1; then rm -rf "$_doc_dir"; exit 1; fi
+# A tampered BUNDLE FILE must be refused.
+printf '\n{tampered}' >> "$_doc_dir/pack/trace.json"
+if ./target/debug/cognitive-demo doc-bundle-verify --input "$_doc_rel/doc.txt" --path "$_doc_dir/pack" >/dev/null 2>&1; then rm -rf "$_doc_dir"; exit 1; fi
+# A tampered TRACE must be refused by doc-report.
+printf '\n{tampered}' >> "$_doc_dir/trace.json"
+if ./target/debug/cognitive-demo doc-report --input "$_doc_rel/doc.txt" --trace "$_doc_dir/trace.json" >/dev/null 2>&1; then rm -rf "$_doc_dir"; exit 1; fi
+# UNSAFE input paths must be refused: absolute, parent traversal, and a symlink that escapes the working dir.
+if ./target/debug/cognitive-demo doc-trace --input /etc/hostname >/dev/null 2>&1; then rm -rf "$_doc_dir"; exit 1; fi
+if ./target/debug/cognitive-demo doc-trace --input "../etc-escape.txt" >/dev/null 2>&1; then rm -rf "$_doc_dir"; exit 1; fi
+ln -s /etc/hostname "$_doc_dir/link.txt" 2>/dev/null
+if ./target/debug/cognitive-demo doc-trace --input "$_doc_rel/link.txt" >/dev/null 2>&1; then rm -rf "$_doc_dir"; exit 1; fi
+rm -rf "$_doc_dir"
 # ---------------------------------------------------------------------------------------------------
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json

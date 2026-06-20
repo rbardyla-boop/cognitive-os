@@ -3,6 +3,45 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-20-H — Operator-supplied document trace / read-only input demo (DOCFLOW-0)
+
+**Decision.** Extend `crates/cognitive-demo` with an operator-supplied document flow: `doc-trace`,
+`doc-report`, `doc-bundle`, and `doc-bundle-verify` run the SAME end-to-end pipeline from a LOCAL
+operator-supplied text document instead of the fixed canonical corpus, producing the same verified-to-refused
+trace and no-authority outputs. To verify before tracing against an arbitrary document, the crate takes a new
+DIRECT dependency on the already-frozen `reading-substrate` and uses the frozen `corpus_from_documents` to read
+the document's own first span, then grounds a plan against it and starts from a frozen-VERIFIED read0 receipt.
+No frozen crate SOURCE is edited.
+
+**Why.** The demos so far were controlled and canonical. The next useful, boundary-preserving capability is to
+let an operator point the system at a small local text file and get the same trace/report/bundle — making the
+prototype more understandable and useful — without opening execution, evidence promotion, or training. Reusing
+the frozen reader (rather than re-implementing the sentence splitter) keeps the verifier the single source of
+grounding truth, so the document is read but never trusted: it becomes a verified read of the operator's own
+text or nothing at all (`VerifierRejected`).
+
+**Boundary recorded.** The flow records the seven-line boundary verbatim: *The document flow reads local input.
+It does not trust local input. It verifies before tracing. It does not create authority. It does not execute. It
+does not promote. It does not train.* The hypothesis cites the document receipt by hash; the probe is queued
+never executed; the observation is quarantined; promotion is refused; P12 stays `training_justified=false`. The
+re-derive-not-trust discipline holds over operator input: `doc-bundle-verify`/`doc-report` re-derive from the
+SAME document and refuse a tampered document, trace, report, questions, or manifest; `CognitiveTrace` stays
+`Serialize`-only. Input safety is enforced in the shell (the only place `std::fs` lives): a pure
+`check_local_input_path` rejects absolute / `..` / `~` / empty paths, and `read_local_input` canonicalizes and
+requires the resolved path to stay inside the working directory (so a symlink cannot escape) and be a regular
+file. Verified by a green byte-silent `release_check.sh` (the DOCFLOW-0 gate block pins the surface, the 10
+first-tests, the unit count 80→90, the seven boundary lines, the shell path-validation, and a binary smoke that
+proves the boundary from the trace's own output and refuses a tampered document/trace/bundle and an absolute /
+`..` / symlink-escape path); four live sabotage probes (pure-check accepts absolute → unit test; verify trusts
+files → unit tests; boundary drift → source/smoke pin, unit GREEN; shell escape guard removed → symlink smoke,
+unit GREEN + clippy clean — each restored byte-identical via `cp`+`md5`, never `git checkout`); and an
+independent read-only adversarial panel (4 lenses, refute-by-default) run to a dry round. Additive within the
+integration layer: only `crates/cognitive-demo/src/{lib.rs,main.rs}`, its `Cargo.toml` (one new direct dep on
+frozen `reading-substrate`), `Cargo.lock`, the gate block, `a.md`, and this entry change. The five milestone
+tags (`reading-track-v0.1` @ `f6fa55a`, `hypothesis-track-v0.1` @ `bb20acf`, `integration-demo-v0.1` @
+`95b586d`, `multi-trace-validation-v0.1` @ `460be0c`, `operator-controls-v0.1` @ `34b4f47`) are unmoved, P12
+`training_justified=false`, and P13–P15 closed. Recorded in [a.md](../a.md). Local only — no remote push.
+
 ## DD-2026-06-20-G — Freeze the operator-controls milestone (OPS-3)
 
 **Decision.** Freeze the OPS-0 → OPS-2 operator-controls arc — the operator manual (`OPERATOR_MANUAL.md`),

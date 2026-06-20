@@ -3014,6 +3014,83 @@ no new file, no new dependency; no frozen crate source is touched, the `reading-
 `hypothesis-track-v0.1` (`bb20acf`), and `integration-demo-v0.1` (`95b586d`) tags are unmoved, and P13–P15 stay
 closed. `release_check.sh` is exit 0 and byte-silent.
 
+## Operator-Supplied Document Trace / Read-Only Input Demo (DOCFLOW-0): read local input, never trust it
+
+Date: 2026-06-20. Every trace so far ran from the fixed canonical corpus. DOCFLOW-0 is the first capability that
+points the SAME end-to-end pipeline at a LOCAL operator-supplied text document, producing the same verified-to-
+refused trace and the same no-authority outputs — without opening execution, evidence promotion, or training.
+Doctrine: *The document flow reads local input. It does not trust local input. It verifies before tracing. It
+does not create authority. It does not execute. It does not promote. It does not train.*
+
+The `cognitive-demo` binary gains four commands. `doc-trace --input PATH [--out PATH]` reads a local file and
+writes the document's end-to-end trace; `doc-report --input PATH --trace PATH [--out PATH]` re-derives the trace
+from the same document, refuses a tampered/foreign trace, and renders the operator report; `doc-bundle --input
+PATH --out DIR` writes the four-file repro pack; `doc-bundle-verify --input PATH --path DIR` re-derives the pack
+from the same document and refuses any tamper. The whole flow is a thin parameterization of the existing
+`CognitiveTrace::build(documents, question, plan)` — the same builder the canonical demo uses — so no downstream
+stage is new: the hypothesis still cites the receipt by hash, the probe is queued never executed, the observation
+is quarantined, the promotion is refused, and P12 stays `training_justified=false`.
+
+The crux is *verify before tracing*, against an arbitrary document. The read0 verifier passes only when each claim
+grounds against a real span and the answer is exactly the supporting claims. Rather than re-implement the frozen
+sentence splitter (and risk drift), the flow asks the frozen reader itself: it adds a direct dependency on the
+frozen `reading-substrate` and calls `corpus_from_documents` — the SAME corpus builder `produce_run` uses — to
+read the document's own first span, then builds a plan that reads that span, extracts a claim whose statement IS
+that span's text, and synthesizes the answer from that single claim. The plan is constructed via `serde_json` so
+operator text containing quotes or backslashes is escaped correctly. The resulting receipt grounds and
+answer-supports exactly, so `verify_file` passes — and if it does not, `build` returns `VerifierRejected` and
+`doc_trace` fails closed. The document is READ, never TRUSTED: its bytes become a verified read of the operator's
+own text or nothing at all. The trace title and question are CONSTANTS (never the operator's filename), so the
+trace is a pure function of document CONTENT — two runs are byte-identical and the bundle re-derives.
+
+Re-derive-never-trust extends cleanly to operator input. `doc_bundle` reuses the shared `trace_bundle` core and
+`verify_doc_bundle` reuses `compare_bundle`, re-deriving every file from the SAME document and byte-comparing;
+`CognitiveTrace` (and the bundle records) remain `Serialize` but NOT `Deserialize`. So a tampered DOCUMENT yields
+a different receipt hash and a different trace, failing the comparison; a tampered trace, report, questions, or
+manifest in the bundle fails the comparison; and `doc-report` refuses a trace that is not the byte-identical
+re-derivation (`DocTraceMismatch`). Because the document is the source of truth, `doc-report`/`doc-bundle-verify`
+require `--input` — there is nothing else to re-derive against, and the provided files are never parsed back into
+authority.
+
+Input safety is a SHELL concern, since the filesystem read lives only in `main.rs`. Two layers guard it. The pure,
+unit-testable `check_local_input_path` (in the library, `std::path` parsing only — no filesystem) rejects an
+absolute path, a `..` traversal, a `~` prefix, or an empty path. The shell then adds defense in depth: it
+canonicalizes the path and the working directory and requires the resolved path to stay INSIDE the working
+directory, so a symlink cannot escape to a non-local file, and requires a regular file. Only then is the document
+read. `/etc/...`, `../escape`, and a symlink to `/etc/hostname` are all refused.
+
+Verification matched the cadence. Ten new tests (the rubric's ten first-tests) bring the crate to 90 unit tests
+(12 INT-0 + 8 INT-1 + 12 INT-2 + 12 INT-3 + 12 MTRACE-0 + 12 MTRACE-1 + 12 MTRACE-2 + 10 DOCFLOW-0), fmt + clippy
+clean. The `release_check.sh` DOCFLOW-0 block is load-bearing: surface signals for the doc API + commands; pins that
+the flow goes through `CognitiveTrace::build` and `corpus_from_documents` and depends on `reading-substrate`; all
+ten test-name pins and the unit-count pin raised 80→90; the seven boundary lines verbatim; the shell path-validation
+pins (`read_local_input`, `check_local_input_path`, `canonicalize`, the escape refusal); and a binary smoke that
+runs the whole flow against a real local document under gitignored `target/`, proves the boundary from the trace's
+OWN serialized output (verified receipt, cited hash, requires_operator, rejected, no evidence, training false, plus
+the document's own answer), and proves a tampered document, a tampered bundle file, a tampered trace, an absolute
+path, a `..` path, and a symlink escape are EACH refused. The library stays filesystem-free (the fs-confinement pin
+holds) and adds no `Deserialize` (already pinned). Three live sabotage probes proved distinct mechanisms, each
+restored byte-identical by md5 (never `git checkout`, since the DOCFLOW changes are uncommitted): (a) weakening
+the pure `check_local_input_path` to accept an absolute path — caught by the `doc_input_path_is_local_and_safe`
+unit test (exit 101); (b) making `verify_doc_bundle` trust the provided files instead of re-deriving — caught by
+the `doc_bundle_rejects_*` unit tests (exit 101); (c) drifting a DOCFLOW boundary line (`The document flow reads
+local input.`), which kept the unit suite GREEN (90/0) yet still failed the gate (exit 1), caught by the
+source/binary-smoke boundary pin; and (d) removing the SHELL's canonicalize-and-contain escape guard so a symlink
+could read outside the working directory — which also kept the unit suite GREEN and clippy clean yet failed the
+gate (exit 1), caught SOLELY by the binary smoke's symlink-escape refusal. A read-only adversarial panel
+(Workflow, four Explore lenses, refute-by-default — verify-before-tracing, re-derive/tamper-rejection,
+input-safety/path-validation, scope/purity/boundary/freeze) returned ZERO real findings, fully dry, and left no
+debris.
+
+Boundary held: DOCFLOW-0 adds a new INPUT but no new authority and no cognition. It reads a local document, verifies
+it through the frozen reader, and produces the same inert record — executing nothing, promoting nothing, mutating
+no memory, and leaving P12 `training_justified=false`. Additive within the integration layer: only
+`crates/cognitive-demo/src/{lib.rs,main.rs}`, its `Cargo.toml` (one new direct dependency on the already-frozen
+`reading-substrate`), `Cargo.lock`, and the gate block change. No frozen crate SOURCE is touched; the
+`reading-track-v0.1` (`f6fa55a`), `hypothesis-track-v0.1` (`bb20acf`), `integration-demo-v0.1` (`95b586d`),
+`multi-trace-validation-v0.1` (`460be0c`), and `operator-controls-v0.1` (`34b4f47`) tags are unmoved, and P13–P15
+stay closed. `release_check.sh` is exit 0 and byte-silent.
+
 ## Appendix — LLM Training as Constraint Engineering (supporting methodology)
 
 Date: 2026-06-13
