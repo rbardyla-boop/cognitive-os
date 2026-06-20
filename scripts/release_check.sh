@@ -1939,6 +1939,43 @@ if ./target/debug/cognitive-demo failure-verify --path "$_m2_dir/tm" >/dev/null 
 if ! cmp -s "$_m2_dir/pack/happy-boundary/trace.json" "$_m2_dir/demo.json"; then rm -rf "$_m2_dir"; exit 1; fi
 rm -rf "$_m2_dir"
 # ---------------------------------------------------------------------------------------------------
+# MTRACE-3 — multi-trace validation milestone freeze. The MTRACE-0 -> MTRACE-2 multi-trace arc (the cognitive-demo
+# crate's scenario pack, boundary-coverage matrix, and failure-injection pack, all over the frozen
+# integration-demo-v0.1 canonical trace) is frozen as multi-trace-validation-v0.1. The milestone record
+# (MULTI_TRACE_VALIDATION_MILESTONE.md) pins the commit lineage, the frozen base, the scenario-variation /
+# coverage / failure-injection boundary, the P12 training verdict, and the honest residuals, and is locked here so
+# the freeze cannot silently drift. The pinned commit hashes are auditable against `git log`; this lock stays
+# git-free and does NOT require the tag to exist (the tag is created only after a clean tree + green gate).
+# Documentation freeze only — no code crate changes, no model, no training; the milestone records
+# training_not_justified. Doctrine: Scenarios vary the path. They do not vary the authority. The matrix summarizes
+# coverage. Failure cases attack the boundary. Forged authority is rejected. Nothing executes. Nothing becomes
+# evidence. Nothing promotes. Nothing trains.
+# ---------------------------------------------------------------------------------------------------
+test -f MULTI_TRACE_VALIDATION_MILESTONE.md
+grep -q 'FROZEN' MULTI_TRACE_VALIDATION_MILESTONE.md
+grep -q 'multi-trace-validation-v0.1' MULTI_TRACE_VALIDATION_MILESTONE.md
+grep -q 'MTRACE-0' MULTI_TRACE_VALIDATION_MILESTONE.md
+grep -q 'MTRACE-2' MULTI_TRACE_VALIDATION_MILESTONE.md
+grep -q 'training_not_justified' MULTI_TRACE_VALIDATION_MILESTONE.md
+grep -q 'training_justified=false' MULTI_TRACE_VALIDATION_MILESTONE.md
+# Full MTRACE-0..MTRACE-2 commit lineage is pinned (cross-checkable against git log).
+grep -q 'aee733f' MULTI_TRACE_VALIDATION_MILESTONE.md
+grep -q '91189f2' MULTI_TRACE_VALIDATION_MILESTONE.md
+grep -q 'be6909f' MULTI_TRACE_VALIDATION_MILESTONE.md
+# The frozen integration base is referenced as a frozen dep (tag + commit), as are the two deeper frozen tracks.
+grep -q 'integration-demo-v0.1' MULTI_TRACE_VALIDATION_MILESTONE.md
+grep -q '95b586d' MULTI_TRACE_VALIDATION_MILESTONE.md
+grep -q 'reading-track-v0.1' MULTI_TRACE_VALIDATION_MILESTONE.md
+grep -q 'hypothesis-track-v0.1' MULTI_TRACE_VALIDATION_MILESTONE.md
+grep -q 'f6fa55a' MULTI_TRACE_VALIDATION_MILESTONE.md
+grep -q 'bb20acf' MULTI_TRACE_VALIDATION_MILESTONE.md
+# The nine-line scenario / matrix / failure boundary is recorded verbatim (all nine lines).
+for _bl in 'Scenarios vary the path.' 'They do not vary the authority.' 'The matrix summarizes coverage.' 'Failure cases attack the boundary.' 'Forged authority is rejected.' 'Nothing executes.' 'Nothing becomes evidence.' 'Nothing promotes.' 'Nothing trains.'; do
+  if ! grep -qF "$_bl" MULTI_TRACE_VALIDATION_MILESTONE.md; then exit 1; fi
+done
+# The milestone makes NO false training claim (it never asserts training opened).
+if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' MULTI_TRACE_VALIDATION_MILESTONE.md; then exit 1; fi
+# ---------------------------------------------------------------------------------------------------
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json

@@ -3,6 +3,44 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-20-C — Freeze the multi-trace validation track (MTRACE-0 → MTRACE-2) as multi-trace-validation-v0.1
+
+**Decision.** Freeze the MTRACE-0 → MTRACE-2 multi-trace validation arc as a named, auditable milestone
+`multi-trace-validation-v0.1`, recorded in a new freeze doc `MULTI_TRACE_VALIDATION_MILESTONE.md` and locked by a
+milestone block in `scripts/release_check.sh`. Documentation freeze only — it adds no behavior and edits no code
+crate (a.md is intentionally untouched; it already carries the MTRACE-0/1/2 checklist and detail).
+
+**Why.** MTRACE-0 (scenario pack), MTRACE-1 (coverage matrix), and MTRACE-2 (failure-injection pack) now form a
+complete validation arc over the frozen `integration-demo-v0.1` canonical trace: the prototype can vary the path
+without varying the authority, summarize the coverage as a re-derived matrix, and prove the bad paths fail closed
+under forged authority. Per the build→prove cadence, the arc is frozen before more behavior is added — the same
+discipline that produced `reading-track-v0.1`, `hypothesis-track-v0.1`, and `integration-demo-v0.1`.
+
+**Boundary recorded.** The milestone doc pins the commit lineage (MTRACE-0 `aee733f`, MTRACE-1 `91189f2`, MTRACE-2
+`be6909f`), references the frozen base (`integration-demo-v0.1` @ `95b586d`) and the two deeper frozen tracks
+(`reading-track-v0.1` @ `f6fa55a`, `hypothesis-track-v0.1` @ `bb20acf`), states the demonstrated validation
+capability, and records the scenario/matrix/failure boundary verbatim: *Scenarios vary the path. They do not vary
+the authority. The matrix summarizes coverage. Failure cases attack the boundary. Forged authority is rejected.
+Nothing executes. Nothing becomes evidence. Nothing promotes. Nothing trains.* The arc-wide discipline is RE-DERIVE,
+NEVER TRUST: every operator surface that accepts a file (scenario-verify, scenario-matrix/-report/-verify,
+failure-verify) verifies by re-deriving the canonical artifact and byte-comparing — no record added in this arc
+derives `Deserialize` — so off-wire tampering can never be laundered into authority. The honest, precise statement of
+what stayed frozen: the MTRACE arc additively extended only `crates/cognitive-demo` (`lib.rs` + `main.rs`, no new
+dependency, no `Cargo.toml` change, no new file), the `integration-demo-v0.1` tag still points at `95b586d`, and the
+frozen canonical `demo()` trace and bundle are byte-for-byte identical after every MTRACE sprint (gate-enforced by the
+`happy_boundary_scenario_equals_canonical_demo` pin and the frozen `hypothesis_id` freeze-pin). The milestone makes no
+false claim: it records P12 `training_justified=false` (`training_not_justified`), and the arc executes no probe,
+promotes nothing, mutates no memory, and moves no training verdict; P13–P15 stay closed. The `release_check.sh`
+milestone lock pins the freeze doc's existence, the three MTRACE commit hashes (auditable against `git log`), the
+frozen-base references, the nine boundary lines verbatim, and the `training_not_justified` verdict, and guards against
+a false `training_justified = true` claim, so the freeze cannot silently drift; the gate stays git-free and does not
+require the tag to exist. Verified by a green byte-silent `release_check.sh`, live sabotage probes of the milestone
+lock (each restored byte-identical), and a read-only adversarial panel. The tag `multi-trace-validation-v0.1` is
+created only after a clean tree and a green gate, on the freeze commit. No frozen crate source outside
+`crates/cognitive-demo` is touched, all three base tags are unmoved, P12 `training_justified=false`, and P13–P15
+closed. Recorded in full in [MULTI_TRACE_VALIDATION_MILESTONE.md](../MULTI_TRACE_VALIDATION_MILESTONE.md). Local only
+— no remote push.
+
 ## DD-2026-06-20-B — Add the scenario failure-injection / boundary-regression pack (MTRACE-2)
 
 **Decision.** Extend `crates/cognitive-demo` (the `cognitive-demo` binary) with a finite, enum-backed set of
