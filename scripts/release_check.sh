@@ -2116,6 +2116,47 @@ done
 # The snapshot makes NO false training claim (it never asserts training opened).
 if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' OPERATOR_RELEASE_SNAPSHOT.md; then exit 1; fi
 # ---------------------------------------------------------------------------------------------------
+# OPS-3 — operator controls milestone freeze. The OPS-0 -> OPS-2 operator-controls arc (the operator manual,
+# the executable smoke / manual drift guard, and the local release snapshot, all over the frozen prototype)
+# is frozen as operator-controls-v0.1. The milestone record (OPERATOR_CONTROLS_MILESTONE.md) pins the
+# OPS-0..OPS-2 commit lineage, the frozen base (the five prior milestone tags + commits), the release
+# snapshot reference, the manual + smoke controls, the explain-and-verify boundary, the P12 training verdict,
+# and the honest residuals, and is locked here so the freeze cannot silently drift. The pinned commit hashes
+# are auditable against `git log`; this lock stays git-free and does NOT require the tag to exist (the tag is
+# created only after a clean tree + green gate). Documentation freeze only — no code crate changes, no model,
+# no training, NO remote release; the milestone records training_not_justified. Doctrine: The operator
+# controls explain and verify the prototype. They do not release remotely. They do not create authority. They
+# do not execute. They do not promote. They do not train.
+# ---------------------------------------------------------------------------------------------------
+test -f OPERATOR_CONTROLS_MILESTONE.md
+grep -q 'FROZEN' OPERATOR_CONTROLS_MILESTONE.md
+grep -q 'operator-controls-v0.1' OPERATOR_CONTROLS_MILESTONE.md
+grep -q 'OPS-0' OPERATOR_CONTROLS_MILESTONE.md
+grep -q 'OPS-2' OPERATOR_CONTROLS_MILESTONE.md
+grep -q 'training_not_justified' OPERATOR_CONTROLS_MILESTONE.md
+grep -q 'training_justified=false' OPERATOR_CONTROLS_MILESTONE.md
+# Full OPS-0..OPS-2 commit lineage is pinned (cross-checkable against git log).
+grep -qF '7aa17ec' OPERATOR_CONTROLS_MILESTONE.md
+grep -qF 'c33dea7' OPERATOR_CONTROLS_MILESTONE.md
+grep -qF '0876ba0' OPERATOR_CONTROLS_MILESTONE.md
+# The five frozen base milestones are referenced as frozen deps (tag + commit).
+for _t in cognitive-os-governance-v0.1 reading-track-v0.1 hypothesis-track-v0.1 integration-demo-v0.1 multi-trace-validation-v0.1; do
+  if ! grep -qF "$_t" OPERATOR_CONTROLS_MILESTONE.md; then exit 1; fi
+done
+for _sha in bbd1113 f6fa55a bb20acf 95b586d 460be0c; do
+  if ! grep -qF "$_sha" OPERATOR_CONTROLS_MILESTONE.md; then exit 1; fi
+done
+# The frozen operator controls are referenced by name (manual, smoke guard, release snapshot @ 0876ba0).
+grep -qF 'OPERATOR_MANUAL.md' OPERATOR_CONTROLS_MILESTONE.md
+grep -qF 'operator_smoke.sh' OPERATOR_CONTROLS_MILESTONE.md
+grep -qF 'OPERATOR_RELEASE_SNAPSHOT.md' OPERATOR_CONTROLS_MILESTONE.md
+# The six-line operator-controls boundary is recorded verbatim (all six lines).
+for _bl in 'The operator controls explain and verify the prototype.' 'They do not release remotely.' 'They do not create authority.' 'They do not execute.' 'They do not promote.' 'They do not train.'; do
+  if ! grep -qF "$_bl" OPERATOR_CONTROLS_MILESTONE.md; then exit 1; fi
+done
+# The milestone makes NO false training claim (it never asserts training opened).
+if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' OPERATOR_CONTROLS_MILESTONE.md; then exit 1; fi
+# ---------------------------------------------------------------------------------------------------
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json

@@ -3,6 +3,36 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-20-G — Freeze the operator-controls milestone (OPS-3)
+
+**Decision.** Freeze the OPS-0 → OPS-2 operator-controls arc — the operator manual (`OPERATOR_MANUAL.md`),
+the executable smoke / manual drift guard (`scripts/operator_smoke.sh`), and the local release snapshot
+(`OPERATOR_RELEASE_SNAPSHOT.md`) — as a named, auditable milestone `operator-controls-v0.1`. Add
+`OPERATOR_CONTROLS_MILESTONE.md` (the freeze record), this charter entry, and an OPS-3 milestone lock in
+`release_check.sh`. The tag is created only after a clean tree and a green gate. No code crate is touched.
+
+**Why.** OPS-0 through OPS-2 now form a complete operator-control arc — read it, verify it hasn't drifted,
+record its state — so it deserves a single freeze point before any further behavior is added, exactly as the
+reading / hypothesis / integration / multi-trace tracks were each frozen (`reading-track-v0.1`,
+`hypothesis-track-v0.1`, `integration-demo-v0.1`, `multi-trace-validation-v0.1`). The milestone record pins
+the OPS-0..OPS-2 commit lineage and the frozen base so the freeze cannot silently drift.
+
+**Boundary recorded.** The milestone records the six-line boundary verbatim: *The operator controls explain
+and verify the prototype. They do not release remotely. They do not create authority. They do not execute.
+They do not promote. They do not train.* The `release_check.sh` OPS-3 lock pins, by content inspection, the
+milestone's existence, the `FROZEN` status, the tag name, the OPS-0..OPS-2 commit hashes (`7aa17ec`,
+`c33dea7`, `0876ba0`, auditable against `git log`), the five frozen base tags and their commits (`bbd1113`,
+`f6fa55a`, `bb20acf`, `95b586d`, `460be0c`), the three operator controls by name, the
+`training_not_justified` verdict, and the six boundary lines, and guards against any milestone that falsely
+claims training has opened. The lock stays git-free and does NOT require the tag to exist (so the pre-tag
+gate run passes). Verified by a green byte-silent `release_check.sh`; live sabotage of the OPS-3 lock (drop
+an OPS commit hash; drop a frozen base SHA; drift a boundary line; a false training-opened claim — every
+probe failed the gate at exit 1 and was restored byte-identical via `cp`+`md5`, never `git checkout`, since
+the milestone doc is untracked); and a read-only adversarial panel (4 lenses, refute-by-default) iterated to
+a fully-dry round. No code crate is touched (`git diff 460be0c..0876ba0 -- crates/ a.md Cargo.toml` empty),
+all five prior milestone tags are unmoved, P12 `training_justified=false`, and P13–P15 closed. Recorded in
+[OPERATOR_CONTROLS_MILESTONE.md](../OPERATOR_CONTROLS_MILESTONE.md). Local only — no remote push.
+
 ## DD-2026-06-20-F — Add the operator release snapshot / local archive manifest (OPS-2)
 
 **Decision.** Add `OPERATOR_RELEASE_SNAPSHOT.md`, a docs-only local snapshot of the prototype state after
