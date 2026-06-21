@@ -3,6 +3,53 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-21-F — Seeded deterministic distortion engine (DREAM-0)
+
+**Decision.** Add `crates/dream-engine` as a STANDALONE seeded deterministic distortion engine that DISTORTS
+verified corpus material into terminal, inert `DreamPacket`s. It is terminal and inert; it has NO
+`hypothesis-layer` dependency; it does NOT export to `HypothesisSpec`/`HypothesisPacket` (there is no export path
+in DREAM-0); `DreamAuthority::DreamOnly` is private to `dream-engine` only; and the frozen hypothesis-layer
+`Authority` invariant remains byte-unchanged. Grounding is rebuilt on `reading-substrate` only — a narrow
+canonical `execute`+`verify` read that fails closed via `DreamError::CorpusDoesNotVerify` — and preserved facts
+are VERBATIM verified spans (an unsupported fact is refused with `DreamError::UnsupportedPreservedFact`). The
+engine applies five seeded distortion operators (RoleInversion, CategoryViolation, ConstraintRemoval,
+ContradictionBraid, ScaleShift) under a `0..=5` weirdness dial and refuses degenerate output through three
+runtime anti-degeneracy gates — G1 operator-applied, G2 cross-document combination, G3 assumption-broken, all
+`DreamError::DegenerateDream`. Falsifiers are REFERENCE-ONLY slots (no generator); probe requests are
+`executes: false`. Every `DreamPacket` carries an explicit `dream_input_hash` binding ALL admitted documents
+(id + name + full text bytes), the spans the packet used, the reading `memory_hash`, and the reading
+`answer_hash`, so a side document cannot mutate silently. Ids are FNV-1a (no `DefaultHasher`, clock, entropy, or
+floats); replay re-derives byte-identical and a tampered packet is refused; packets are `Serialize` but NOT
+`Deserialize`. 20 unit tests. No LLM, no training, no execution, no evidence, no promotion.
+
+**Why.** The dream concept first shipped as NOVELTY-0 INSIDE `cognitive-demo`; DREAM-0 is its STANDALONE
+successor — deliberately a separate crate so the distortion engine is structurally independent of the
+integration crate and physically cannot reach the hypothesis chain. A `cargo tree` quarantine in
+`release_check.sh` makes "no dream output enters the hypothesis layer in DREAM-0" a GATE-ENFORCED invariant, not
+a promise. The operator's doctrine — alien inside, lawful at the boundary — is realized by making the dream
+packet TERMINAL this sprint: prove isolation first, before any export. NOVELTY-0 is left in place and is NOT
+migrated. Recorded in [DREAM_0_SEEDED_DISTORTION_ENGINE_PLAN.md](../DREAM_0_SEEDED_DISTORTION_ENGINE_PLAN.md);
+`a.md` is unchanged.
+
+**Boundary recorded.** DREAM-0 added `crates/dream-engine` as a standalone seeded deterministic distortion
+engine. It is terminal and inert. It has no hypothesis-layer dependency. It does not export to
+HypothesisSpec/HypothesisPacket. `DreamAuthority::DreamOnly` is private to dream-engine only. The frozen
+hypothesis-layer Authority invariant remains unchanged. `DreamPacket` carries explicit `dream_input_hash`;
+`dream_input_hash` binds all admitted documents, used spans, reading `memory_hash`, and reading `answer_hash`.
+Falsifiers are reference-only slots. Probe requests `execute:false`. No LLM. No training. No execution. No
+evidence. No promotion. `DREAM-EXPORT` / `DreamExportReceipt` is deferred to a later sprint. The
+`release_check.sh` DREAM-0 block pins the crate's tests (20, zero ignored), the cargo-tree quarantine (no
+hypothesis-layer / vibe- / cognitive-demo / reading-codec / ML in the production tree), the determinism scans
+(no clock, entropy, `DefaultHasher`, or floats in `src/`), the `DreamOnly`-is-private scan, the unchanged
+hypothesis-layer `Authority`, the nine boundary lines, the canonical six forbidden uses, and the named
+anti-degeneracy / terminal regression scenarios. Verified by a green, byte-silent `release_check.sh`; live
+sabotage of the new pins (a hypothesis-layer dependency, a `DefaultHasher` token, and a disabled test each fail
+the gate, restored byte-identically via `cp`+`md5`, never `git checkout`); and an independent fresh-context
+adversarial verifier (all criteria pass, no residual). Purely additive — only `Cargo.toml`, `Cargo.lock`,
+`scripts/release_check.sh`, this charter, and the new `crates/dream-engine/` + plan file change; NO frozen crate
+SOURCE touched, NO `a.md` change, P12 stays `training_justified=false`, P13–P15 closed, and the eight milestone
+tags are unmoved. No tag for DREAM-0. Local only — no remote push.
+
 ## DD-2026-06-21-E — Novelty operator guard: document + smoke-test the novelty path (NOVELTY-1)
 
 **Decision.** Document the NOVELTY-0 novelty operator path in `OPERATOR_MANUAL.md` and bring it under the same

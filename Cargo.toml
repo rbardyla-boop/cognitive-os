@@ -25,4 +25,5 @@ members = [
     "crates/reading-section-eval",
     "crates/hypothesis-layer",
     "crates/cognitive-demo",
+    "crates/dream-engine",
 ]

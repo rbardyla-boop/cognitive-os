@@ -3305,3 +3305,49 @@ grep -q '"signers"' simulations/bridge_world/authorized_design_signers.json
 for packet in system_state_packet intent_packet retrieval_request retrieval_result contradiction_packet backpressure_command plan_proposal action_command action_outcome memory_mutation claim_packet evidence_packet episode_packet raw_episode_packet semantic_candidate_packet rule_packet human_promotion_packet plan_regret_packet attention_mode_review_packet; do
   test -f "schemas/cip/$packet.schema.json"
 done
+
+# ── DREAM-0 — Seeded Deterministic Distortion Engine (crates/dream-engine) ───────────────────────────────────
+# A STANDALONE dream track that DISTORTS verified corpus material into terminal, inert DreamPackets. It carries a
+# crate-PRIVATE dream authority (never the public hypothesis-layer Authority), has NO export path and NO
+# hypothesis-layer dependency, rebuilds grounding on reading-substrate only, and is deterministic (FNV-1a ids,
+# splitmix64 selection, no entropy/clock/floats). Nothing executes, promotes, trains, or becomes evidence.
+cargo test --offline --quiet --manifest-path crates/dream-engine/Cargo.toml >/dev/null 2>&1
+cargo fmt --manifest-path crates/dream-engine/Cargo.toml --check >/dev/null 2>&1
+cargo clippy --offline --manifest-path crates/dream-engine/Cargo.toml --all-targets -- -D warnings >/dev/null 2>&1
+# Unit-test REALITY pin: exactly the 20 DREAM-0 tests pass, zero ignored (gutting/disabling one is caught).
+_dream_unit="$(cargo test --offline --lib --manifest-path crates/dream-engine/Cargo.toml 2>/dev/null)"
+test "$(printf '%s\n' "$_dream_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 20
+test "$(printf '%s\n' "$_dream_unit" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
+# Structural QUARANTINE (no export path): the production tree holds NO hypothesis-layer, no engine crate, no
+# codec, and no integration crate — so "no dream output enters the hypothesis layer in DREAM-0" is a
+# gate-enforced invariant, not a promise. The root crate is present (fails closed if cargo tree cannot run).
+test "$(cargo tree --offline --manifest-path crates/dream-engine/Cargo.toml --edges normal 2>/dev/null | grep -cE 'hypothesis-layer|vibe-|cognitive-demo|reading-codec')" -eq 0
+test "$(cargo tree --offline --manifest-path crates/dream-engine/Cargo.toml --edges normal 2>/dev/null | grep -c 'dream-engine v')" -eq 1
+# No model is trained or loaded: the manifest pulls no ML/inference/training framework.
+test "$(grep -ciE 'torch|tensorflow|candle|onnx|tract|\bburn\b|llama|inference' crates/dream-engine/Cargo.toml)" -eq 0
+# Determinism / no side effects: no clock, entropy, network, DefaultHasher, or floats anywhere in src/.
+test "$(grep -rlE 'SystemTime|Instant|std::time|thread_rng|getrandom|rand::|use rand|std::net|tokio|\.await|reqwest|DefaultHasher' crates/dream-engine/src | wc -l)" -eq 0
+test "$(grep -rE '\bf32\b|\bf64\b' crates/dream-engine/src | wc -l)" -eq 0
+# DreamOnly is crate-PRIVATE vocabulary: the token appears ONLY under crates/dream-engine, never elsewhere.
+test "$(grep -rl 'DreamOnly' crates --include=*.rs | grep -vc '^crates/dream-engine/')" -eq 0
+# The frozen hypothesis-layer Authority is UNCHANGED: exactly one Authority enum, no DreamOnly leaked into it.
+test "$(grep -c 'pub enum Authority' crates/hypothesis-layer/src/lib.rs)" -eq 1
+test "$(grep -cE 'DreamOnly' crates/hypothesis-layer/src/lib.rs)" -eq 0
+# The nine-line DREAM-0 boundary is recorded verbatim in the source.
+grep -q 'The dream engine distorts.' crates/dream-engine/src/lib.rs
+grep -q 'No dream output enters the hypothesis layer in DREAM-0.' crates/dream-engine/src/lib.rs
+grep -q 'Dream packets are terminal and inert.' crates/dream-engine/src/lib.rs
+grep -q 'Nothing becomes evidence.' crates/dream-engine/src/lib.rs
+grep -q 'Nothing promotes.' crates/dream-engine/src/lib.rs
+grep -q 'Nothing trains.' crates/dream-engine/src/lib.rs
+# The canonical six forbidden uses + the named anti-degeneracy / terminal regression scenarios exist by name.
+grep -q 'pub const DREAM_FORBIDDEN_USES' crates/dream-engine/src/lib.rs
+grep -q 'fn dream_input_hash_changes_when_side_document_changes' crates/dream-engine/src/lib.rs
+grep -q 'fn dream_refuses_degenerate_single_span_reformat' crates/dream-engine/src/lib.rs
+grep -q 'fn dream_links_two_distinct_document_ids_into_one_frame' crates/dream-engine/src/lib.rs
+grep -q 'fn dream_broken_assumption_is_operator_output_not_frame_echo' crates/dream-engine/src/lib.rs
+grep -q 'fn dream_falsifier_slot_well_formed_by_reference' crates/dream-engine/src/lib.rs
+grep -q 'fn dream_replay_byte_identical_two_processes' crates/dream-engine/src/lib.rs
+grep -q 'fn dream_packet_tamper_refused' crates/dream-engine/src/lib.rs
+grep -q 'fn dream_unsupported_preserved_fact_refused' crates/dream-engine/src/lib.rs
+grep -q 'fn dream_packet_is_terminal_no_export' crates/dream-engine/src/lib.rs

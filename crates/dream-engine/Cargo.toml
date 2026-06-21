@@ -1,0 +1,22 @@
+# DREAM-0 — Seeded Deterministic Distortion Engine.
+#
+# A STANDALONE dream track, structurally independent of the integration crate.
+# It DISTORTS verified corpus material into terminal, inert `DreamPacket`s.
+#   - It carries a crate-PRIVATE `DreamAuthority::DreamOnly` — never a public
+#     authority, never the hypothesis-layer `Authority`.
+#   - It has NO dependency on `hypothesis-layer`/`vibe-*`/`cognitive-demo` and NO
+#     export path: a dream packet does not enter the hypothesis layer in DREAM-0.
+#   - Grounding is rebuilt on `reading-substrate` only (its own narrow canonical
+#     corpus read), so the engine duplicates nothing from the frozen chain.
+# Deterministic: FNV-1a ids, no entropy, no clock, no floating point.
+[package]
+name = "dream-engine"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "DREAM-0 — seeded deterministic distortion engine producing terminal, inert, receipt-grounded dream packets."
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reading-substrate = { path = "../reading-substrate" }

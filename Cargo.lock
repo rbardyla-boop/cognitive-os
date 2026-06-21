@@ -15,6 +15,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "dream-engine"
+version = "0.1.0"
+dependencies = [
+ "reading-substrate",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "hypothesis-layer"
 version = "0.1.0"
 dependencies = [
