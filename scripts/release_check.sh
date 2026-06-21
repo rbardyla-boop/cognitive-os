@@ -1323,10 +1323,10 @@ grep -q 'fn trace_does_not_change_training_gate' crates/cognitive-demo/src/lib.r
 grep -q 'fn trace_does_not_change_verifier_receipt' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_records_every_stage_id_and_links_the_chain' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_grants_no_new_authority' crates/cognitive-demo/src/lib.rs
-# Unit-test REALITY pin: exactly the 124 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
-# MTRACE-1 (12) + MTRACE-2 (12) + DOCFLOW-0 (10) + DOCFLOW-2 (10) + CORPUS-0 (12) + CORPUS-2 (12) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
+# Unit-test REALITY pin: exactly the 139 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
+# MTRACE-1 (12) + MTRACE-2 (12) + DOCFLOW-0 (10) + DOCFLOW-2 (10) + CORPUS-0 (12) + CORPUS-2 (12) + NOVELTY-0 (15) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
 _int0_unit="$(cargo test --offline --lib --manifest-path crates/cognitive-demo/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 124
+test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 139
 test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
 # Determinism / no side effects: the trace is a pure, in-memory function — no clock, entropy, or network
 # anywhere in src/, and no floats anywhere in the crate. (`std::process::exit` in the CLI shell is a clean
@@ -2485,7 +2485,7 @@ grep -q 'EmptyCorpus' crates/cognitive-demo/src/lib.rs
 grep -q 'fn read_local_corpus' crates/cognitive-demo/src/main.rs
 grep -q 'corpus_admits_filename' crates/cognitive-demo/src/main.rs
 grep -q 'resolved_path_within(&root, &resolved)' crates/cognitive-demo/src/main.rs
-# The 12 CORPUS-0 first-tests exist by name (a gutted/deleted test also drops the unit count pinned at 124 above).
+# The 12 CORPUS-0 first-tests exist by name (a gutted/deleted test also drops the unit count pinned at 139 above).
 for _ct in corpus_trace_starts_from_verified_receipt corpus_trace_cites_receipt_hash corpus_trace_records_grounding_document_and_span corpus_admits_only_plain_local_txt_files corpus_empty_fails_closed corpus_bundle_verifies_clean_input corpus_bundle_rejects_tampered_corpus corpus_bundle_rejects_tampered_artifact corpus_report_records_source_selection_and_refuses_tamper corpus_flow_does_not_change_training_gate corpus_flow_does_not_execute_or_promote corpus_source_is_deterministic_and_replayable; do
   if ! grep -q "fn $_ct" crates/cognitive-demo/src/lib.rs; then exit 1; fi
 done
@@ -2582,7 +2582,7 @@ grep -q 'pub fn corpus_admits_filename' crates/cognitive-demo/src/lib.rs
 # whole-corpus binding is proven structurally (source unchanged, bundle still refused), never asserted.
 grep -q 'fn run_corpus_scenario' crates/cognitive-demo/src/lib.rs
 grep -q 'fn corpus_whole_binding_holds' crates/cognitive-demo/src/lib.rs
-# The 12 CORPUS-2 first-tests exist by name (a gutted/deleted test also drops the unit count pinned at 124 above).
+# The 12 CORPUS-2 first-tests exist by name (a gutted/deleted test also drops the unit count pinned at 139 above).
 for _c2t in corpus_scenarios_list_all_cases corpus_clean_two_document_case_verifies corpus_empty_case_fails_closed corpus_hidden_only_case_refused corpus_non_txt_only_case_refused corpus_absolute_path_refused corpus_parent_traversal_refused corpus_symlink_escape_refused corpus_grounding_doc_mutation_invalidates_bundle corpus_side_doc_mutation_invalidates_bundle corpus_tampered_artifacts_refused corpus_scenario_matrix_records_source_and_boundaries; do
   if ! grep -q "fn $_c2t" crates/cognitive-demo/src/lib.rs; then exit 1; fi
 done
@@ -2694,6 +2694,128 @@ for _bl in 'The corpus flow reads local documents.' 'It does not trust local doc
 done
 # The milestone makes NO false training claim (it never asserts training opened).
 if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' CORPUS_FLOW_MILESTONE.md; then exit 1; fi
+# ---------------------------------------------------------------------------------------------------
+# NOVELTY-0 — hypothesis-only novelty packet harness (crates/cognitive-demo). ON TOP of the verified corpus
+# trace, NOVELTY-0 adds a bounded HYPOTHESIS layer: given a verified corpus trace (re-derived from --input-dir,
+# with --corpus-trace byte-verified against it) and an operator --frame, `novelty-packet` emits a deterministic
+# NoveltyPacket recording the frame's candidate broken assumptions, the verified facts to preserve (each
+# grounded VERBATIM in a verified corpus span), a candidate hypothesis, falsifiers, and NON-EXECUTING probe
+# requests. The packet carries authority=hypothesis_only (an enum with no evidence/promoted/truth variant) and
+# an explicit forbidden_uses list, so it can never become evidence, execute, promote, or train. NO model, NO
+# score: the frame is read as DATA (never grounded as a fact), and an unsupported preserved fact, an empty
+# frame, a receipt-hash-stripped corpus trace, or any tampered packet is REFUSED by re-derivation. P12 stays
+# training_justified=false. Doctrine: Novelty packets propose. They do not prove. They cite verified receipts.
+# They do not create authority. Probe requests do not execute. Nothing becomes evidence, promotes, or trains.
+# ---------------------------------------------------------------------------------------------------
+# Surface signals: the NOVELTY-0 API + the three commands exist (lib + shell).
+grep -q 'struct NoveltyPacket' crates/cognitive-demo/src/lib.rs
+grep -q 'struct NoveltyProbeRequest' crates/cognitive-demo/src/lib.rs
+grep -q 'enum NoveltyAuthority' crates/cognitive-demo/src/lib.rs
+grep -q 'rename = "hypothesis_only"' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn run_novelty_packet' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn run_novelty_report' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn run_novelty_replay' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn verify_novelty_packet_json' crates/cognitive-demo/src/lib.rs
+grep -q '"novelty-packet"' crates/cognitive-demo/src/main.rs
+grep -q '"novelty-report"' crates/cognitive-demo/src/main.rs
+grep -q '"novelty-replay"' crates/cognitive-demo/src/main.rs
+grep -q 'fn read_frame' crates/cognitive-demo/src/main.rs
+grep -qF -- '--corpus-trace' crates/cognitive-demo/src/main.rs
+grep -qF -- '--frame' crates/cognitive-demo/src/main.rs
+grep -qF -- '--packet' crates/cognitive-demo/src/main.rs
+# GROUNDED-IN-A-VERIFIED-TRACE + GROUNDING-GATE (proves, not asserts): the packet is derived from the VERIFIED
+# corpus trace, and a preserved fact MUST be a verified corpus span (an unsupported fact is refused).
+grep -q 'fn novelty_packet(' crates/cognitive-demo/src/lib.rs
+grep -q 'let trace = corpus_trace(documents)?;' crates/cognitive-demo/src/lib.rs
+grep -q 'fn novelty_facts_grounded(' crates/cognitive-demo/src/lib.rs
+grep -q 'fn corpus_verified_spans(' crates/cognitive-demo/src/lib.rs
+grep -q 'TraceError::UnsupportedPreservedFact' crates/cognitive-demo/src/lib.rs
+grep -q 'TraceError::MissingReceiptHash' crates/cognitive-demo/src/lib.rs
+grep -q 'TraceError::EmptyFrame' crates/cognitive-demo/src/lib.rs
+grep -q 'TraceError::NoveltyPacketMismatch' crates/cognitive-demo/src/lib.rs
+# The 15 NOVELTY-0 first-tests exist by name (a gutted/deleted test also drops the unit count pinned at 139 above).
+for _t in \
+  novelty_packet_requires_verified_corpus_receipt \
+  novelty_packet_cites_receipt_and_source_identity \
+  novelty_packet_authority_is_hypothesis_only \
+  novelty_packet_records_broken_assumptions \
+  novelty_packet_records_preserved_facts_grounded \
+  novelty_packet_records_falsifiers \
+  novelty_probe_requests_do_not_execute \
+  novelty_packet_cannot_become_evidence_or_promote_or_train \
+  novelty_packet_replay_is_deterministic \
+  novelty_packet_rejects_tampered_packet \
+  novelty_facts_grounded_rejects_unsupported_fact \
+  novelty_packet_refuses_corpus_trace_missing_receipt_hash \
+  novelty_packet_does_not_change_training_gate \
+  novelty_frame_text_is_not_trusted_as_fact \
+  novelty_empty_frame_fails_closed; do
+  if ! grep -q "fn $_t(" crates/cognitive-demo/src/lib.rs; then exit 1; fi
+done
+# The eight-line NOVELTY-0 boundary is recorded verbatim in the source (all eight lines).
+for _bl in \
+  'Novelty packets propose.' \
+  'They do not prove.' \
+  'They cite verified receipts.' \
+  'They do not create authority.' \
+  'Probe requests do not execute.' \
+  'Nothing becomes evidence.' \
+  'Nothing promotes.' \
+  'Nothing trains.'; do
+  if ! grep -qF "$_bl" crates/cognitive-demo/src/lib.rs; then exit 1; fi
+done
+# BINARY SMOKE: run the whole NOVELTY-0 flow against a REAL local corpus + frame under the gitignored target/
+# directory (relative path, since the corpus/frame commands only read inside the working dir), and prove the
+# hypothesis-only boundary from the packet's OWN bytes, plus every refusal end-to-end through the binary.
+_nv_dir="target/.novelty_gate.$$"
+_nv_rel="$_nv_dir"
+mkdir -p "$_nv_dir/corpus"
+printf 'The east bridge reopened today. Traffic resumed by noon.' > "$_nv_dir/corpus/a-east.txt"
+printf 'The west tunnel remains closed. Crews continue repairs.' > "$_nv_dir/corpus/b-west.txt"
+printf 'The east bridge stays closed indefinitely.\nTraffic never recovers after a closure.\n' > "$_nv_dir/frame.txt"
+./target/debug/cognitive-demo corpus-trace --input-dir "$_nv_rel/corpus" --out "$_nv_dir/trace.json" >/dev/null 2>&1 || { rm -rf "$_nv_dir"; exit 1; }
+./target/debug/cognitive-demo novelty-packet --input-dir "$_nv_rel/corpus" --corpus-trace "$_nv_dir/trace.json" --frame "$_nv_rel/frame.txt" --out "$_nv_dir/novelty.json" >/dev/null 2>&1 || { rm -rf "$_nv_dir"; exit 1; }
+# Authority is hypothesis_only; there is no score and no affirmative-authority status.
+grep -q '"authority": "hypothesis_only"' "$_nv_dir/novelty.json" || { rm -rf "$_nv_dir"; exit 1; }
+if grep -q '"score"' "$_nv_dir/novelty.json"; then rm -rf "$_nv_dir"; exit 1; fi
+# Every probe request is NON-executing (executes:false), and none executes.
+grep -q '"executes": false' "$_nv_dir/novelty.json" || { rm -rf "$_nv_dir"; exit 1; }
+if grep -q '"executes": true' "$_nv_dir/novelty.json"; then rm -rf "$_nv_dir"; exit 1; fi
+if grep -qE '"(execution_status|observation_status|promotion_status)": "(executed|recorded|promoted|granted|evidence)"' "$_nv_dir/novelty.json"; then rm -rf "$_nv_dir"; exit 1; fi
+# forbidden_uses records exactly the four refused uses.
+for _fu in evidence execution promotion training; do
+  if ! grep -q "\"$_fu\"" "$_nv_dir/novelty.json"; then rm -rf "$_nv_dir"; exit 1; fi
+done
+# The eight boundary lines are present in the packet's own bytes.
+for _bl in 'Novelty packets propose.' 'They do not prove.' 'Nothing becomes evidence.' 'Nothing trains.'; do
+  if ! grep -qF "$_bl" "$_nv_dir/novelty.json"; then rm -rf "$_nv_dir"; exit 1; fi
+done
+# THE LOAD-BEARING GROUNDING PROPERTY: the preserved fact is the VERIFIED corpus span, NOT the operator frame's
+# claim. The verified span is preserved; the frame's claim is a broken-assumption candidate, never a fact.
+grep -q '"The east bridge reopened today."' "$_nv_dir/novelty.json" || { rm -rf "$_nv_dir"; exit 1; }
+./target/debug/cognitive-demo novelty-report --input-dir "$_nv_rel/corpus" --frame "$_nv_rel/frame.txt" --packet "$_nv_dir/novelty.json" > "$_nv_dir/report.txt" 2>&1 || { rm -rf "$_nv_dir"; exit 1; }
+grep -q 'PROPOSAL ONLY' "$_nv_dir/report.txt" || { rm -rf "$_nv_dir"; exit 1; }
+grep -q 'PRESERVED FACTS' "$_nv_dir/report.txt" || { rm -rf "$_nv_dir"; exit 1; }
+# Replay confirms deterministic re-derivation.
+./target/debug/cognitive-demo novelty-replay --input-dir "$_nv_rel/corpus" --frame "$_nv_rel/frame.txt" --packet "$_nv_dir/novelty.json" > "$_nv_dir/replay.txt" 2>&1 || { rm -rf "$_nv_dir"; exit 1; }
+grep -q 'does not prove' "$_nv_dir/replay.txt" || { rm -rf "$_nv_dir"; exit 1; }
+# RE-DERIVE IS LOAD-BEARING: a tampered packet is refused by BOTH replay and report.
+cp "$_nv_dir/novelty.json" "$_nv_dir/tampered.json"
+printf '\n{tampered}' >> "$_nv_dir/tampered.json"
+if ./target/debug/cognitive-demo novelty-replay --input-dir "$_nv_rel/corpus" --frame "$_nv_rel/frame.txt" --packet "$_nv_dir/tampered.json" >/dev/null 2>&1; then rm -rf "$_nv_dir"; exit 1; fi
+if ./target/debug/cognitive-demo novelty-report --input-dir "$_nv_rel/corpus" --frame "$_nv_rel/frame.txt" --packet "$_nv_dir/tampered.json" >/dev/null 2>&1; then rm -rf "$_nv_dir"; exit 1; fi
+# A corpus trace with its receipt hash stripped is NOT the verified trace -> novelty-packet refuses to ground on it.
+grep -v structure_hash "$_nv_dir/trace.json" > "$_nv_dir/trace_nohash.json"
+if ./target/debug/cognitive-demo novelty-packet --input-dir "$_nv_rel/corpus" --corpus-trace "$_nv_dir/trace_nohash.json" --frame "$_nv_rel/frame.txt" >/dev/null 2>&1; then rm -rf "$_nv_dir"; exit 1; fi
+# An empty frame (no candidate assumption) fails closed.
+printf '\n   \n' > "$_nv_dir/empty_frame.txt"
+if ./target/debug/cognitive-demo novelty-packet --input-dir "$_nv_rel/corpus" --corpus-trace "$_nv_dir/trace.json" --frame "$_nv_rel/empty_frame.txt" >/dev/null 2>&1; then rm -rf "$_nv_dir"; exit 1; fi
+# END-TO-END input safety: an absolute corpus dir, and a frame that escapes the working directory via symlink,
+# are each refused through the binary (not only via the pure path checks in the lib).
+if ./target/debug/cognitive-demo novelty-packet --input-dir "/etc" --corpus-trace "$_nv_dir/trace.json" --frame "$_nv_rel/frame.txt" >/dev/null 2>&1; then rm -rf "$_nv_dir"; exit 1; fi
+ln -s /etc/hostname "$_nv_dir/escape_frame.txt" 2>/dev/null
+if ./target/debug/cognitive-demo novelty-packet --input-dir "$_nv_rel/corpus" --corpus-trace "$_nv_dir/trace.json" --frame "$_nv_rel/escape_frame.txt" >/dev/null 2>&1; then rm -rf "$_nv_dir"; exit 1; fi
+rm -rf "$_nv_dir"
 # ---------------------------------------------------------------------------------------------------
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json

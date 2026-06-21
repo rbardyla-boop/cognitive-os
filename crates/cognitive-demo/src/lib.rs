@@ -89,6 +89,20 @@ pub enum TraceError {
     /// operator corpus (tampered, stale, or foreign) — so it is refused for corpus-report rather than
     /// laundered into authority.
     CorpusTraceMismatch,
+    /// NOVELTY-0: the verified corpus trace carries no reading-receipt structure hash, so a novelty packet
+    /// cannot cite the receipt it claims to be grounded in — the harness fails closed rather than emit an
+    /// ungrounded packet.
+    MissingReceiptHash,
+    /// NOVELTY-0: the operator frame has no non-empty line, so there is no candidate assumption to break —
+    /// the harness refuses to emit a hypothesis packet with nothing to challenge.
+    EmptyFrame,
+    /// NOVELTY-0: a preserved fact is not VERBATIM one of the corpus's verified spans, so it is not grounded
+    /// in the verified read — the harness refuses it rather than laundering an unsupported fact into the packet.
+    UnsupportedPreservedFact,
+    /// NOVELTY-0: a provided novelty packet JSON is not byte-for-byte the packet re-derived from the SAME
+    /// corpus and frame (tampered, stale, or foreign) — so it is refused for novelty-report/replay rather than
+    /// trusted over the re-derivation.
+    NoveltyPacketMismatch,
 }
 
 impl std::fmt::Display for TraceError {
@@ -141,6 +155,22 @@ impl std::fmt::Display for TraceError {
             TraceError::CorpusTraceMismatch => write!(
                 f,
                 "the provided trace is not the trace re-derived from this corpus (tampered, stale, or foreign)"
+            ),
+            TraceError::MissingReceiptHash => write!(
+                f,
+                "the verified corpus trace carries no reading-receipt hash, so a novelty packet cannot cite it"
+            ),
+            TraceError::EmptyFrame => write!(
+                f,
+                "the operator frame has no non-empty line — there is no candidate assumption to break"
+            ),
+            TraceError::UnsupportedPreservedFact => write!(
+                f,
+                "a preserved fact is not a verified corpus span, so it is not grounded and is refused"
+            ),
+            TraceError::NoveltyPacketMismatch => write!(
+                f,
+                "the provided packet is not the packet re-derived from this corpus and frame (tampered, stale, or foreign)"
             ),
         }
     }
@@ -2653,6 +2683,10 @@ fn doc_rejection_token(err: &TraceError) -> String {
         TraceError::Reading(_) => "reading-error".to_string(),
         TraceError::Hypothesis(_) => "hypothesis-error".to_string(),
         TraceError::Review(_) => "review-error".to_string(),
+        TraceError::MissingReceiptHash => "missing-receipt-hash".to_string(),
+        TraceError::EmptyFrame => "empty-frame".to_string(),
+        TraceError::UnsupportedPreservedFact => "unsupported-preserved-fact".to_string(),
+        TraceError::NoveltyPacketMismatch => "novelty-packet-mismatch".to_string(),
     }
 }
 
@@ -4005,6 +4039,342 @@ pub fn corpus_scenario_matrix() -> Result<String, TraceError> {
         boundary: corpus_scenario_boundary(),
     };
     Ok(serde_json::to_string_pretty(&matrix).expect("CorpusScenarioMatrix serializes"))
+}
+
+// --- NOVELTY-0: hypothesis-only novelty packet harness. Where the corpus arc READS local documents into a
+//     VERIFIED trace, NOVELTY-0 adds a bounded HYPOTHESIS layer ON TOP of that verified trace: given a verified
+//     corpus trace and an operator-supplied FRAME, it produces a deterministic `NoveltyPacket` that records the
+//     frame's candidate broken assumptions, the verified facts that must be preserved (each grounded VERBATIM in
+//     a verified corpus span), a candidate hypothesis, falsifiers, and NON-EXECUTING probe requests. The packet
+//     PROPOSES; it never proves. It carries `authority = hypothesis_only` (an enum with no evidence/promoted/
+//     truth variant) and an explicit `forbidden_uses` list, so it can never become evidence, execute, promote,
+//     or train. There is NO model and NO score: the FRAME is operator-supplied DATA (recorded, never trusted as
+//     fact), and the ONLY grounded content is verified span text — an unsupported preserved fact, a corpus trace
+//     missing its receipt hash, an empty frame, or any tampered packet is REFUSED by re-derivation. Like every
+//     artifact here, `NoveltyPacket` is `Serialize` but NOT `Deserialize`: it is verified by re-deriving it from
+//     the corpus + frame (the source of truth) and byte-comparing, which is why novelty-report/replay require
+//     the same `--input-dir` + `--frame` inputs, exactly as corpus-report/corpus-bundle-verify do. P12 stays
+//     training_justified=false; the library is filesystem-free (the shell reads the corpus dir + frame file and
+//     validates every path). Doctrine: Novelty packets propose. They do not prove. They cite verified receipts.
+//     They do not create authority. Probe requests do not execute. Nothing becomes evidence, promotes, or trains. ---
+
+/// The eight-line NOVELTY-0 boundary, embedded in every packet and printed in the report. Pinned as data so a
+/// test/gate can assert every line is present.
+pub const NOVELTY_BOUNDARY_LINES: [&str; 8] = [
+    "Novelty packets propose.",
+    "They do not prove.",
+    "They cite verified receipts.",
+    "They do not create authority.",
+    "Probe requests do not execute.",
+    "Nothing becomes evidence.",
+    "Nothing promotes.",
+    "Nothing trains.",
+];
+
+/// The four uses a novelty packet is FORBIDDEN from ever acquiring, recorded explicitly in every packet so the
+/// refusal is machine-checkable from the packet's own bytes, not merely implied.
+pub const NOVELTY_FORBIDDEN_USES: [&str; 4] = ["evidence", "execution", "promotion", "training"];
+
+/// The single authority a novelty packet may carry: HYPOTHESIS-ONLY. The enum has ONE variant (there is no
+/// `Evidence` / `Promoted` / `Truth` variant to construct), so a packet structurally cannot claim any authority
+/// beyond proposal. `Serialize` but NOT `Deserialize` — re-derived, never parsed back into authority.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+enum NoveltyAuthority {
+    #[serde(rename = "hypothesis_only")]
+    HypothesisOnly,
+}
+
+/// A request to TEST a candidate assumption — recorded, never executed. `executes` is always `false` and
+/// `status` is always operator-review-gated, so the packet emits only PROBE REQUESTS, never executions.
+/// `Serialize` but NOT `Deserialize`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct NoveltyProbeRequest {
+    schema: String,
+    request_id: u64,
+    question: String,
+    status: String,
+    executes: bool,
+}
+
+/// A deterministic, hypothesis-only novelty packet derived from a VERIFIED corpus trace and an operator frame.
+/// It cites the reading receipt by hash and the corpus by identity hash, records the frame's candidate broken
+/// assumptions, the verified facts to preserve (each grounded VERBATIM in a verified corpus span), a candidate
+/// hypothesis, falsifiers, and non-executing probe requests. `authority` is `hypothesis_only` and
+/// `forbidden_uses` lists what it may never become. `Serialize` but NOT `Deserialize` — re-derived from the
+/// corpus + frame and byte-compared, never parsed back into authority.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct NoveltyPacket {
+    schema: String,
+    packet_id: String,
+    source_receipt_hash: u64,
+    source_corpus_hash: u64,
+    frame_text: String,
+    broken_assumptions: Vec<String>,
+    preserved_facts: Vec<String>,
+    candidate_hypothesis: String,
+    falsifiers: Vec<String>,
+    probe_requests: Vec<NoveltyProbeRequest>,
+    authority: NoveltyAuthority,
+    forbidden_uses: Vec<String>,
+    boundary: Vec<String>,
+}
+
+/// All verified span texts of the corpus, in reading order — the ONLY facts a packet may preserve. A preserved
+/// fact that is not VERBATIM one of these is unsupported and refused. Pure (no I/O).
+fn corpus_verified_spans(documents: &[(String, String)]) -> Vec<String> {
+    let corpus = corpus_from_documents(documents);
+    corpus
+        .metadata()
+        .iter()
+        .flat_map(|doc| doc.span_ids.iter().copied())
+        .filter_map(|id| corpus.read_span(id).map(|span| span.text().to_string()))
+        .collect()
+}
+
+/// A deterministic, dependency-free identity hash of the WHOLE corpus (every document's title + content), so
+/// the packet binds the corpus it was derived from. Distinct from the reading receipt's structure hash (a
+/// different input scope); both are recorded so a packet cannot be silently re-pointed at a different corpus.
+fn corpus_identity_hash(documents: &[(String, String)]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for (title, content) in documents {
+        title.hash(&mut hasher);
+        content.hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+/// Split the operator FRAME into its candidate assumptions: each non-empty, trimmed line is one assumption the
+/// operator proposes to break. The frame is untrusted DATA — recorded and structured, never grounded as a fact.
+/// Returns [`TraceError::EmptyFrame`] if no line carries text (a frame with nothing to break cannot produce a
+/// hypothesis). Pure.
+fn frame_assumptions(frame_text: &str) -> Result<Vec<String>, TraceError> {
+    let lines: Vec<String> = frame_text
+        .lines()
+        .map(|line| line.trim())
+        .filter(|line| !line.is_empty())
+        .map(|line| line.to_string())
+        .collect();
+    if lines.is_empty() {
+        return Err(TraceError::EmptyFrame);
+    }
+    Ok(lines)
+}
+
+/// Require every preserved fact to be VERBATIM one of the corpus's verified spans. This is the grounding gate:
+/// the ONLY facts a packet may carry are verified reads, so a frame claim (or any unsupported text) can never
+/// be laundered into a preserved fact — it is refused with [`TraceError::UnsupportedPreservedFact`]. Pure.
+fn novelty_facts_grounded(
+    documents: &[(String, String)],
+    facts: &[String],
+) -> Result<(), TraceError> {
+    let verified_spans = corpus_verified_spans(documents);
+    for fact in facts {
+        if !verified_spans.iter().any(|span| span == fact) {
+            return Err(TraceError::UnsupportedPreservedFact);
+        }
+    }
+    Ok(())
+}
+
+/// Derive the deterministic hypothesis-only novelty packet for an operator corpus + frame. It starts from the
+/// VERIFIED corpus trace (fails closed via [`corpus_trace`] if the read does not verify, or [`TraceError::EmptyCorpus`]),
+/// cites the reading receipt by hash ([`TraceError::MissingReceiptHash`] if the verified trace carries none),
+/// grounds the preserved facts VERBATIM in the corpus's verified spans ([`novelty_facts_grounded`]), records the
+/// frame's candidate broken assumptions, and emits non-executing probe requests. NO model, NO score: the
+/// structure is deterministic and the only authority is `hypothesis_only`. Pure (no I/O).
+fn novelty_packet(
+    documents: &[(String, String)],
+    frame_text: &str,
+) -> Result<NoveltyPacket, TraceError> {
+    // 1. The packet is grounded in a VERIFIED corpus trace — re-derived here, fails closed if it does not verify.
+    let trace = corpus_trace(documents)?;
+    let receipt_hash = trace
+        .reading_structure_hash
+        .ok_or(TraceError::MissingReceiptHash)?;
+    let source = corpus_source(documents)?;
+    let corpus_hash = corpus_identity_hash(documents);
+
+    // 2. The operator FRAME supplies the candidate assumptions to break (untrusted data, recorded verbatim).
+    let broken_assumptions = frame_assumptions(frame_text)?;
+
+    // 3. The ONLY grounded content is verified span text. The preserved fact is the grounded source span, and
+    //    the grounding gate REFUSES anything that is not a verified span — so no frame claim can be laundered in.
+    let preserved_facts = vec![source.span_text.clone()];
+    novelty_facts_grounded(documents, &preserved_facts)?;
+
+    // 4. Deterministic, hypothesis-labeled candidate + falsifiers + non-executing probe requests.
+    let first_assumption = &broken_assumptions[0];
+    let candidate_hypothesis = format!(
+        "Proposal only (hypothesis_only): if the assumption \"{first_assumption}\" is relaxed, the verified record still constrains it — \"{}\". This is a candidate to probe, not a claim.",
+        source.span_text
+    );
+    let falsifiers: Vec<String> = preserved_facts
+        .iter()
+        .map(|fact| {
+            format!("Falsified if an observation contradicts the verified span: \"{fact}\".")
+        })
+        .collect();
+    let probe_requests: Vec<NoveltyProbeRequest> = broken_assumptions
+        .iter()
+        .enumerate()
+        .map(|(index, assumption)| NoveltyProbeRequest {
+            schema: "cognitive-novelty-probe-request-v0.1".to_string(),
+            request_id: index as u64,
+            question: format!(
+                "What observation would test relaxing the assumption \"{assumption}\"?"
+            ),
+            status: "requires_operator_review".to_string(),
+            executes: false,
+        })
+        .collect();
+
+    // 5. A deterministic, replayable packet id over the receipt hash, the corpus hash, and the frame text.
+    let packet_id = format!(
+        "novelty-{}",
+        bundle_content_hash(&format!("{receipt_hash}|{corpus_hash}|{frame_text}"))
+    );
+
+    Ok(NoveltyPacket {
+        schema: "cognitive-novelty-packet-v0.1".to_string(),
+        packet_id,
+        source_receipt_hash: receipt_hash,
+        source_corpus_hash: corpus_hash,
+        frame_text: frame_text.to_string(),
+        broken_assumptions,
+        preserved_facts,
+        candidate_hypothesis,
+        falsifiers,
+        probe_requests,
+        authority: NoveltyAuthority::HypothesisOnly,
+        forbidden_uses: NOVELTY_FORBIDDEN_USES
+            .iter()
+            .map(|use_| use_.to_string())
+            .collect(),
+        boundary: NOVELTY_BOUNDARY_LINES
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+    })
+}
+
+/// The novelty packet as pretty JSON. Pure and deterministic (fixed field order), so it re-derives byte-for-byte.
+fn novelty_packet_json(
+    documents: &[(String, String)],
+    frame_text: &str,
+) -> Result<String, TraceError> {
+    Ok(
+        serde_json::to_string_pretty(&novelty_packet(documents, frame_text)?)
+            .expect("NoveltyPacket serializes"),
+    )
+}
+
+/// The `novelty-packet` command body: confirm the PROVIDED corpus trace IS the trace re-derived from the
+/// `--input-dir` corpus (refuse a tampered / stale / foreign / receipt-hash-stripped trace via
+/// [`verify_corpus_trace_json`]), then derive the hypothesis-only novelty packet from that VERIFIED corpus and
+/// the operator frame. The corpus is the source of truth — that is why this command requires `--input-dir`
+/// alongside `--corpus-trace`, exactly as corpus-report does. Pure (no I/O).
+pub fn run_novelty_packet(
+    documents: &[(String, String)],
+    provided_trace_json: &str,
+    frame_text: &str,
+) -> Result<String, TraceError> {
+    verify_corpus_trace_json(documents, provided_trace_json)?;
+    novelty_packet_json(documents, frame_text)
+}
+
+/// Re-derive the novelty packet from the SAME corpus + frame and confirm the PROVIDED packet JSON is
+/// byte-for-byte that packet. The provided packet is NEVER parsed back into authority (`NoveltyPacket` is
+/// `Serialize` but not `Deserialize`) — it is only COMPARED against the freshly re-derived packet, so a
+/// tampered / stale / foreign packet is REFUSED ([`TraceError::NoveltyPacketMismatch`]). Pure (no I/O).
+pub fn verify_novelty_packet_json(
+    documents: &[(String, String)],
+    frame_text: &str,
+    provided: &str,
+) -> Result<(), TraceError> {
+    if provided == novelty_packet_json(documents, frame_text)? {
+        Ok(())
+    } else {
+        Err(TraceError::NoveltyPacketMismatch)
+    }
+}
+
+/// Render the novelty operator report from the re-derived packet: the proposal banner (hypothesis_only — not
+/// truth), the operator frame (recorded, never trusted), the candidate broken assumptions, the preserved
+/// (verified) facts, the candidate hypothesis, the falsifiers, the probe requests (each NON-executing), the
+/// forbidden uses, and the eight-line NOVELTY-0 boundary. Pure FORMATTING derived from the packet.
+fn novelty_report_body(packet: &NoveltyPacket) -> String {
+    let mut out = String::from("NOVELTY PACKET (PROPOSAL ONLY — hypothesis_only, not truth)\n");
+    out.push_str(&format!("    packet_id:            {}\n", packet.packet_id));
+    out.push_str(&format!(
+        "    source_receipt_hash:  {}\n",
+        packet.source_receipt_hash
+    ));
+    out.push_str(&format!(
+        "    source_corpus_hash:   {}\n",
+        packet.source_corpus_hash
+    ));
+    out.push_str("    authority:            hypothesis_only\n");
+    out.push_str("\nFRAME (operator-supplied; recorded, never trusted as fact)\n");
+    for line in packet.frame_text.lines() {
+        out.push_str(&format!("    {line}\n"));
+    }
+    out.push_str("\nBROKEN ASSUMPTIONS (candidates to challenge — no truth claimed)\n");
+    for assumption in &packet.broken_assumptions {
+        out.push_str(&format!("    - {assumption}\n"));
+    }
+    out.push_str("\nPRESERVED FACTS (verified corpus spans — the only grounded content)\n");
+    for fact in &packet.preserved_facts {
+        out.push_str(&format!("    - {fact}\n"));
+    }
+    out.push_str("\nCANDIDATE HYPOTHESIS\n");
+    out.push_str(&format!("    {}\n", packet.candidate_hypothesis));
+    out.push_str("\nFALSIFIERS\n");
+    for falsifier in &packet.falsifiers {
+        out.push_str(&format!("    - {falsifier}\n"));
+    }
+    out.push_str("\nPROBE REQUESTS (recorded, NOT executed)\n");
+    for probe in &packet.probe_requests {
+        out.push_str(&format!(
+            "    [{}] {} (status: {}, executes: {})\n",
+            probe.request_id, probe.question, probe.status, probe.executes
+        ));
+    }
+    out.push_str("\nFORBIDDEN USES (this packet may never become or do)\n");
+    for use_ in &packet.forbidden_uses {
+        out.push_str(&format!("    - {use_}\n"));
+    }
+    out.push_str("\nBOUNDARY\n");
+    for line in NOVELTY_BOUNDARY_LINES {
+        out.push_str(&format!("    {line}\n"));
+    }
+    out
+}
+
+/// The `novelty-report` command body: re-derive + verify the packet from the SAME corpus + frame (refuse a
+/// tampered packet), then render the operator report. The corpus + frame are the source of truth, so this
+/// command requires `--input-dir` + `--frame` alongside `--packet`. Pure (no I/O).
+pub fn run_novelty_report(
+    documents: &[(String, String)],
+    frame_text: &str,
+    provided: &str,
+) -> Result<String, TraceError> {
+    verify_novelty_packet_json(documents, frame_text, provided)?;
+    Ok(novelty_report_body(&novelty_packet(documents, frame_text)?))
+}
+
+/// The `novelty-replay` command body: re-derive the packet from the corpus + frame and confirm the provided
+/// packet is byte-identical — a DETERMINISM proof (re-derivation is bit-for-bit) that also REFUSES any tampered
+/// packet ([`TraceError::NoveltyPacketMismatch`]). Returns the confirmation summary. Pure (no I/O).
+pub fn run_novelty_replay(
+    documents: &[(String, String)],
+    frame_text: &str,
+    provided: &str,
+) -> Result<String, TraceError> {
+    verify_novelty_packet_json(documents, frame_text, provided)?;
+    Ok(String::from(
+        "novelty-replay: OK — the packet re-derives byte-identically from the corpus and frame (deterministic). It proposes; it does not prove.\n",
+    ))
 }
 
 #[cfg(test)]
@@ -6279,5 +6649,214 @@ mod tests {
         for e in &entries {
             assert!(e.no_training, "{} keeps training closed", e.slug);
         }
+    }
+
+    // --- NOVELTY-0: hypothesis-only novelty packet harness ---
+
+    /// A two-line operator frame: each line is a candidate assumption to break. The claims are NOT in the
+    /// corpus, so none of them can become a grounded preserved fact.
+    fn novelty_frame() -> String {
+        "The east bridge stays closed indefinitely.\nTraffic never recovers after a closure.\n"
+            .to_string()
+    }
+
+    #[test]
+    fn novelty_packet_requires_verified_corpus_receipt() {
+        // The packet is grounded in a VERIFIED corpus trace: a corpus that grounds nothing fails closed (no
+        // packet), and a well-formed corpus yields a packet whose receipt hash IS the verified trace's hash.
+        assert!(matches!(
+            novelty_packet(&[], &novelty_frame()),
+            Err(TraceError::EmptyCorpus)
+        ));
+        let packet = novelty_packet(&corpus_sample(), &novelty_frame()).unwrap();
+        let trace = corpus_trace(&corpus_sample()).unwrap();
+        assert_eq!(
+            Some(packet.source_receipt_hash),
+            trace.reading_structure_hash
+        );
+    }
+
+    #[test]
+    fn novelty_packet_cites_receipt_and_source_identity() {
+        let packet = novelty_packet(&corpus_sample(), &novelty_frame()).unwrap();
+        let source = corpus_source(&corpus_sample()).unwrap();
+        assert_ne!(packet.source_receipt_hash, 0);
+        assert_eq!(
+            packet.source_corpus_hash,
+            corpus_identity_hash(&corpus_sample())
+        );
+        assert_eq!(packet.preserved_facts, vec![source.span_text.clone()]);
+        assert!(packet.packet_id.starts_with("novelty-"));
+    }
+
+    #[test]
+    fn novelty_packet_authority_is_hypothesis_only() {
+        let json = novelty_packet_json(&corpus_sample(), &novelty_frame()).unwrap();
+        assert!(json.contains("\"authority\": \"hypothesis_only\""));
+        // There is NO score field (a score could be mistaken for authority) and no affirmative-authority status.
+        assert!(!json.contains("\"score\""));
+        assert!(!json.contains("\"executed\""));
+        assert!(!json.contains("\"promoted\""));
+    }
+
+    #[test]
+    fn novelty_packet_records_broken_assumptions() {
+        let packet = novelty_packet(&corpus_sample(), &novelty_frame()).unwrap();
+        assert_eq!(
+            packet.broken_assumptions,
+            vec![
+                "The east bridge stays closed indefinitely.".to_string(),
+                "Traffic never recovers after a closure.".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn novelty_packet_records_preserved_facts_grounded() {
+        let packet = novelty_packet(&corpus_sample(), &novelty_frame()).unwrap();
+        let spans = corpus_verified_spans(&corpus_sample());
+        assert!(!packet.preserved_facts.is_empty());
+        for fact in &packet.preserved_facts {
+            assert!(
+                spans.contains(fact),
+                "every preserved fact is a verified span"
+            );
+        }
+    }
+
+    #[test]
+    fn novelty_packet_records_falsifiers() {
+        let packet = novelty_packet(&corpus_sample(), &novelty_frame()).unwrap();
+        assert_eq!(packet.falsifiers.len(), packet.preserved_facts.len());
+        assert!(packet.falsifiers.iter().all(|f| f.contains("Falsified if")));
+    }
+
+    #[test]
+    fn novelty_probe_requests_do_not_execute() {
+        let packet = novelty_packet(&corpus_sample(), &novelty_frame()).unwrap();
+        assert_eq!(packet.probe_requests.len(), packet.broken_assumptions.len());
+        for probe in &packet.probe_requests {
+            assert!(!probe.executes, "a probe request never executes");
+            assert_eq!(probe.status, "requires_operator_review");
+        }
+    }
+
+    #[test]
+    fn novelty_packet_cannot_become_evidence_or_promote_or_train() {
+        let packet = novelty_packet(&corpus_sample(), &novelty_frame()).unwrap();
+        assert_eq!(
+            packet.forbidden_uses,
+            vec!["evidence", "execution", "promotion", "training"]
+        );
+        assert!(matches!(packet.authority, NoveltyAuthority::HypothesisOnly));
+        // The corpus trace the packet is grounded in keeps the whole authority boundary closed.
+        let trace = corpus_trace(&corpus_sample()).unwrap();
+        assert!(trace.nothing_becomes_evidence());
+        assert!(trace.promotion_refused());
+        assert!(!trace.training_justified());
+    }
+
+    #[test]
+    fn novelty_packet_replay_is_deterministic() {
+        // Two derivations are byte-identical, and the canonical packet verifies (replay confirms determinism).
+        let a = novelty_packet_json(&corpus_sample(), &novelty_frame()).unwrap();
+        let b = novelty_packet_json(&corpus_sample(), &novelty_frame()).unwrap();
+        assert_eq!(a, b);
+        assert!(verify_novelty_packet_json(&corpus_sample(), &novelty_frame(), &a).is_ok());
+        assert!(run_novelty_replay(&corpus_sample(), &novelty_frame(), &a).is_ok());
+    }
+
+    #[test]
+    fn novelty_packet_rejects_tampered_packet() {
+        let mut packet = novelty_packet_json(&corpus_sample(), &novelty_frame()).unwrap();
+        packet.push_str("\n{tampered}");
+        assert!(matches!(
+            verify_novelty_packet_json(&corpus_sample(), &novelty_frame(), &packet),
+            Err(TraceError::NoveltyPacketMismatch)
+        ));
+        assert!(run_novelty_report(&corpus_sample(), &novelty_frame(), &packet).is_err());
+        assert!(run_novelty_replay(&corpus_sample(), &novelty_frame(), &packet).is_err());
+    }
+
+    #[test]
+    fn novelty_facts_grounded_rejects_unsupported_fact() {
+        // A fact that is not a verified span is refused; the grounded source span is accepted.
+        let source = corpus_source(&corpus_sample()).unwrap();
+        assert!(novelty_facts_grounded(&corpus_sample(), &[source.span_text]).is_ok());
+        assert!(matches!(
+            novelty_facts_grounded(
+                &corpus_sample(),
+                &["A fact not present in the corpus.".to_string()]
+            ),
+            Err(TraceError::UnsupportedPreservedFact)
+        ));
+    }
+
+    #[test]
+    fn novelty_packet_refuses_corpus_trace_missing_receipt_hash() {
+        // novelty-packet verifies the provided corpus trace against the re-derivation. A trace JSON with its
+        // receipt hash stripped is NOT the verified trace, so the packet refuses to ground on it.
+        let trace = run_corpus_trace(&corpus_sample()).unwrap();
+        assert!(run_novelty_packet(&corpus_sample(), &trace, &novelty_frame()).is_ok());
+        let stripped: String = trace
+            .lines()
+            .filter(|line| !line.contains("structure_hash"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_ne!(stripped, trace, "the receipt hash line was removed");
+        assert!(matches!(
+            run_novelty_packet(&corpus_sample(), &stripped, &novelty_frame()),
+            Err(TraceError::CorpusTraceMismatch)
+        ));
+    }
+
+    #[test]
+    fn novelty_packet_does_not_change_training_gate() {
+        let before = corpus_trace(&corpus_sample()).unwrap().training_justified();
+        let _ = novelty_packet(&corpus_sample(), &novelty_frame()).unwrap();
+        let after = corpus_trace(&corpus_sample()).unwrap().training_justified();
+        assert!(
+            !before && !after,
+            "the novelty harness leaves P12 training_justified=false"
+        );
+        assert!(corpus_trace(&corpus_sample())
+            .unwrap()
+            .training_gate_unchanged());
+    }
+
+    #[test]
+    fn novelty_frame_text_is_not_trusted_as_fact() {
+        // A frame claim that is NOT a verified corpus span can never become a preserved fact: the grounding
+        // gate refuses it, and the packet's preserved facts contain only verified spans, never the frame's
+        // assertions. The frame IS recorded verbatim (as data), but only as the recorded frame, not as a fact.
+        let frame = "Bridges are always unsafe after rain.\n".to_string();
+        let packet = novelty_packet(&corpus_sample(), &frame).unwrap();
+        assert!(!packet
+            .preserved_facts
+            .iter()
+            .any(|f| f.contains("Bridges are always unsafe")));
+        assert!(matches!(
+            novelty_facts_grounded(
+                &corpus_sample(),
+                &["Bridges are always unsafe after rain.".to_string()]
+            ),
+            Err(TraceError::UnsupportedPreservedFact)
+        ));
+        assert!(packet
+            .frame_text
+            .contains("Bridges are always unsafe after rain."));
+    }
+
+    #[test]
+    fn novelty_empty_frame_fails_closed() {
+        // A frame with no non-empty line has nothing to break, so the harness refuses to emit a packet.
+        assert!(matches!(
+            novelty_packet(&corpus_sample(), "\n   \n"),
+            Err(TraceError::EmptyFrame)
+        ));
+        assert!(matches!(
+            frame_assumptions("   "),
+            Err(TraceError::EmptyFrame)
+        ));
     }
 }

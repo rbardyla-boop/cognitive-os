@@ -3336,6 +3336,71 @@ NO new file, NO new dependency, and no frozen crate SOURCE is touched. The `read
 (`460be0c`), `operator-controls-v0.1` (`34b4f47`), and `document-flow-v0.1` (`0cc7399`) tags are unmoved, and
 P13–P15 stay closed. `release_check.sh` is exit 0 and byte-silent.
 
+## Hypothesis-Only Novelty Packet Harness (NOVELTY-0): propose without proving, cite without authority
+
+NOVELTY-0 opens the bounded hypothesis layer the corpus arc was building toward. Where the corpus flow READS
+local documents into a *verified* trace, NOVELTY-0 sits ON TOP of that verified trace and produces a
+deterministic, **hypothesis-only** novelty packet — assumption-breaking *candidates* that explicitly refuse
+authority. This is the operator's "language proposer inside a verifier-bound machine" doctrine made concrete:
+the proposer here is the operator's **frame** (deterministic text, **no LLM yet**), and the harness is the
+verifier+structurer that decides what may be carried — never granting truth, evidence, execution, promotion, or
+training.
+
+Given a verified corpus trace (re-derived from `--input-dir`, with the operator's `--corpus-trace` byte-verified
+against it) and an operator `--frame`, `novelty-packet` emits a `NoveltyPacket` recording: the **broken
+assumptions** (each non-empty frame line — operator-supplied *candidates* to challenge, with no truth claimed);
+the **preserved facts** (the verified corpus span the trace grounds on — and **only** verified spans, enforced
+by a grounding gate so a frame claim can never be laundered into a fact); a **candidate hypothesis** (a
+deterministic, *proposal-only* restatement that grounds the constraint in the verified span); **falsifiers**
+(what observation would refute the preserved fact); and **probe requests** (each `executes: false`, status
+`requires_operator_review` — recorded, never run). The packet cites the reading receipt by hash
+(`source_receipt_hash`) and the corpus by identity hash (`source_corpus_hash`), carries `authority:
+hypothesis_only` (an enum with *no* evidence/promoted/truth variant to construct), and records an explicit
+`forbidden_uses: [evidence, execution, promotion, training]` so the refusal is machine-checkable from the
+packet's own bytes. There is deliberately **no novelty score** — a score could be mistaken for authority.
+
+The load-bearing property is the **grounding boundary**: the operator frame is recorded verbatim as `frame_text`
+and structured into broken-assumption candidates, but it is **never grounded as a fact**. Only a verified corpus
+span becomes a preserved fact — `novelty_facts_grounded` refuses anything that is not VERBATIM a verified span
+(`UnsupportedPreservedFact`). So a frame that asserts "the east bridge stays closed indefinitely" yields that
+line as a *broken assumption*, while the *preserved fact* remains the verified read "The east bridge reopened
+today." The frame proposes; the verified corpus constrains.
+
+Re-derive-never-trust holds, exactly as it does for the corpus bundle: `NoveltyPacket` (and its
+`NoveltyProbeRequest` / `NoveltyAuthority`) are `Serialize` but NOT `Deserialize`; `novelty-report` and
+`novelty-replay` RE-DERIVE the packet from the SAME corpus + frame and byte-compare, so a tampered/stale/foreign
+packet is refused (`NoveltyPacketMismatch`) — which is why they require `--input-dir` + `--frame` alongside
+`--packet`, the same source-of-truth discipline that makes `corpus-report`/`corpus-bundle-verify` require
+`--input-dir`. `novelty-replay` is the determinism proof (re-derivation is bit-for-bit). A receipt-hash-stripped
+corpus trace (`CorpusTraceMismatch`), an empty frame (`EmptyFrame`), an absolute/escaping corpus or frame path,
+and any tampered packet are each refused — proven end-to-end through the binary by the gate's NOVELTY-0 smoke.
+
+15 new tests bring the crate to **139 unit tests** (124 → 139), fmt + clippy clean. The library stays
+filesystem-free (`std::fs` only in `main.rs`, where `read_frame` reuses the same path-validation as `read_input`
+via a shared `read_local_file`). The `release_check.sh` NOVELTY-0 block pins the API + the three commands, the
+grounded-in-a-verified-trace + grounding-gate functions, all fifteen test names, the eight boundary lines, and a
+binary smoke that proves — from the packet's own bytes — `authority: hypothesis_only`, every probe
+`executes: false`, the four forbidden uses, the boundary, and that the preserved fact is the verified span (not
+the frame's claim), then refuses a tampered packet (via both replay and report), a receipt-hash-stripped trace,
+an empty frame, and an absolute/escaping path.
+
+Boundary held: NOVELTY-0 adds a PROPOSAL surface but no authority and no cognition. The packet proposes; it does
+not prove; it cites verified receipts; it does not create authority; probe requests do not execute; nothing
+becomes evidence, promotes, mutates memory, or opens training, and P12 stays `training_justified=false`. There
+is no model in the loop — the frame is deterministic operator text; any future model could only PROPOSE through
+this same hypothesis-only boundary, never ground a claim or self-authorize. Purely additive within the
+integration layer: only `crates/cognitive-demo/src/{lib.rs,main.rs}` and the gate block change — NO
+`Cargo.toml`/`Cargo.lock` change, NO new file, NO new dependency, and no frozen crate SOURCE is touched. The
+`reading-track-v0.1` (`f6fa55a`), `hypothesis-track-v0.1` (`bb20acf`), `integration-demo-v0.1` (`95b586d`),
+`multi-trace-validation-v0.1` (`460be0c`), `operator-controls-v0.1` (`34b4f47`), `document-flow-v0.1`
+(`0cc7399`), and `corpus-flow-v0.1` (`b8577fe`) tags are unmoved, and P13–P15 stay closed. `release_check.sh` is
+exit 0 and byte-silent.
+
+The eight-line NOVELTY-0 boundary, recorded verbatim in `NOVELTY_BOUNDARY_LINES`, the gate, and every packet:
+
+> Novelty packets propose. They do not prove. They cite verified receipts. They do not create authority. Probe
+> requests do not execute. Nothing becomes evidence. Nothing promotes. Nothing trains.
+
 ## Appendix — LLM Training as Constraint Engineering (supporting methodology)
 
 Date: 2026-06-13

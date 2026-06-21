@@ -3,6 +3,55 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-21-D — Hypothesis-only novelty packet harness (NOVELTY-0)
+
+**Decision.** Extend `crates/cognitive-demo` with the hypothesis-only novelty packet harness — the first layer
+ABOVE the verified corpus trace that can express assumption-breaking *candidates* while explicitly refusing
+authority. Three commands (`novelty-packet`, `novelty-report`, `novelty-replay`) take a verified corpus trace
+(re-derived from `--input-dir`, with `--corpus-trace` byte-verified against it) and an operator `--frame`, and
+emit/verify a deterministic `NoveltyPacket { packet_id, source_receipt_hash, source_corpus_hash, frame_text,
+broken_assumptions[], preserved_facts[], candidate_hypothesis, falsifiers[], probe_requests[], authority,
+forbidden_uses[], boundary[] }`. The frame's non-empty lines become `broken_assumptions` (candidates, no truth
+claimed); the verified corpus span the trace grounds on becomes the sole `preserved_fact` — and a grounding gate
+(`novelty_facts_grounded`) REFUSES any preserved fact that is not VERBATIM a verified span, so a frame claim can
+never be laundered into a fact. `authority` is the single-variant enum `hypothesis_only`; `forbidden_uses` lists
+`[evidence, execution, promotion, training]`; every probe request is `executes: false` /
+`requires_operator_review`. There is deliberately NO novelty score. **No LLM** — the frame is deterministic
+operator text. 15 new tests bring the crate to 139 unit tests; the library stays filesystem-free (`std::fs` only
+in `main.rs`).
+
+**Why.** The corpus/document input arcs are frozen (`corpus-flow-v0.1`, `document-flow-v0.1`). The next useful
+step is not training and not "creative autonomy": it is a BOUNDED hypothesis layer that can propose
+assumption-breaking candidates inside a verifier-bound machine — the operator's "language proposer, external
+verifier decides what survives" doctrine. NOVELTY-0 makes that concrete and deterministic first, keeping the LLM
+out of the loop entirely; any future model could only PROPOSE through this same hypothesis-only boundary.
+Capability sprint, so `a.md` records it.
+
+**Boundary recorded.** The eight-line NOVELTY-0 boundary is embedded verbatim in `NOVELTY_BOUNDARY_LINES`, every
+packet, and the gate: *Novelty packets propose. They do not prove. They cite verified receipts. They do not
+create authority. Probe requests do not execute. Nothing becomes evidence. Nothing promotes. Nothing trains.*
+The load-bearing property is the grounding boundary — the frame is recorded as `frame_text` + structured into
+broken-assumption candidates but NEVER grounded as a fact; only verified corpus spans are preserved facts. The
+packet is grounded in a VERIFIED corpus trace (`novelty_packet` calls `corpus_trace` + `corpus_source` and fails
+closed on `EmptyCorpus`/`VerifierRejected`), cites the reading receipt by hash, and refuses a corpus trace
+missing its receipt hash (`CorpusTraceMismatch`), an unsupported preserved fact (`UnsupportedPreservedFact`), an
+empty frame (`EmptyFrame`), and any tampered packet (`NoveltyPacketMismatch`). Every new struct is `Serialize`
+but NOT `Deserialize` (re-derive, never trust); `novelty-report`/`novelty-replay` re-derive the packet from the
+SAME corpus + frame and byte-compare, which is why they require `--input-dir` + `--frame` alongside `--packet`
+(the same source-of-truth discipline as `corpus-report`/`corpus-bundle-verify`); `read_frame` reuses the
+existing path-validation via a shared `read_local_file`. The `release_check.sh` NOVELTY-0 block pins the API +
+the three commands, the grounded-in-a-verified-trace + grounding-gate functions, all fifteen test-name pins, the
+unit-count pin raised 124→139, the eight boundary lines, and a binary smoke that proves the hypothesis-only
+boundary from the packet's OWN bytes (authority `hypothesis_only`, every probe `executes: false`, the four
+forbidden uses, the boundary, the verified span as the preserved fact) and refuses a tampered packet (via both
+replay and report), a receipt-hash-stripped trace, an empty frame, and an absolute/escaping corpus/frame path
+end-to-end. Verified by a green, byte-silent `release_check.sh`; live sabotage of the new pins (restored
+byte-identical via `cp`+`md5`, never `git checkout`); and an independent read-only adversarial panel. Purely
+additive — only `crates/cognitive-demo/src/{lib.rs,main.rs}` and the gate block change; NO `Cargo.toml`/`Cargo.lock`
+change, NO new file, NO new dependency, no frozen crate SOURCE touched, P12 stays `training_justified=false`,
+P13–P15 closed, and the eight milestone tags are unmoved. Recorded in [a.md](../a.md) and
+[scripts/release_check.sh](../scripts/release_check.sh). No tag for NOVELTY-0. Local only — no remote push.
+
 ## DD-2026-06-21-C — Freeze the corpus flow milestone (CORPUS-0 → CORPUS-2) as corpus-flow-v0.1
 
 **Decision.** Freeze the CORPUS-0 → CORPUS-2 multi-document local-corpus arc as the named, auditable tag

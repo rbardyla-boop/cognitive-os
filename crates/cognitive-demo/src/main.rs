@@ -25,6 +25,21 @@
 //!   cognitive-demo corpus-scenario-pack   --out DIR                      # write the observed corpus input-integrity record + report
 //!   cognitive-demo corpus-scenario-verify --path DIR                     # re-derive the corpus-scenario pack and refuse any tamper
 //!   cognitive-demo corpus-scenario-matrix --path DIR [--out PATH]        # verify the pack, then emit the corpus input-integrity matrix
+//!   cognitive-demo novelty-packet --input-dir DIR --corpus-trace PATH --frame PATH [--out PATH]  # hypothesis-only novelty packet
+//!   cognitive-demo novelty-report --input-dir DIR --frame PATH --packet PATH [--out PATH]        # render the packet (re-derive + refuse tamper)
+//!   cognitive-demo novelty-replay --input-dir DIR --frame PATH --packet PATH                     # confirm the packet replays byte-identically
+//!
+//! NOVELTY-0 adds the hypothesis-only novelty packet harness ON TOP of the verified corpus trace: given a
+//! verified corpus trace (re-derived from `--input-dir`, with `--corpus-trace` byte-verified against it) and an
+//! operator `--frame`, `novelty-packet` emits a deterministic `NoveltyPacket` recording the frame's candidate
+//! broken assumptions, the verified facts to preserve (each grounded VERBATIM in a verified corpus span), a
+//! candidate hypothesis, falsifiers, and NON-EXECUTING probe requests. The packet carries `authority =
+//! hypothesis_only` and an explicit `forbidden_uses` list, so it can never become evidence, execute, promote,
+//! or train. There is NO model and NO score: the frame is read as DATA, never trusted as a fact, and an
+//! unsupported preserved fact, an empty frame, a receipt-hash-stripped corpus trace, or any tampered packet is
+//! REFUSED. `novelty-report`/`novelty-replay` re-derive the packet from the SAME corpus + frame and refuse a
+//! tampered packet — that is why they require `--input-dir` + `--frame` alongside `--packet`. The packet
+//! PROPOSES; it does not prove. P12 stays training_justified=false.
 //!
 //! CORPUS-2 adds the corpus scenario pack / input-integrity matrix: a finite, enum-backed set of VALID and
 //! INVALID corpus inputs, each OBSERVED by running the REAL CORPUS-0 admission filter / check / verifier — a
@@ -85,11 +100,12 @@ use cognitive_demo::{
     corpus_scenario_matrix, corpus_scenario_pack_files, doc_bundle, doc_scenario_matrix,
     doc_scenario_pack_files, failure_pack_files, list_corpus_scenarios, list_doc_scenarios,
     list_failure_cases, list_questions, list_scenarios, resolved_path_within, run_ask,
-    run_corpus_report, run_corpus_trace, run_doc_report, run_doc_trace, run_replay, run_report,
-    run_trace, scenario_bundle, scenario_matrix, scenario_matrix_report, scenario_pack_manifest,
-    verify_bundle, verify_corpus_bundle, verify_corpus_scenario_pack, verify_doc_bundle,
-    verify_doc_scenario_pack, verify_failure_pack, verify_scenario_matrix, verify_scenario_pack,
-    Scenario, BUNDLE_BOUNDARY_LINES, BUNDLE_FILES, CORPUS_BOUNDARY_LINES, CORPUS_BUNDLE_FILES,
+    run_corpus_report, run_corpus_trace, run_doc_report, run_doc_trace, run_novelty_packet,
+    run_novelty_replay, run_novelty_report, run_replay, run_report, run_trace, scenario_bundle,
+    scenario_matrix, scenario_matrix_report, scenario_pack_manifest, verify_bundle,
+    verify_corpus_bundle, verify_corpus_scenario_pack, verify_doc_bundle, verify_doc_scenario_pack,
+    verify_failure_pack, verify_scenario_matrix, verify_scenario_pack, Scenario,
+    BUNDLE_BOUNDARY_LINES, BUNDLE_FILES, CORPUS_BOUNDARY_LINES, CORPUS_BUNDLE_FILES,
     CORPUS_SCENARIO_BOUNDARY_LINES, CORPUS_SCENARIO_PACK_FILES, DOC_BOUNDARY_LINES,
     DOC_SCENARIO_BOUNDARY_LINES, DOC_SCENARIO_PACK_FILES, FAILURE_BOUNDARY_LINES,
     FAILURE_PACK_FILES, MATRIX_BOUNDARY_LINES, MTRACE_BOUNDARY_LINES, PACK_MANIFEST_FILE,
@@ -374,6 +390,41 @@ fn dispatch(args: &[String]) -> Result<(), String> {
             let matrix = corpus_scenario_matrix().map_err(|e| e.to_string())?;
             emit(&matrix, flag_value(args, "--out"))
         }
+        Some("novelty-packet") => {
+            // Re-derive the verified corpus trace from --input-dir, confirm the provided --corpus-trace IS that
+            // trace (refuse a tampered / receipt-hash-stripped / foreign trace), then derive a HYPOTHESIS-ONLY
+            // novelty packet from that verified corpus and the operator --frame. The corpus is the source of
+            // truth, so this command requires --input-dir alongside --corpus-trace. The frame is read but never
+            // trusted as fact; nothing executes, becomes evidence, promotes, or trains.
+            let documents = read_local_corpus(args)?;
+            let trace = read_plain_file(args, "--corpus-trace")?;
+            let frame = read_frame(args)?;
+            let json = run_novelty_packet(&documents, &trace, &frame).map_err(|e| e.to_string())?;
+            emit(&json, flag_value(args, "--out"))
+        }
+        Some("novelty-report") => {
+            // Re-derive the novelty packet from the SAME --input-dir corpus and --frame, confirm the provided
+            // --packet IS that packet (refuse a tampered packet), then render the proposal report. The corpus +
+            // frame are the source of truth, so this command requires --input-dir + --frame alongside --packet.
+            let documents = read_local_corpus(args)?;
+            let frame = read_frame(args)?;
+            let packet = read_packet(args)?;
+            let report =
+                run_novelty_report(&documents, &frame, &packet).map_err(|e| e.to_string())?;
+            emit(&report, flag_value(args, "--out"))
+        }
+        Some("novelty-replay") => {
+            // Re-derive the novelty packet from the corpus + frame and confirm the provided --packet is
+            // byte-identical — a determinism proof that also refuses any tampered packet. Reads nothing as
+            // authority; the packet PROPOSES, it does not prove.
+            let documents = read_local_corpus(args)?;
+            let frame = read_frame(args)?;
+            let packet = read_packet(args)?;
+            let summary =
+                run_novelty_replay(&documents, &frame, &packet).map_err(|e| e.to_string())?;
+            print!("{summary}");
+            Ok(())
+        }
         _ => Err(usage()),
     }
 }
@@ -381,7 +432,15 @@ fn dispatch(args: &[String]) -> Result<(), String> {
 /// Read the file named by `--trace PATH`. The CONTENT is never trusted as authority — it is only
 /// compared against the re-derived canonical trace by the library — so this is a plain file read.
 fn read_trace(args: &[String]) -> Result<String, String> {
-    let path = flag_value(args, "--trace").ok_or("this command requires --trace <path>")?;
+    read_plain_file(args, "--trace")
+}
+
+/// Read the file named by `flag` as a plain string. The CONTENT is never trusted as authority — it is only
+/// compared against a re-derived canonical artifact by the library — so this is a plain file read. Shared by
+/// `--trace`, `--corpus-trace`, and `--packet`.
+fn read_plain_file(args: &[String], flag: &str) -> Result<String, String> {
+    let path =
+        flag_value(args, flag).ok_or_else(|| format!("this command requires {flag} <path>"))?;
     std::fs::read_to_string(path).map_err(|e| format!("cannot read {path}: {e}"))
 }
 
@@ -394,7 +453,19 @@ fn read_trace(args: &[String]) -> Result<String, String> {
 /// verifies them through the frozen reader before tracing. The filesystem access lives ONLY here, in the
 /// shell.
 fn read_local_input(args: &[String]) -> Result<String, String> {
-    let path = flag_value(args, "--input").ok_or("this command requires --input <path>")?;
+    read_local_file(args, "--input")
+}
+
+/// Read a LOCAL operator file named by `flag` (e.g. `--input` or `--frame`), validating that the path is safe
+/// and local before touching it — the shared core of [`read_local_input`] and [`read_frame`]. Two layers: (1)
+/// the pure [`check_local_input_path`] rejects an absolute path, a `..` traversal, a `~` prefix, or an empty
+/// path WITHOUT any filesystem access; (2) defense in depth — canonicalize the path and the working directory
+/// and require the resolved path to stay INSIDE the working directory (so a symlink cannot escape to a
+/// non-local file), and require a regular file. Only then is the file read. The bytes are passed to the
+/// library as untrusted CONTENT. The filesystem access lives ONLY here, in the shell.
+fn read_local_file(args: &[String], flag: &str) -> Result<String, String> {
+    let path =
+        flag_value(args, flag).ok_or_else(|| format!("this command requires {flag} <path>"))?;
     check_local_input_path(path).map_err(|e| e.to_string())?;
     let cwd = std::env::current_dir()
         .and_then(|d| d.canonicalize())
@@ -411,6 +482,19 @@ fn read_local_input(args: &[String]) -> Result<String, String> {
         ));
     }
     std::fs::read_to_string(&resolved).map_err(|e| format!("cannot read {path}: {e}"))
+}
+
+/// Read the LOCAL operator FRAME named by `--frame PATH` (validated + confined; see [`read_local_file`]). The
+/// frame is untrusted DATA — recorded into the packet as `frame_text` and structured into candidate
+/// assumptions to break — but it is NEVER grounded as a fact; only verified corpus spans are preserved facts.
+fn read_frame(args: &[String]) -> Result<String, String> {
+    read_local_file(args, "--frame")
+}
+
+/// Read the novelty packet named by `--packet PATH` (a plain read via [`read_plain_file`]; the content is never
+/// trusted as authority — it is only compared against the re-derived canonical packet by the library).
+fn read_packet(args: &[String]) -> Result<String, String> {
+    read_plain_file(args, "--packet")
 }
 
 /// Read the LOCAL operator corpus named by `--input-dir PATH`: a directory of `.txt` documents, validated
@@ -840,6 +924,9 @@ fn usage() -> String {
      corpus-trace --input-dir DIR [--out PATH] | corpus-report --input-dir DIR --trace PATH [--out PATH] | \
      corpus-bundle --input-dir DIR --out DIR | corpus-bundle-verify --input-dir DIR --path DIR | \
      corpus-scenarios | corpus-scenario-pack --out DIR | corpus-scenario-verify --path DIR | \
-     corpus-scenario-matrix --path DIR [--out PATH]>"
+     corpus-scenario-matrix --path DIR [--out PATH] | \
+     novelty-packet --input-dir DIR --corpus-trace PATH --frame PATH [--out PATH] | \
+     novelty-report --input-dir DIR --frame PATH --packet PATH [--out PATH] | \
+     novelty-replay --input-dir DIR --frame PATH --packet PATH>"
         .to_string()
 }
