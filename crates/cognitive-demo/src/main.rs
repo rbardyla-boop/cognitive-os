@@ -21,6 +21,20 @@
 //!   cognitive-demo corpus-report       --input-dir DIR --trace PATH      # render the corpus report (re-derive + refuse tamper)
 //!   cognitive-demo corpus-bundle       --input-dir DIR --out DIR         # repro bundle over the operator corpus
 //!   cognitive-demo corpus-bundle-verify --input-dir DIR --path DIR       # re-derive the corpus bundle and refuse any tamper
+//!   cognitive-demo corpus-scenarios                                      # list the finite corpus-input scenario set
+//!   cognitive-demo corpus-scenario-pack   --out DIR                      # write the observed corpus input-integrity record + report
+//!   cognitive-demo corpus-scenario-verify --path DIR                     # re-derive the corpus-scenario pack and refuse any tamper
+//!   cognitive-demo corpus-scenario-matrix --path DIR [--out PATH]        # verify the pack, then emit the corpus input-integrity matrix
+//!
+//! CORPUS-2 adds the corpus scenario pack / input-integrity matrix: a finite, enum-backed set of VALID and
+//! INVALID corpus inputs, each OBSERVED by running the REAL CORPUS-0 admission filter / check / verifier — a
+//! clean two-document corpus verifies; an empty corpus, a hidden-only or non-`.txt`-only corpus, an absolute /
+//! `..` / escaping path, a grounding-document mutation, a non-grounding side-document mutation, and a tampered
+//! source/trace/report/manifest are each REFUSED. `corpus-scenario-pack` writes the observed-outcome record +
+//! report; `corpus-scenario-verify` re-derives and refuses any tamper; `corpus-scenario-matrix` verifies the
+//! pack then emits the matrix, which additionally records the verified case's SOURCE IDENTITY and a
+//! `whole_corpus_bound` fact (mutating a non-grounding document leaves the attribution intact yet still fails
+//! the bundle). Every scenario keeps the boundary closed: nothing executes, becomes evidence, promotes, or trains.
 //!
 //! CORPUS-0 adds the multi-document local corpus flow: `corpus-trace` reads a LOCAL DIRECTORY of `.txt`
 //! documents (path-validated in this shell — absolute / `..` / symlink-escape refused; hidden / non-`.txt`
@@ -67,17 +81,18 @@
 //! here (never in the library or the example), which the release gate enforces.
 
 use cognitive_demo::{
-    canonical_bundle, check_local_input_path, corpus_admits_filename, corpus_bundle, doc_bundle,
-    doc_scenario_matrix, doc_scenario_pack_files, failure_pack_files, list_doc_scenarios,
+    canonical_bundle, check_local_input_path, corpus_admits_filename, corpus_bundle,
+    corpus_scenario_matrix, corpus_scenario_pack_files, doc_bundle, doc_scenario_matrix,
+    doc_scenario_pack_files, failure_pack_files, list_corpus_scenarios, list_doc_scenarios,
     list_failure_cases, list_questions, list_scenarios, resolved_path_within, run_ask,
     run_corpus_report, run_corpus_trace, run_doc_report, run_doc_trace, run_replay, run_report,
     run_trace, scenario_bundle, scenario_matrix, scenario_matrix_report, scenario_pack_manifest,
-    verify_bundle, verify_corpus_bundle, verify_doc_bundle, verify_doc_scenario_pack,
-    verify_failure_pack, verify_scenario_matrix, verify_scenario_pack, Scenario,
-    BUNDLE_BOUNDARY_LINES, BUNDLE_FILES, CORPUS_BOUNDARY_LINES, CORPUS_BUNDLE_FILES,
-    DOC_BOUNDARY_LINES, DOC_SCENARIO_BOUNDARY_LINES, DOC_SCENARIO_PACK_FILES,
-    FAILURE_BOUNDARY_LINES, FAILURE_PACK_FILES, MATRIX_BOUNDARY_LINES, MTRACE_BOUNDARY_LINES,
-    PACK_MANIFEST_FILE,
+    verify_bundle, verify_corpus_bundle, verify_corpus_scenario_pack, verify_doc_bundle,
+    verify_doc_scenario_pack, verify_failure_pack, verify_scenario_matrix, verify_scenario_pack,
+    Scenario, BUNDLE_BOUNDARY_LINES, BUNDLE_FILES, CORPUS_BOUNDARY_LINES, CORPUS_BUNDLE_FILES,
+    CORPUS_SCENARIO_BOUNDARY_LINES, CORPUS_SCENARIO_PACK_FILES, DOC_BOUNDARY_LINES,
+    DOC_SCENARIO_BOUNDARY_LINES, DOC_SCENARIO_PACK_FILES, FAILURE_BOUNDARY_LINES,
+    FAILURE_PACK_FILES, MATRIX_BOUNDARY_LINES, MTRACE_BOUNDARY_LINES, PACK_MANIFEST_FILE,
 };
 
 fn main() {
@@ -325,6 +340,39 @@ fn dispatch(args: &[String]) -> Result<(), String> {
             verify_corpus_bundle(&documents, &provided).map_err(|e| e.to_string())?;
             print!("{}", corpus_bundle_verify_summary());
             Ok(())
+        }
+        Some("corpus-scenarios") => {
+            // List the finite corpus-flow input-scenario set (no inputs needed — this is the menu).
+            print!("{}", list_corpus_scenarios());
+            Ok(())
+        }
+        Some("corpus-scenario-pack") => {
+            // Run every corpus scenario (clean + invalid inputs) and write the observed-outcome record +
+            // report (pure derivation). No scenario executes, promotes, or trains; the forged/invalid inputs
+            // exist only to be refused.
+            let out_dir = flag_value(args, "--out").ok_or("this command requires --out <dir>")?;
+            let files = corpus_scenario_pack_files().map_err(|e| e.to_string())?;
+            write_bundle(out_dir, &files)?;
+            print!("{}", corpus_scenario_pack_summary(out_dir, &files));
+            Ok(())
+        }
+        Some("corpus-scenario-verify") => {
+            // Read the provided corpus-scenario pack, then verify it by RE-DERIVING the pack (re-running every
+            // scenario) and byte-comparing — a doctored pack is refused, never trusted.
+            let dir = flag_value(args, "--path").ok_or("this command requires --path <dir>")?;
+            let provided = read_corpus_scenario_pack(dir)?;
+            verify_corpus_scenario_pack(&provided).map_err(|e| e.to_string())?;
+            print!("{}", corpus_scenario_verify_summary());
+            Ok(())
+        }
+        Some("corpus-scenario-matrix") => {
+            // VERIFY the pack at --path re-derives (refuse a tampered pack), then emit the input-integrity
+            // matrix to --out. The matrix is purely re-derived from the scenario set; the pack is never trusted.
+            let dir = flag_value(args, "--path").ok_or("this command requires --path <dir>")?;
+            let provided = read_corpus_scenario_pack(dir)?;
+            verify_corpus_scenario_pack(&provided).map_err(|e| e.to_string())?;
+            let matrix = corpus_scenario_matrix().map_err(|e| e.to_string())?;
+            emit(&matrix, flag_value(args, "--out"))
         }
         _ => Err(usage()),
     }
@@ -609,6 +657,50 @@ fn corpus_bundle_verify_summary() -> String {
     out
 }
 
+/// Read the expected corpus-scenario pack files from `dir`. A file that is absent is simply omitted (so
+/// `verify_corpus_scenario_pack` reports it missing rather than this shell guessing). The CONTENT is never
+/// trusted — it is only re-derived and byte-compared by the library.
+fn read_corpus_scenario_pack(dir: &str) -> Result<Vec<(String, String)>, String> {
+    let mut found = Vec::new();
+    for name in CORPUS_SCENARIO_PACK_FILES {
+        let path = format!("{dir}/{name}");
+        if std::path::Path::new(&path).exists() {
+            let content =
+                std::fs::read_to_string(&path).map_err(|e| format!("cannot read {path}: {e}"))?;
+            found.push((name.to_string(), content));
+        }
+    }
+    Ok(found)
+}
+
+/// The human summary printed after `corpus-scenario-pack` writes the pack: the files and the CORPUS-2 boundary.
+fn corpus_scenario_pack_summary(dir: &str, files: &[(&str, String)]) -> String {
+    let mut out = format!(
+        "corpus-scenario-pack: wrote {} files to {dir} (1 valid + 12 invalid inputs; every invalid input REFUSED)\n",
+        files.len()
+    );
+    for (name, content) in files {
+        out.push_str(&format!("    {name} ({} bytes)\n", content.len()));
+    }
+    out.push_str("BOUNDARY\n");
+    for line in CORPUS_SCENARIO_BOUNDARY_LINES {
+        out.push_str(&format!("    {line}\n"));
+    }
+    out
+}
+
+/// The success summary printed after `corpus-scenario-verify` accepts a corpus-scenario pack.
+fn corpus_scenario_verify_summary() -> String {
+    let mut out = String::from(
+        "corpus-scenario-verify: OK — the corpus-scenario pack re-derives byte-identically; every input outcome stands\n",
+    );
+    out.push_str("BOUNDARY\n");
+    for line in CORPUS_SCENARIO_BOUNDARY_LINES {
+        out.push_str(&format!("    {line}\n"));
+    }
+    out
+}
+
 /// Write the scenario pack: one bundle subdirectory per scenario (each with the four bundle files) plus
 /// the scenario-pack manifest. Returns the number of bundle files written. The bundle CONTENT is a pure
 /// derivation from the frozen tracks; this shell only places the bytes on disk.
@@ -746,6 +838,8 @@ fn usage() -> String {
      doc-scenarios | doc-scenario-pack --out DIR | doc-scenario-verify --path DIR | \
      doc-scenario-matrix --path DIR [--out PATH] | \
      corpus-trace --input-dir DIR [--out PATH] | corpus-report --input-dir DIR --trace PATH [--out PATH] | \
-     corpus-bundle --input-dir DIR --out DIR | corpus-bundle-verify --input-dir DIR --path DIR>"
+     corpus-bundle --input-dir DIR --out DIR | corpus-bundle-verify --input-dir DIR --path DIR | \
+     corpus-scenarios | corpus-scenario-pack --out DIR | corpus-scenario-verify --path DIR | \
+     corpus-scenario-matrix --path DIR [--out PATH]>"
         .to_string()
 }

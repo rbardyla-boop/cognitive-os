@@ -3257,6 +3257,85 @@ change, NO new file, NO new dependency, and no frozen crate SOURCE is touched. T
 `multi-trace-validation-v0.1` (`460be0c`), `operator-controls-v0.1` (`34b4f47`), and `document-flow-v0.1`
 (`0cc7399`) tags are unmoved, and P13–P15 stay closed. `release_check.sh` is exit 0 and byte-silent.
 
+## Corpus Scenario Pack / Input-Integrity Matrix (CORPUS-2): vary the corpus, never the authority
+
+Date: 2026-06-21. CORPUS-0 proved one clean corpus path; CORPUS-1 (a documentation + drift-guard sprint,
+recorded in `OPERATOR_MANUAL.md` and `scripts/operator_smoke.sh`, not here) pinned the corpus operator path so it
+cannot drift from the binary. CORPUS-2 is the next capability — the corpus analog of DOCFLOW-2: it makes corpus
+behavior AUDITABLE across a finite, enum-backed set of VALID and INVALID corpus inputs. Doctrine: **Corpus
+scenarios vary the corpus input. They do not vary the authority. Source selection is verified and replayable. The
+whole corpus is hash-bound. Verification comes before tracing. Nothing executes. Nothing becomes evidence. Nothing
+promotes. Nothing trains.** Four commands extend `crates/cognitive-demo`: `cognitive-demo corpus-scenarios` lists
+the thirteen scenarios; `cognitive-demo corpus-scenario-pack --out DIR` writes `corpus-scenario-pack.json` +
+`corpus-scenario-report.txt` (the observed-outcome record + its rendered report); `cognitive-demo
+corpus-scenario-verify --path DIR` re-derives the pack and refuses any tamper; `cognitive-demo
+corpus-scenario-matrix --path DIR [--out PATH]` verifies the pack then emits the input-integrity matrix.
+
+**Thirteen scenarios, one valid and twelve invalid, each OBSERVED by running the REAL CORPUS-0 admission filter /
+check / verifier (proves, not asserts):** `clean-two-document` verifies (its bundle re-derives byte-identically,
+observed via `verify_corpus_bundle`); `empty-corpus` fails closed (`corpus_trace(&[])` → `EmptyCorpus`, an explicit
+unsupported status, never a panic); `hidden-only` and `non-txt-only` admit ZERO documents through the pure
+`corpus_admits_filename` (the rejection reason `no-admitted-files`, distinct from a genuinely empty corpus);
+`absolute-path` and `parent-traversal` are refused by `check_local_input_path` before any read (`UnsafeInputPath`);
+`symlink-escape` is refused by the containment decision `resolved_path_within` (the SAME pure decision the shell
+calls after `canonicalize`); `grounding-mutation` and `side-document-mutation` invalidate the clean bundle; and
+`tampered-source` / `tampered-trace` / `tampered-report` / `tampered-manifest` are each refused by re-derivation
+(`BundleMismatch`). Every scenario row records the OBSERVED outcome (`verified`/`refused`), whether the input
+genuinely differed (`input_changed`, an anti-vacuity marker), the typed `rejection_reason`, and the four boundary
+cells (`no_execution`/`no_evidence`/`no_promotion`/`no_training`, all true). Coverage is derived from the entries —
+`verified_count` 1, `refused_count` 12, 52/52 cells proven, `all_expectations_met` and `all_boundaries_hold` true,
+nine distinct input kinds and eight distinct rejection reasons — never hardcoded.
+
+The corpus-specific crux is *source identity and whole-corpus binding*, recorded in the matrix itself. The matrix
+carries the verified case's `source` (the real `corpus_source`: `document_index` 0, `document_title` `a-east.txt`,
+`span_id` 0, `span_text` "The east bridge reopened today.") so the auditable record names which document and span
+grounded the answer — selection is verified and replayable, never a model's semantic judgment. And it carries a
+`whole_corpus_bound` fact computed by `corpus_whole_binding_holds`, which is proven STRUCTURALLY, not asserted: the
+two mutation scenarios make the binding visible in the rejection reasons themselves — `grounding-mutation` changes
+the first span, so the source attribution AND the trace re-derive differently and the bundle fails first on
+`bundle-file-mismatch:corpus-source.json`; `side-document-mutation` changes only the NON-grounding second document,
+so `corpus-source.json` re-derives byte-identically YET the bundle still fails on `bundle-file-mismatch:trace.json`,
+because the reading receipt's `structure_hash` binds EVERY document. A side document cannot silently pass.
+
+**Re-derive, never trust:** `verify_corpus_scenario_pack` re-derives both files (re-running every scenario) and
+byte-compares via the shared `compare_bundle` core; `corpus-scenario-matrix` verifies the pack BEFORE emitting;
+every new struct (`CorpusScenarioEntry`, `CorpusScenarioCoverage`, `CorpusScenarioPack`, `CorpusMatrixRow`,
+`CorpusScenarioMatrix`) derives `Serialize` but NOT `Deserialize`, so a doctored pack or matrix is refused, never
+parsed back into authority. The path-safety and admission scenarios reuse the SAME pure decisions the shell calls
+(`check_local_input_path`, `resolved_path_within`, `corpus_admits_filename`) — single sources of truth — and the
+library stays filesystem-free. 12 new tests (the rubric's twelve first-tests) → 124 unit total (12 INT-0 + 8 INT-1
++ 12 INT-2 + 12 INT-3 + 12 MTRACE-0 + 12 MTRACE-1 + 12 MTRACE-2 + 10 DOCFLOW-0 + 10 DOCFLOW-2 + 12 CORPUS-0 + 12
+CORPUS-2), fmt + clippy clean. The `release_check.sh` CORPUS-2 block is load-bearing: surface signals for the API +
+commands and the shared pure decisions; proves-not-asserts pins (`run_corpus_scenario`, `corpus_whole_binding_holds`);
+all twelve test-name pins and the unit-count pin raised 112→124; the nine boundary lines verbatim; and a binary
+smoke that runs the whole flow under gitignored `target/`, proves the coverage and the verified-case source identity
+from the matrix's OWN bytes, proves the whole-corpus-binding distinction is genuinely demonstrated (the two distinct
+`bundle-file-mismatch:corpus-source.json` vs `bundle-file-mismatch:trace.json` reasons), refuses a tampered pack by
+BOTH verify and matrix, and proves the hidden-only and non-`.txt`-only corpora are refused END-TO-END through the
+real binary (real directories with only hidden / only non-`.txt` files admit zero documents → `corpus-trace` fails
+closed).
+
+Three live sabotage probes proved distinct mechanisms, each restored byte-identical by `cp`+`md5` (never `git
+checkout`, since the changes are uncommitted): (a) making the side-document "mutation" identical to the original
+non-grounding text so the scenario no longer mutates — caught by `corpus_side_doc_mutation_invalidates_bundle` and
+`corpus_whole_binding_holds` (exit 101), the whole-corpus-binding anti-vacuity check; (b) a clippy-clean `main.rs`
+wiring regression that skips the matrix's pack verification, keeping all 124 lib tests green — caught SOLELY by the
+binary smoke's tampered-pack check (exit 1), proving the smoke is independently load-bearing for the CLI wiring;
+and (c) marking one CORPUS-2 test `#[ignore]`, keeping it clippy-clean — caught by the unit-count/zero-ignored pin
+(exit 1). A read-only adversarial panel (Workflow, four Explore lenses, refute-by-default —
+determinism/anti-vacuity, authority/no-execution/no-promotion/no-training boundary, source-selection/whole-corpus
+binding, gate-rigor/tamper/frozen-scope) returned ZERO real findings, fully dry, with all 4/4 lenses run and none
+errored, and left no repo debris (the source stayed byte-identical to the pre-panel md5).
+
+Boundary held: CORPUS-2 adds VARIATION over the corpus input but no new authority and no cognition. Every scenario
+is a corpus input that either verifies through the frozen reader or fails closed; none executes, promotes, mutates
+memory, or opens training, and P12 stays `training_justified=false`. Purely additive within the integration layer:
+only `crates/cognitive-demo/src/{lib.rs,main.rs}` and the gate block change — NO `Cargo.toml`/`Cargo.lock` change,
+NO new file, NO new dependency, and no frozen crate SOURCE is touched. The `reading-track-v0.1` (`f6fa55a`),
+`hypothesis-track-v0.1` (`bb20acf`), `integration-demo-v0.1` (`95b586d`), `multi-trace-validation-v0.1`
+(`460be0c`), `operator-controls-v0.1` (`34b4f47`), and `document-flow-v0.1` (`0cc7399`) tags are unmoved, and
+P13–P15 stay closed. `release_check.sh` is exit 0 and byte-silent.
+
 ## Appendix — LLM Training as Constraint Engineering (supporting methodology)
 
 Date: 2026-06-13

@@ -3252,6 +3252,761 @@ pub fn verify_corpus_bundle(
     compare_bundle(&corpus_bundle(documents)?, provided)
 }
 
+// --- CORPUS-2: corpus scenario pack / input-integrity matrix. Where CORPUS-0 traces ONE clean corpus and
+//     CORPUS-1 documents the operator path, CORPUS-2 makes corpus behavior AUDITABLE across a finite,
+//     enum-backed matrix of valid and invalid corpus inputs — the corpus analog of DOCFLOW-2. Each scenario
+//     varies the CORPUS INPUT (clean two-document / empty / hidden-only / non-`.txt`-only / unsafe path /
+//     escaping path / grounding-document mutation / non-grounding side-document mutation / tampered artifact)
+//     and OBSERVES the REAL CORPUS-0 check or verifier, recording the outcome it actually produced — never an
+//     asserted one. Exactly one input (clean) verifies; every other is REFUSED. The matrix additionally
+//     records the verified case's SOURCE IDENTITY (which document/span grounded the answer) and a
+//     `whole_corpus_bound` fact proven by the side-document scenario: mutating a non-grounding document leaves
+//     the source attribution byte-identical yet still fails the bundle (the structure hash binds the WHOLE
+//     corpus). Every scenario keeps the authority boundary closed: nothing executes, becomes evidence,
+//     promotes, or trains; P12 stays training_justified=false. The library is filesystem-free — the path/escape
+//     scenarios observe the SAME pure decisions the shell calls; the gate proves the end-to-end refusals. ---
+
+/// The nine-line CORPUS-2 boundary, embedded in the pack and matrix. Pinned as data so a test can assert it.
+pub const CORPUS_SCENARIO_BOUNDARY_LINES: [&str; 9] = [
+    "Corpus scenarios vary the corpus input.",
+    "They do not vary the authority.",
+    "Source selection is verified and replayable.",
+    "The whole corpus is hash-bound.",
+    "Verification comes before tracing.",
+    "Nothing executes.",
+    "Nothing becomes evidence.",
+    "Nothing promotes.",
+    "Nothing trains.",
+];
+
+/// The corpus-scenario pack file names (the structured outcome record + its rendered report).
+pub const CORPUS_SCENARIO_PACK_FILE: &str = "corpus-scenario-pack.json";
+pub const CORPUS_SCENARIO_REPORT_FILE: &str = "corpus-scenario-report.txt";
+pub const CORPUS_SCENARIO_PACK_FILES: [&str; 2] =
+    [CORPUS_SCENARIO_PACK_FILE, CORPUS_SCENARIO_REPORT_FILE];
+
+/// The clean two-document corpus every scenario derives from (CONSTANTS, so the pack is reproducible), in the
+/// SORTED order the shell loader produces — so `a-east.txt` owns the globally-first span and grounds the answer.
+const CORPUS_SCENARIO_DOC_A: (&str, &str) = (
+    "a-east.txt",
+    "The east bridge reopened today. Traffic resumed by noon.",
+);
+const CORPUS_SCENARIO_DOC_B: (&str, &str) = (
+    "b-west.txt",
+    "The west tunnel remains closed. Crews continue repairs.",
+);
+/// A genuinely different GROUNDING document (changes the first span, so the source attribution AND the trace
+/// re-derive differently): the grounding-mutation scenario.
+const CORPUS_GROUNDING_MUTATION: &str = "The east bridge collapsed today. Traffic stopped by noon.";
+/// A genuinely different NON-GROUNDING side document (leaves the grounding document — and thus the source
+/// attribution — untouched, yet the structure hash binds it, so the trace still re-derives differently): the
+/// side-document-mutation scenario, which proves whole-corpus binding.
+const CORPUS_SIDE_MUTATION: &str = "The west tunnel reopened early. Crews departed.";
+
+/// Candidate file names for the hidden-only scenario: every entry is a HIDDEN file, so the admission filter
+/// admits NONE and the corpus is empty before any read.
+const CORPUS_HIDDEN_ONLY_NAMES: [&str; 2] = [".secret.txt", ".hidden.txt"];
+/// Candidate file names for the non-`.txt`-only scenario: every entry is a NON-`.txt` file, so the admission
+/// filter admits NONE and the corpus is empty before any read.
+const CORPUS_NON_TXT_ONLY_NAMES: [&str; 3] = ["notes.md", "data.json", "README"];
+
+/// The clean two-document corpus, owned, in sorted loader order. The fixture every CORPUS-2 scenario derives
+/// from. Pure (no I/O).
+fn corpus_scenario_sample() -> Vec<(String, String)> {
+    vec![
+        (
+            CORPUS_SCENARIO_DOC_A.0.to_string(),
+            CORPUS_SCENARIO_DOC_A.1.to_string(),
+        ),
+        (
+            CORPUS_SCENARIO_DOC_B.0.to_string(),
+            CORPUS_SCENARIO_DOC_B.1.to_string(),
+        ),
+    ]
+}
+
+/// A deterministic corpus-flow input scenario. The set is finite and enum-backed: one VALID input (a clean
+/// two-document corpus) and twelve INVALID inputs (empty / hidden-only / non-`.txt`-only / unsafe / escaping /
+/// grounding-mutated / side-mutated / tampered), each of which the CORPUS-0 admission filter, check, or verifier
+/// must refuse. Each scenario proves an input-integrity property while keeping the authority boundary closed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CorpusScenario {
+    /// A clean two-document corpus: its bundle re-derives byte-identically and verifies.
+    CleanTwoDocument,
+    /// An empty corpus: no document grounds a span, so the flow fails closed before tracing.
+    EmptyCorpus,
+    /// A corpus of only hidden files: the admission filter admits none, so the corpus is empty.
+    HiddenOnly,
+    /// A corpus of only non-`.txt` files: the admission filter admits none, so the corpus is empty.
+    NonTxtOnly,
+    /// An absolute corpus path: refused by the pure path check before any read.
+    AbsolutePath,
+    /// A `..` parent-traversal corpus path: refused by the pure path check before any read.
+    ParentTraversal,
+    /// A corpus entry whose resolved target escapes the directory (e.g. a symlink): refused by the
+    /// containment decision after canonicalize.
+    SymlinkEscape,
+    /// A mutated GROUNDING document: the source attribution and the trace re-derive differently, so the
+    /// clean bundle no longer matches.
+    GroundingMutation,
+    /// A mutated NON-GROUNDING side document: the source attribution is byte-identical, yet the whole-corpus
+    /// structure hash re-derives a different trace, so the clean bundle still fails to match.
+    SideDocumentMutation,
+    /// A tampered `corpus-source.json` in an otherwise-clean bundle: refused by re-derivation.
+    TamperedSource,
+    /// A tampered `trace.json` in an otherwise-clean bundle: refused by re-derivation.
+    TamperedTrace,
+    /// A tampered `report.txt` in an otherwise-clean bundle: refused by re-derivation.
+    TamperedReport,
+    /// A tampered `manifest.json` in an otherwise-clean bundle: refused by re-derivation.
+    TamperedManifest,
+}
+
+impl CorpusScenario {
+    /// Every scenario, in canonical order. Pinned as data so a test/the pack can assert the full set.
+    pub const ALL: [CorpusScenario; 13] = [
+        CorpusScenario::CleanTwoDocument,
+        CorpusScenario::EmptyCorpus,
+        CorpusScenario::HiddenOnly,
+        CorpusScenario::NonTxtOnly,
+        CorpusScenario::AbsolutePath,
+        CorpusScenario::ParentTraversal,
+        CorpusScenario::SymlinkEscape,
+        CorpusScenario::GroundingMutation,
+        CorpusScenario::SideDocumentMutation,
+        CorpusScenario::TamperedSource,
+        CorpusScenario::TamperedTrace,
+        CorpusScenario::TamperedReport,
+        CorpusScenario::TamperedManifest,
+    ];
+
+    /// The stable slug for this scenario. Exhaustive match — a new variant forces a slug here.
+    pub fn slug(self) -> &'static str {
+        match self {
+            CorpusScenario::CleanTwoDocument => "clean-two-document",
+            CorpusScenario::EmptyCorpus => "empty-corpus",
+            CorpusScenario::HiddenOnly => "hidden-only",
+            CorpusScenario::NonTxtOnly => "non-txt-only",
+            CorpusScenario::AbsolutePath => "absolute-path",
+            CorpusScenario::ParentTraversal => "parent-traversal",
+            CorpusScenario::SymlinkEscape => "symlink-escape",
+            CorpusScenario::GroundingMutation => "grounding-mutation",
+            CorpusScenario::SideDocumentMutation => "side-document-mutation",
+            CorpusScenario::TamperedSource => "tampered-source",
+            CorpusScenario::TamperedTrace => "tampered-trace",
+            CorpusScenario::TamperedReport => "tampered-report",
+            CorpusScenario::TamperedManifest => "tampered-manifest",
+        }
+    }
+
+    /// A one-line description of the scenario (shown by `corpus-scenarios`). Exhaustive match.
+    pub fn describe(self) -> &'static str {
+        match self {
+            CorpusScenario::CleanTwoDocument => {
+                "a clean two-document corpus verifies (its bundle re-derives byte-identically)"
+            }
+            CorpusScenario::EmptyCorpus => {
+                "an empty corpus fails closed (no document grounds a span)"
+            }
+            CorpusScenario::HiddenOnly => {
+                "a corpus of only hidden files is refused (no file is admitted)"
+            }
+            CorpusScenario::NonTxtOnly => {
+                "a corpus of only non-.txt files is refused (no file is admitted)"
+            }
+            CorpusScenario::AbsolutePath => "an absolute corpus path is refused before any read",
+            CorpusScenario::ParentTraversal => {
+                "a `..` traversal corpus path is refused before any read"
+            }
+            CorpusScenario::SymlinkEscape => {
+                "a corpus entry that escapes the directory is refused after canonicalize"
+            }
+            CorpusScenario::GroundingMutation => {
+                "mutating the grounding document invalidates the bundle"
+            }
+            CorpusScenario::SideDocumentMutation => {
+                "mutating a non-grounding side document invalidates the bundle (whole-corpus binding)"
+            }
+            CorpusScenario::TamperedSource => {
+                "a tampered corpus-source.json is refused by re-derivation"
+            }
+            CorpusScenario::TamperedTrace => "a tampered trace.json is refused by re-derivation",
+            CorpusScenario::TamperedReport => "a tampered report.txt is refused by re-derivation",
+            CorpusScenario::TamperedManifest => {
+                "a tampered manifest.json is refused by re-derivation"
+            }
+        }
+    }
+
+    /// Parse a slug into a scenario. Fails CLOSED: any string that is not EXACTLY a known slug is `None`.
+    pub fn from_slug(slug: &str) -> Option<CorpusScenario> {
+        CorpusScenario::ALL.into_iter().find(|s| s.slug() == slug)
+    }
+
+    /// The class of corpus input this scenario varies. Exhaustive match.
+    fn input_kind(self) -> &'static str {
+        match self {
+            CorpusScenario::CleanTwoDocument => "clean",
+            CorpusScenario::EmptyCorpus => "empty-corpus",
+            CorpusScenario::HiddenOnly => "hidden-only",
+            CorpusScenario::NonTxtOnly => "non-txt-only",
+            CorpusScenario::AbsolutePath | CorpusScenario::ParentTraversal => "unsafe-path",
+            CorpusScenario::SymlinkEscape => "escaping-path",
+            CorpusScenario::GroundingMutation => "grounding-mutation",
+            CorpusScenario::SideDocumentMutation => "side-document-mutation",
+            CorpusScenario::TamperedSource
+            | CorpusScenario::TamperedTrace
+            | CorpusScenario::TamperedReport
+            | CorpusScenario::TamperedManifest => "tampered-artifact",
+        }
+    }
+
+    /// The expected outcome: only the clean corpus verifies; every other input is refused. Exhaustive.
+    fn expectation(self) -> &'static str {
+        match self {
+            CorpusScenario::CleanTwoDocument => "verifies",
+            _ => "refused",
+        }
+    }
+}
+
+/// One observed row of the corpus-scenario pack: the scenario's identity, the input class, the expected and
+/// OBSERVED outcome, whether the input genuinely differed from the clean input (anti-vacuity), the typed
+/// rejection reason (observed, empty for the clean case), and the four boundary cells (always all true).
+/// `Serialize` but NOT `Deserialize` — re-derived and byte-compared, never parsed back into authority.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct CorpusScenarioEntry {
+    slug: String,
+    description: String,
+    input_kind: String,
+    expectation: String,
+    produced_trace: bool,
+    verified: bool,
+    refused: bool,
+    input_changed: bool,
+    rejection_reason: String,
+    no_execution: bool,
+    no_evidence: bool,
+    no_promotion: bool,
+    no_training: bool,
+}
+
+/// The coverage summary over the corpus-scenario set: counts of verified/refused, the boundary cells proven,
+/// whether the whole corpus is hash-bound (the side-document fact), and the distinct input kinds and rejection
+/// reasons (proving the variation is real). Shared by the pack and the matrix. `Serialize` but NOT `Deserialize`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct CorpusScenarioCoverage {
+    scenario_count: usize,
+    verified_count: usize,
+    refused_count: usize,
+    boundary_count: usize,
+    cells_total: usize,
+    cells_proven: usize,
+    all_expectations_met: bool,
+    all_boundaries_hold: bool,
+    whole_corpus_bound: bool,
+    distinct_input_kinds: Vec<String>,
+    distinct_rejection_reasons: Vec<String>,
+}
+
+/// The corpus-scenario pack manifest: every observed scenario row, the coverage summary, the verified case's
+/// SOURCE IDENTITY, and the nine-line boundary. `Serialize` but NOT `Deserialize` — re-derived and byte-compared.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct CorpusScenarioPack {
+    schema: String,
+    scenarios: Vec<CorpusScenarioEntry>,
+    coverage: CorpusScenarioCoverage,
+    source: CorpusSource,
+    boundary: Vec<String>,
+}
+
+/// One row of the corpus input-integrity matrix: a projection of an entry onto the input class, the observed
+/// outcome, and the four boundary cells. `Serialize` but NOT `Deserialize`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct CorpusMatrixRow {
+    slug: String,
+    input_kind: String,
+    expectation: String,
+    outcome: String,
+    rejection_reason: String,
+    no_execution: bool,
+    no_evidence: bool,
+    no_promotion: bool,
+    no_training: bool,
+}
+
+/// The corpus input-integrity matrix: one row per scenario, the coverage summary, the verified case's SOURCE
+/// IDENTITY (which document/span grounded the answer), and the boundary. `Serialize` but NOT `Deserialize` —
+/// re-derived and byte-compared, never parsed back into authority.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct CorpusScenarioMatrix {
+    schema: String,
+    scenarios: Vec<CorpusMatrixRow>,
+    coverage: CorpusScenarioCoverage,
+    source: CorpusSource,
+    boundary: Vec<String>,
+}
+
+/// Forge one named file in an otherwise-clean corpus bundle by appending a tamper marker. Returns the forged
+/// provided bundle and whether the named file was found and genuinely changed (anti-vacuity). The forged bytes
+/// are never persisted as trusted state — they exist only to be REFUSED by re-derivation.
+fn forge_corpus_bundle_file(file: &str) -> Result<(Vec<(String, String)>, bool), TraceError> {
+    let mut provided = owned_pairs(&corpus_bundle(&corpus_scenario_sample())?);
+    let mut changed = false;
+    for (name, content) in provided.iter_mut() {
+        if name == file {
+            let before = content.clone();
+            content.push_str("\n{tampered}");
+            changed = *content != before;
+        }
+    }
+    Ok((provided, changed))
+}
+
+/// Whether the WHOLE corpus is hash-bound, proven structurally: mutating the NON-grounding side document leaves
+/// the source attribution byte-identical (the grounding document is untouched) YET the clean bundle is still
+/// refused — because the receipt's structure hash binds every document, so the re-derived trace differs. Both
+/// facts must hold. Pure (no I/O).
+fn corpus_whole_binding_holds() -> Result<bool, TraceError> {
+    let sample = corpus_scenario_sample();
+    let clean = owned_pairs(&corpus_bundle(&sample)?);
+    let mut side = sample.clone();
+    side[1].1 = CORPUS_SIDE_MUTATION.to_string();
+    let source_unchanged = corpus_source_json(&side)? == corpus_source_json(&sample)?;
+    let refused = verify_corpus_bundle(&side, &clean).is_err();
+    Ok(source_unchanged && refused)
+}
+
+/// Run ONE corpus scenario by exercising the REAL CORPUS-0 admission filter / check / verifier over the input
+/// variation and recording the OBSERVED outcome (verified vs refused + the typed reason), never an asserted one.
+/// A refused scenario produces no trace, so its four boundary cells hold trivially (nothing was minted); the
+/// clean scenario reads its cells from the real verified trace. Pure (no I/O).
+fn run_corpus_scenario(scenario: CorpusScenario) -> Result<CorpusScenarioEntry, TraceError> {
+    let sample = corpus_scenario_sample();
+    // (produced_trace, verified, refused, input_changed, rejection_reason, [no_exec, no_evid, no_promo, no_train])
+    let (produced_trace, verified, refused, input_changed, rejection_reason, cells) = match scenario
+    {
+        CorpusScenario::CleanTwoDocument => {
+            let provided = owned_pairs(&corpus_bundle(&sample)?);
+            let verified = verify_corpus_bundle(&sample, &provided).is_ok();
+            let trace = corpus_trace(&sample)?;
+            let cells = [
+                trace.nothing_executed(),
+                trace.nothing_becomes_evidence(),
+                trace.promotion_refused(),
+                !trace.training_justified(),
+            ];
+            (true, verified, !verified, false, String::new(), cells)
+        }
+        CorpusScenario::EmptyCorpus => {
+            let err = corpus_trace(&[]).err();
+            let reason = err.as_ref().map(doc_rejection_token).unwrap_or_default();
+            (
+                false,
+                false,
+                err.is_some(),
+                true,
+                reason,
+                [true, true, true, true],
+            )
+        }
+        CorpusScenario::HiddenOnly => {
+            // The SAME pure admission filter the shell applies: a corpus of only hidden files admits none, so
+            // no document is ever read and the corpus is empty.
+            let admitted = CORPUS_HIDDEN_ONLY_NAMES
+                .iter()
+                .filter(|n| corpus_admits_filename(n))
+                .count();
+            let refused = admitted == 0 && !CORPUS_HIDDEN_ONLY_NAMES.is_empty();
+            (
+                false,
+                false,
+                refused,
+                true,
+                "no-admitted-files".to_string(),
+                [true, true, true, true],
+            )
+        }
+        CorpusScenario::NonTxtOnly => {
+            let admitted = CORPUS_NON_TXT_ONLY_NAMES
+                .iter()
+                .filter(|n| corpus_admits_filename(n))
+                .count();
+            let refused = admitted == 0 && !CORPUS_NON_TXT_ONLY_NAMES.is_empty();
+            (
+                false,
+                false,
+                refused,
+                true,
+                "no-admitted-files".to_string(),
+                [true, true, true, true],
+            )
+        }
+        CorpusScenario::AbsolutePath => {
+            let err = check_local_input_path("/etc/passwd").err();
+            let reason = err.as_ref().map(doc_rejection_token).unwrap_or_default();
+            (
+                false,
+                false,
+                err.is_some(),
+                true,
+                reason,
+                [true, true, true, true],
+            )
+        }
+        CorpusScenario::ParentTraversal => {
+            let err = check_local_input_path("../escape").err();
+            let reason = err.as_ref().map(doc_rejection_token).unwrap_or_default();
+            (
+                false,
+                false,
+                err.is_some(),
+                true,
+                reason,
+                [true, true, true, true],
+            )
+        }
+        CorpusScenario::SymlinkEscape => {
+            // The containment decision the shell applies to a canonicalized corpus entry: a resolved target
+            // outside the corpus root (e.g. a symlink pointing at /etc) is refused. The library is
+            // filesystem-free, so it observes the SAME pure decision the shell calls (`resolved_path_within`,
+            // exercised on both an escaping and a contained path by the unit test); the end-to-end refusal of a
+            // REAL filesystem symlink is proven by the shell and by the release gate's corpus-trace smoke.
+            let corpus_root = std::path::Path::new("/work/corpus");
+            let escaped = std::path::Path::new("/etc/hostname");
+            let within = resolved_path_within(corpus_root, escaped);
+            (
+                false,
+                false,
+                !within,
+                true,
+                "escapes-working-directory".to_string(),
+                [true, true, true, true],
+            )
+        }
+        CorpusScenario::GroundingMutation => {
+            // Mutating the FIRST (grounding) document changes its first span, so BOTH the source attribution
+            // and the trace re-derive differently — the clean bundle fails first on corpus-source.json.
+            let clean = owned_pairs(&corpus_bundle(&sample)?);
+            let mut mutated = sample.clone();
+            mutated[0].1 = CORPUS_GROUNDING_MUTATION.to_string();
+            let changed = mutated[0].1 != sample[0].1;
+            let err = verify_corpus_bundle(&mutated, &clean).err();
+            let reason = err.as_ref().map(doc_rejection_token).unwrap_or_default();
+            (
+                false,
+                false,
+                err.is_some(),
+                changed,
+                reason,
+                [true, true, true, true],
+            )
+        }
+        CorpusScenario::SideDocumentMutation => {
+            // Mutating the SECOND (non-grounding) document leaves corpus-source.json byte-identical, but the
+            // structure hash binds the WHOLE corpus, so the trace re-derives differently — the clean bundle
+            // fails on trace.json. This is the whole-corpus-binding proof.
+            let clean = owned_pairs(&corpus_bundle(&sample)?);
+            let mut mutated = sample.clone();
+            mutated[1].1 = CORPUS_SIDE_MUTATION.to_string();
+            let changed = mutated[1].1 != sample[1].1;
+            let err = verify_corpus_bundle(&mutated, &clean).err();
+            let reason = err.as_ref().map(doc_rejection_token).unwrap_or_default();
+            (
+                false,
+                false,
+                err.is_some(),
+                changed,
+                reason,
+                [true, true, true, true],
+            )
+        }
+        CorpusScenario::TamperedSource => {
+            let (provided, changed) = forge_corpus_bundle_file(CORPUS_SOURCE_FILE)?;
+            let err = verify_corpus_bundle(&sample, &provided).err();
+            let reason = err.as_ref().map(doc_rejection_token).unwrap_or_default();
+            (
+                false,
+                false,
+                err.is_some(),
+                changed,
+                reason,
+                [true, true, true, true],
+            )
+        }
+        CorpusScenario::TamperedTrace => {
+            let (provided, changed) = forge_corpus_bundle_file(BUNDLE_TRACE_FILE)?;
+            let err = verify_corpus_bundle(&sample, &provided).err();
+            let reason = err.as_ref().map(doc_rejection_token).unwrap_or_default();
+            (
+                false,
+                false,
+                err.is_some(),
+                changed,
+                reason,
+                [true, true, true, true],
+            )
+        }
+        CorpusScenario::TamperedReport => {
+            let (provided, changed) = forge_corpus_bundle_file(BUNDLE_REPORT_FILE)?;
+            let err = verify_corpus_bundle(&sample, &provided).err();
+            let reason = err.as_ref().map(doc_rejection_token).unwrap_or_default();
+            (
+                false,
+                false,
+                err.is_some(),
+                changed,
+                reason,
+                [true, true, true, true],
+            )
+        }
+        CorpusScenario::TamperedManifest => {
+            let (provided, changed) = forge_corpus_bundle_file(BUNDLE_MANIFEST_FILE)?;
+            let err = verify_corpus_bundle(&sample, &provided).err();
+            let reason = err.as_ref().map(doc_rejection_token).unwrap_or_default();
+            (
+                false,
+                false,
+                err.is_some(),
+                changed,
+                reason,
+                [true, true, true, true],
+            )
+        }
+    };
+    Ok(CorpusScenarioEntry {
+        slug: scenario.slug().to_string(),
+        description: scenario.describe().to_string(),
+        input_kind: scenario.input_kind().to_string(),
+        expectation: scenario.expectation().to_string(),
+        produced_trace,
+        verified,
+        refused,
+        input_changed,
+        rejection_reason,
+        no_execution: cells[0],
+        no_evidence: cells[1],
+        no_promotion: cells[2],
+        no_training: cells[3],
+    })
+}
+
+/// Run every corpus scenario, in canonical order, recording each observed outcome. Pure (no I/O).
+fn canonical_corpus_scenario_entries() -> Result<Vec<CorpusScenarioEntry>, TraceError> {
+    CorpusScenario::ALL
+        .into_iter()
+        .map(run_corpus_scenario)
+        .collect()
+}
+
+/// Compute the coverage summary over the observed entries: counts, boundary cells proven, whether every observed
+/// outcome met its expectation, the whole-corpus-binding fact, and the distinct input kinds / rejection reasons.
+fn corpus_scenario_coverage(
+    entries: &[CorpusScenarioEntry],
+    whole_corpus_bound: bool,
+) -> CorpusScenarioCoverage {
+    let scenario_count = entries.len();
+    let verified_count = entries.iter().filter(|e| e.verified).count();
+    let refused_count = entries.iter().filter(|e| e.refused).count();
+    let boundary_count = 4;
+    let cells_total = scenario_count * boundary_count;
+    let cells_proven: usize = entries
+        .iter()
+        .map(|e| {
+            [e.no_execution, e.no_evidence, e.no_promotion, e.no_training]
+                .iter()
+                .filter(|cell| **cell)
+                .count()
+        })
+        .sum();
+    let all_expectations_met = entries.iter().all(|e| {
+        if e.expectation == "verifies" {
+            e.verified && !e.refused
+        } else {
+            e.refused && !e.verified
+        }
+    });
+    CorpusScenarioCoverage {
+        scenario_count,
+        verified_count,
+        refused_count,
+        boundary_count,
+        cells_total,
+        cells_proven,
+        all_expectations_met,
+        all_boundaries_hold: cells_proven == cells_total,
+        whole_corpus_bound,
+        distinct_input_kinds: sorted_unique(entries.iter().map(|e| e.input_kind.clone()).collect()),
+        distinct_rejection_reasons: sorted_unique(
+            entries
+                .iter()
+                .filter(|e| !e.rejection_reason.is_empty())
+                .map(|e| e.rejection_reason.clone())
+                .collect(),
+        ),
+    }
+}
+
+fn corpus_scenario_boundary() -> Vec<String> {
+    CORPUS_SCENARIO_BOUNDARY_LINES
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
+}
+
+/// The corpus-scenario pack manifest JSON: every observed scenario row + coverage + verified-case source
+/// identity + boundary. Pure.
+pub fn corpus_scenario_pack_manifest() -> Result<String, TraceError> {
+    let scenarios = canonical_corpus_scenario_entries()?;
+    let coverage = corpus_scenario_coverage(&scenarios, corpus_whole_binding_holds()?);
+    let source = corpus_source(&corpus_scenario_sample())?;
+    let pack = CorpusScenarioPack {
+        schema: "cognitive-corpus-scenario-pack-v0.1".to_string(),
+        scenarios,
+        coverage,
+        source,
+        boundary: corpus_scenario_boundary(),
+    };
+    Ok(serde_json::to_string_pretty(&pack).expect("CorpusScenarioPack serializes"))
+}
+
+/// Render the plain-text corpus-scenario report: each scenario's input class, expected/observed outcome,
+/// rejection reason, and boundary cells, plus the coverage summary, the verified case's SOURCE SELECTION, and
+/// the boundary. Pure FORMATTING.
+pub fn corpus_scenario_report() -> Result<String, TraceError> {
+    let entries = canonical_corpus_scenario_entries()?;
+    let coverage = corpus_scenario_coverage(&entries, corpus_whole_binding_holds()?);
+    let source = corpus_source(&corpus_scenario_sample())?;
+    let mut out = String::new();
+    out.push_str("COGNITIVE OS — CORPUS FLOW INPUT-INTEGRITY SCENARIOS\n");
+    out.push_str("schema: cognitive-corpus-scenario-pack-v0.1\n");
+    out.push_str("(each scenario varies the CORPUS INPUT and observes the real check; it records, it does not act)\n\n");
+    for e in &entries {
+        out.push_str(&format!("[{}]  ({})\n", e.slug, e.input_kind));
+        out.push_str(&format!("    {}\n", e.description));
+        out.push_str(&format!(
+            "    expected: {}    observed: {}\n",
+            e.expectation,
+            if e.verified { "verified" } else { "refused" }
+        ));
+        if !e.rejection_reason.is_empty() {
+            out.push_str(&format!("    rejection: {}\n", e.rejection_reason));
+        }
+        out.push_str(&format!(
+            "    boundary: no_execution={} no_evidence={} no_promotion={} no_training={}\n",
+            e.no_execution, e.no_evidence, e.no_promotion, e.no_training
+        ));
+    }
+    out.push_str("\nCOVERAGE\n");
+    out.push_str(&format!(
+        "    scenarios:            {}\n",
+        coverage.scenario_count
+    ));
+    out.push_str(&format!(
+        "    verified:             {}\n",
+        coverage.verified_count
+    ));
+    out.push_str(&format!(
+        "    refused:              {}\n",
+        coverage.refused_count
+    ));
+    out.push_str(&format!(
+        "    cells proven:         {}/{}\n",
+        coverage.cells_proven, coverage.cells_total
+    ));
+    out.push_str(&format!(
+        "    all_expectations_met: {}\n",
+        coverage.all_expectations_met
+    ));
+    out.push_str(&format!(
+        "    all_boundaries_hold:  {}\n",
+        coverage.all_boundaries_hold
+    ));
+    out.push_str(&format!(
+        "    whole_corpus_bound:   {}\n",
+        coverage.whole_corpus_bound
+    ));
+    out.push_str(&format!(
+        "    distinct input kinds: {}\n",
+        coverage.distinct_input_kinds.join(", ")
+    ));
+    out.push_str(&format!(
+        "    distinct rejections:  {}\n",
+        coverage.distinct_rejection_reasons.join(", ")
+    ));
+    out.push_str("\nSOURCE SELECTION (verified case)\n");
+    out.push_str(&format!(
+        "    grounded document:  [{}] {}\n",
+        source.document_index, source.document_title
+    ));
+    out.push_str(&format!("    grounded span:      {}\n", source.span_id));
+    out.push_str(&format!("    grounded text:      {}\n", source.span_text));
+    out.push_str("\nBOUNDARY\n");
+    for line in CORPUS_SCENARIO_BOUNDARY_LINES {
+        out.push_str(&format!("    {line}\n"));
+    }
+    Ok(out)
+}
+
+/// The corpus-scenario pack as `(filename, content)` pairs in write order: the structured manifest and its
+/// rendered report. Pure: both are derived from the observed scenario set.
+pub fn corpus_scenario_pack_files() -> Result<Vec<(&'static str, String)>, TraceError> {
+    Ok(vec![
+        (CORPUS_SCENARIO_PACK_FILE, corpus_scenario_pack_manifest()?),
+        (CORPUS_SCENARIO_REPORT_FILE, corpus_scenario_report()?),
+    ])
+}
+
+/// Verify a provided corpus-scenario pack WITHOUT trusting it: re-derive both files (re-running every scenario)
+/// and byte-compare. A missing file is [`TraceError::BundleMissingFile`]; any tampered/stale/foreign file is
+/// [`TraceError::BundleMismatch`]. Pure (no I/O).
+pub fn verify_corpus_scenario_pack(provided: &[(String, String)]) -> Result<(), TraceError> {
+    compare_bundle(&corpus_scenario_pack_files()?, provided)
+}
+
+/// The `corpus-scenarios` command: list the finite corpus-scenario set (slug + one-line description). Pure.
+pub fn list_corpus_scenarios() -> String {
+    let mut out = String::from(
+        "cognitive-demo — corpus-flow input scenarios (each proves an input-integrity property):\n",
+    );
+    for s in CorpusScenario::ALL {
+        out.push_str(&format!("    {:<24} {}\n", s.slug(), s.describe()));
+    }
+    out
+}
+
+/// The corpus input-integrity matrix JSON: one row per scenario (input class × observed outcome × boundary
+/// cells), the coverage summary, the verified case's SOURCE IDENTITY, and the boundary — re-derived from the
+/// scenario set. Pure: it never trusts the pack files; the matrix command verifies the pack separately before
+/// emitting this.
+pub fn corpus_scenario_matrix() -> Result<String, TraceError> {
+    let entries = canonical_corpus_scenario_entries()?;
+    let coverage = corpus_scenario_coverage(&entries, corpus_whole_binding_holds()?);
+    let source = corpus_source(&corpus_scenario_sample())?;
+    let rows = entries
+        .iter()
+        .map(|e| CorpusMatrixRow {
+            slug: e.slug.clone(),
+            input_kind: e.input_kind.clone(),
+            expectation: e.expectation.clone(),
+            outcome: if e.verified { "verified" } else { "refused" }.to_string(),
+            rejection_reason: e.rejection_reason.clone(),
+            no_execution: e.no_execution,
+            no_evidence: e.no_evidence,
+            no_promotion: e.no_promotion,
+            no_training: e.no_training,
+        })
+        .collect();
+    let matrix = CorpusScenarioMatrix {
+        schema: "cognitive-corpus-scenario-matrix-v0.1".to_string(),
+        scenarios: rows,
+        coverage,
+        source,
+        boundary: corpus_scenario_boundary(),
+    };
+    Ok(serde_json::to_string_pretty(&matrix).expect("CorpusScenarioMatrix serializes"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -5264,5 +6019,265 @@ mod tests {
         let source = corpus_source(&corpus_sample()).unwrap();
         assert_eq!(source.span_id, 0);
         assert_eq!(source.document_index, 0);
+    }
+
+    // --- CORPUS-2: corpus scenario pack / input-integrity matrix ---
+
+    #[test]
+    fn corpus_scenarios_list_all_cases() {
+        // The finite set is exactly thirteen: one valid (clean two-document) + twelve invalid inputs, each
+        // with a unique slug, and the menu lists every one.
+        assert_eq!(CorpusScenario::ALL.len(), 13);
+        let slugs: Vec<&str> = CorpusScenario::ALL.iter().map(|s| s.slug()).collect();
+        let mut sorted = slugs.clone();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted.len(), slugs.len(), "every scenario slug is unique");
+        let menu = list_corpus_scenarios();
+        for s in CorpusScenario::ALL {
+            assert!(menu.contains(s.slug()), "menu lists {}", s.slug());
+            assert_eq!(CorpusScenario::from_slug(s.slug()), Some(s));
+        }
+        // A non-slug fails closed.
+        assert_eq!(CorpusScenario::from_slug("not-a-scenario"), None);
+    }
+
+    #[test]
+    fn corpus_clean_two_document_case_verifies() {
+        // The clean scenario is OBSERVED to verify, produces a real trace, and its boundary cells come from
+        // that trace (all true).
+        let entry = run_corpus_scenario(CorpusScenario::CleanTwoDocument).unwrap();
+        assert!(entry.verified, "clean corpus verifies");
+        assert!(!entry.refused);
+        assert!(entry.produced_trace);
+        assert!(entry.rejection_reason.is_empty());
+        assert!(
+            entry.no_execution && entry.no_evidence && entry.no_promotion && entry.no_training,
+            "clean trace preserves the boundary"
+        );
+        // And the bundle really re-derives byte-identically.
+        let provided = corpus_provided(&corpus_scenario_sample());
+        assert!(verify_corpus_bundle(&corpus_scenario_sample(), &provided).is_ok());
+    }
+
+    #[test]
+    fn corpus_empty_case_fails_closed() {
+        // An empty corpus yields no readable span, so the flow fails closed with EmptyCorpus — an explicit
+        // unsupported status, never an ambiguous success or a panic.
+        assert!(matches!(corpus_trace(&[]), Err(TraceError::EmptyCorpus)));
+        let entry = run_corpus_scenario(CorpusScenario::EmptyCorpus).unwrap();
+        assert!(entry.refused);
+        assert!(!entry.verified);
+        assert!(!entry.produced_trace);
+        assert_eq!(entry.rejection_reason, "empty-corpus");
+    }
+
+    #[test]
+    fn corpus_hidden_only_case_refused() {
+        // A corpus of only hidden files admits NONE through the real admission filter, so it is refused before
+        // any read; an empty admitted corpus then fails closed with EmptyCorpus.
+        for name in CORPUS_HIDDEN_ONLY_NAMES {
+            assert!(!corpus_admits_filename(name), "{name} is not admitted");
+        }
+        let entry = run_corpus_scenario(CorpusScenario::HiddenOnly).unwrap();
+        assert!(entry.refused);
+        assert!(!entry.verified);
+        assert_eq!(entry.input_kind, "hidden-only");
+        assert_eq!(entry.rejection_reason, "no-admitted-files");
+        // An admitted corpus of zero documents fails closed end-to-end.
+        assert!(matches!(corpus_trace(&[]), Err(TraceError::EmptyCorpus)));
+    }
+
+    #[test]
+    fn corpus_non_txt_only_case_refused() {
+        // A corpus of only non-.txt files admits NONE through the real admission filter, so it is refused.
+        for name in CORPUS_NON_TXT_ONLY_NAMES {
+            assert!(!corpus_admits_filename(name), "{name} is not admitted");
+        }
+        let entry = run_corpus_scenario(CorpusScenario::NonTxtOnly).unwrap();
+        assert!(entry.refused);
+        assert!(!entry.verified);
+        assert_eq!(entry.input_kind, "non-txt-only");
+        assert_eq!(entry.rejection_reason, "no-admitted-files");
+    }
+
+    #[test]
+    fn corpus_absolute_path_refused() {
+        // An absolute corpus path is refused by the pure path check before any read.
+        assert!(matches!(
+            check_local_input_path("/etc/passwd"),
+            Err(TraceError::UnsafeInputPath(_))
+        ));
+        let entry = run_corpus_scenario(CorpusScenario::AbsolutePath).unwrap();
+        assert!(entry.refused);
+        assert_eq!(entry.input_kind, "unsafe-path");
+        assert_eq!(entry.rejection_reason, "unsafe-input-path");
+    }
+
+    #[test]
+    fn corpus_parent_traversal_refused() {
+        // A `..` traversal corpus path is refused by the pure path check before any read.
+        assert!(matches!(
+            check_local_input_path("../escape"),
+            Err(TraceError::UnsafeInputPath(_))
+        ));
+        let entry = run_corpus_scenario(CorpusScenario::ParentTraversal).unwrap();
+        assert!(entry.refused);
+        assert_eq!(entry.input_kind, "unsafe-path");
+        assert_eq!(entry.rejection_reason, "unsafe-input-path");
+    }
+
+    #[test]
+    fn corpus_symlink_escape_refused() {
+        // The containment decision refuses a resolved path that escapes the corpus root, and accepts one that
+        // stays inside it (so the check is discriminating, not always-false).
+        let root = std::path::Path::new("/work/corpus");
+        assert!(!resolved_path_within(
+            root,
+            std::path::Path::new("/etc/hostname")
+        ));
+        assert!(resolved_path_within(
+            root,
+            std::path::Path::new("/work/corpus/sub/doc.txt")
+        ));
+        let entry = run_corpus_scenario(CorpusScenario::SymlinkEscape).unwrap();
+        assert!(entry.refused, "an escaping path is refused");
+        assert_eq!(entry.input_kind, "escaping-path");
+        assert_eq!(entry.rejection_reason, "escapes-working-directory");
+    }
+
+    #[test]
+    fn corpus_grounding_doc_mutation_invalidates_bundle() {
+        // Mutating the FIRST (grounding) document changes its first span, so the source attribution AND the
+        // trace re-derive differently — the clean bundle fails first on corpus-source.json.
+        let entry = run_corpus_scenario(CorpusScenario::GroundingMutation).unwrap();
+        assert!(entry.refused, "a grounding-document mutation is refused");
+        assert!(!entry.verified);
+        assert!(
+            entry.input_changed,
+            "the grounding document genuinely differs"
+        );
+        assert_eq!(
+            entry.rejection_reason, "bundle-file-mismatch:corpus-source.json",
+            "the grounding mutation changes the source attribution first"
+        );
+    }
+
+    #[test]
+    fn corpus_side_doc_mutation_invalidates_bundle() {
+        // Mutating the SECOND (non-grounding) document leaves corpus-source.json byte-identical, yet the
+        // structure hash binds the WHOLE corpus, so the trace re-derives differently — the clean bundle fails
+        // on trace.json. This is the whole-corpus-binding proof.
+        let entry = run_corpus_scenario(CorpusScenario::SideDocumentMutation).unwrap();
+        assert!(
+            entry.refused,
+            "a non-grounding side-document mutation is refused"
+        );
+        assert!(!entry.verified);
+        assert!(entry.input_changed, "the side document genuinely differs");
+        assert_eq!(
+            entry.rejection_reason, "bundle-file-mismatch:trace.json",
+            "the side mutation leaves the source attribution intact but breaks the whole-corpus trace"
+        );
+        // Direct proof of whole-corpus binding: source attribution unchanged, bundle still refused.
+        let sample = corpus_scenario_sample();
+        let clean = corpus_provided(&sample);
+        let mut side = sample.clone();
+        side[1].1 = CORPUS_SIDE_MUTATION.to_string();
+        assert_eq!(
+            corpus_source_json(&side).unwrap(),
+            corpus_source_json(&sample).unwrap(),
+            "the source attribution is identical under a non-grounding mutation"
+        );
+        assert!(
+            verify_corpus_bundle(&side, &clean).is_err(),
+            "yet the whole-corpus bundle is still refused"
+        );
+        assert!(corpus_whole_binding_holds().unwrap());
+    }
+
+    #[test]
+    fn corpus_tampered_artifacts_refused() {
+        // Each tampered bundle file (source / trace / report / manifest) is a refused scenario by re-derivation,
+        // and the tamper genuinely changed the bytes (anti-vacuity).
+        for scenario in [
+            CorpusScenario::TamperedSource,
+            CorpusScenario::TamperedTrace,
+            CorpusScenario::TamperedReport,
+            CorpusScenario::TamperedManifest,
+        ] {
+            let entry = run_corpus_scenario(scenario).unwrap();
+            assert!(entry.refused, "{} is refused", scenario.slug());
+            assert!(!entry.verified);
+            assert!(
+                entry.input_changed,
+                "{} genuinely changed bytes",
+                scenario.slug()
+            );
+            assert!(
+                entry.rejection_reason.starts_with("bundle-file-mismatch:"),
+                "{} rejected by re-derivation, got {}",
+                scenario.slug(),
+                entry.rejection_reason
+            );
+        }
+        // Belt-and-suspenders: EVERY bundle file (including questions.txt) is tamper-sensitive directly.
+        for file in CORPUS_BUNDLE_FILES {
+            let mut provided = corpus_provided(&corpus_scenario_sample());
+            let mut changed = false;
+            for (name, content) in provided.iter_mut() {
+                if name == file {
+                    content.push_str("\n{tampered}");
+                    changed = true;
+                }
+            }
+            assert!(changed, "forged {file}");
+            assert!(
+                matches!(
+                    verify_corpus_bundle(&corpus_scenario_sample(), &provided),
+                    Err(TraceError::BundleMismatch(ref f)) if f == file
+                ),
+                "{file} is refused by re-derivation"
+            );
+        }
+    }
+
+    #[test]
+    fn corpus_scenario_matrix_records_source_and_boundaries() {
+        // The matrix records one row per scenario with its observed outcome and boundary cells; the coverage
+        // proves every expectation met, all boundary cells hold, the whole corpus is hash-bound; and it records
+        // the verified case's source identity. A tampered pack is refused.
+        let json = corpus_scenario_matrix().unwrap();
+        for s in CorpusScenario::ALL {
+            assert!(json.contains(s.slug()), "matrix records {}", s.slug());
+        }
+        assert!(json.contains("\"all_expectations_met\": true"));
+        assert!(json.contains("\"all_boundaries_hold\": true"));
+        assert!(json.contains("\"whole_corpus_bound\": true"));
+        // 13 scenarios × 4 boundary cells = 52 cells, all proven.
+        assert!(json.contains("\"cells_total\": 52"));
+        assert!(json.contains("\"cells_proven\": 52"));
+        assert!(json.contains("\"verified_count\": 1"));
+        assert!(json.contains("\"refused_count\": 12"));
+        // The verified case's source identity is recorded (document/span that grounded the answer).
+        assert!(json.contains("\"document_title\": \"a-east.txt\""));
+        assert!(json.contains("\"span_id\": 0"));
+        assert!(json.contains("\"span_text\": \"The east bridge reopened today.\""));
+        // The pack re-derives and a tampered pack is refused.
+        let pack: Vec<(String, String)> = corpus_scenario_pack_files()
+            .unwrap()
+            .into_iter()
+            .map(|(n, c)| (n.to_string(), c))
+            .collect();
+        assert!(verify_corpus_scenario_pack(&pack).is_ok());
+        let mut tampered = pack.clone();
+        tampered[0].1.push_str("\n{tampered}");
+        assert!(verify_corpus_scenario_pack(&tampered).is_err());
+        // Every scenario keeps training closed (no scenario opens the gate).
+        let entries = canonical_corpus_scenario_entries().unwrap();
+        assert_eq!(entries.len(), 13);
+        for e in &entries {
+            assert!(e.no_training, "{} keeps training closed", e.slug);
+        }
     }
 }

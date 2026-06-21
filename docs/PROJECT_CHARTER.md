@@ -3,6 +3,49 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-21-B — Corpus scenario pack / input-integrity matrix (CORPUS-2)
+
+**Decision.** Extend `crates/cognitive-demo` with the corpus scenario pack — the corpus analog of DOCFLOW-2 —
+that makes corpus behavior auditable across a finite, enum-backed set of VALID and INVALID corpus inputs. Four
+commands (`corpus-scenarios`, `corpus-scenario-pack`, `corpus-scenario-verify`, `corpus-scenario-matrix`)
+enumerate thirteen scenarios (`enum CorpusScenario`), OBSERVE the REAL CORPUS-0 admission filter / check /
+verifier for each, and emit `corpus-scenario-pack.json` + `corpus-scenario-report.txt` plus an input-integrity
+matrix. Exactly one input (a clean two-document corpus) verifies; the other twelve (empty, hidden-only,
+non-`.txt`-only, absolute / `..` / escaping path, grounding-document mutation, non-grounding side-document
+mutation, and tampered source/trace/report/manifest) are each REFUSED. The matrix additionally records the
+verified case's SOURCE IDENTITY (which document/span grounded the answer) and a `whole_corpus_bound` fact. 12 new
+tests bring the crate to 124 unit tests; the library stays filesystem-free (`std::fs` only in `main.rs`).
+
+**Why.** CORPUS-0 proved the corpus capability and CORPUS-1 pinned the operator path. CORPUS-2 makes corpus
+behavior auditable across a deterministic scenario matrix the same way DOCFLOW-2 did for single-document input —
+so corpus selection, path safety, tamper sensitivity, and the no-authority boundary are all enumerable and
+machine-checkable, not just exercised by one happy path. Capability sprint, so `a.md` records it.
+
+**Boundary recorded.** The nine-line CORPUS-2 boundary is embedded verbatim in the pack/matrix and pinned by the
+gate: *Corpus scenarios vary the corpus input. They do not vary the authority. Source selection is verified and
+replayable. The whole corpus is hash-bound. Verification comes before tracing. Nothing executes. Nothing becomes
+evidence. Nothing promotes. Nothing trains.* The corpus-specific crux is recorded IN the matrix: it carries the
+verified case's `source` (the real `corpus_source` — `document_index`/`document_title`/`span_id`/`span_text`), so
+selection is verified and replayable, never a model's semantic judgment; and a `whole_corpus_bound` fact proven
+structurally by `corpus_whole_binding_holds` and made visible in the two mutation scenarios' rejection reasons —
+the grounding mutation fails on `corpus-source.json` (the attribution changed) while the non-grounding
+side-document mutation leaves `corpus-source.json` byte-identical yet still fails on `trace.json`, because the
+reading receipt's `structure_hash` binds the WHOLE corpus, so a side document cannot silently pass. Every new
+struct is `Serialize` but NOT `Deserialize` (re-derive, never trust); the path/admission scenarios reuse the same
+pure decisions the shell calls (`check_local_input_path`, `resolved_path_within`, `corpus_admits_filename`). The
+`release_check.sh` CORPUS-2 block pins the API + commands, the proves-not-asserts functions, all twelve test-name
+pins, the unit-count pin raised 112→124, the nine boundary lines, and a binary smoke that proves the coverage +
+source identity + the whole-corpus-binding distinction from the matrix's OWN bytes, refuses a tampered pack by
+both verify and matrix, and refuses hidden-only / non-`.txt`-only corpora end-to-end. Verified by a green,
+byte-silent `release_check.sh`; three live sabotage probes (side-document anti-vacuity → exit 101; CLI
+pack-verify removed → smoke exit 1; one test `#[ignore]`d → count pin exit 1), each restored byte-identical via
+`cp`+`md5` (never `git checkout`); and an independent read-only adversarial panel (four refute-by-default Explore
+lenses) that returned fully dry, no debris. Purely additive — only `crates/cognitive-demo/src/{lib.rs,main.rs}`
+and the gate block change; NO `Cargo.toml`/`Cargo.lock` change, NO new file, NO new dependency, no frozen crate
+SOURCE touched, P12 stays `training_justified=false`, P13–P15 closed, and the seven milestone tags are unmoved.
+Recorded in [a.md](../a.md) and [scripts/release_check.sh](../scripts/release_check.sh). No tag for CORPUS-2.
+Local only — no remote push.
+
 ## DD-2026-06-21-A — Corpus flow operator guard / manual + smoke integration (CORPUS-1)
 
 **Decision.** Extend the operator-facing guard layer to cover the CORPUS-0 commands without adding any

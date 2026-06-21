@@ -1323,10 +1323,10 @@ grep -q 'fn trace_does_not_change_training_gate' crates/cognitive-demo/src/lib.r
 grep -q 'fn trace_does_not_change_verifier_receipt' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_records_every_stage_id_and_links_the_chain' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_grants_no_new_authority' crates/cognitive-demo/src/lib.rs
-# Unit-test REALITY pin: exactly the 112 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
-# MTRACE-1 (12) + MTRACE-2 (12) + DOCFLOW-0 (10) + DOCFLOW-2 (10) + CORPUS-0 (12) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
+# Unit-test REALITY pin: exactly the 124 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
+# MTRACE-1 (12) + MTRACE-2 (12) + DOCFLOW-0 (10) + DOCFLOW-2 (10) + CORPUS-0 (12) + CORPUS-2 (12) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
 _int0_unit="$(cargo test --offline --lib --manifest-path crates/cognitive-demo/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 112
+test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 124
 test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
 # Determinism / no side effects: the trace is a pure, in-memory function — no clock, entropy, or network
 # anywhere in src/, and no floats anywhere in the crate. (`std::process::exit` in the CLI shell is a clean
@@ -2485,7 +2485,7 @@ grep -q 'EmptyCorpus' crates/cognitive-demo/src/lib.rs
 grep -q 'fn read_local_corpus' crates/cognitive-demo/src/main.rs
 grep -q 'corpus_admits_filename' crates/cognitive-demo/src/main.rs
 grep -q 'resolved_path_within(&root, &resolved)' crates/cognitive-demo/src/main.rs
-# The 12 CORPUS-0 first-tests exist by name (a gutted/deleted test also drops the unit count pinned at 112 above).
+# The 12 CORPUS-0 first-tests exist by name (a gutted/deleted test also drops the unit count pinned at 124 above).
 for _ct in corpus_trace_starts_from_verified_receipt corpus_trace_cites_receipt_hash corpus_trace_records_grounding_document_and_span corpus_admits_only_plain_local_txt_files corpus_empty_fails_closed corpus_bundle_verifies_clean_input corpus_bundle_rejects_tampered_corpus corpus_bundle_rejects_tampered_artifact corpus_report_records_source_selection_and_refuses_tamper corpus_flow_does_not_change_training_gate corpus_flow_does_not_execute_or_promote corpus_source_is_deterministic_and_replayable; do
   if ! grep -q "fn $_ct" crates/cognitive-demo/src/lib.rs; then exit 1; fi
 done
@@ -2553,6 +2553,95 @@ if ./target/debug/cognitive-demo corpus-trace --input-dir "../etc-escape" >/dev/
 ln -s /etc "$_cor_dir/linkdir" 2>/dev/null
 if ./target/debug/cognitive-demo corpus-trace --input-dir "$_cor_rel/linkdir" >/dev/null 2>&1; then rm -rf "$_cor_dir"; exit 1; fi
 rm -rf "$_cor_dir"
+# ---------------------------------------------------------------------------------------------------
+# CORPUS-2 — corpus scenario pack / input-integrity matrix (crates/cognitive-demo). Where CORPUS-0 traces ONE
+# clean corpus and CORPUS-1 documents the operator path, CORPUS-2 makes corpus behavior AUDITABLE across a
+# finite, enum-backed matrix of VALID and INVALID corpus inputs (the corpus analog of DOCFLOW-2), each OBSERVED
+# by running the REAL CORPUS-0 admission filter / check / verifier: a clean two-document corpus verifies; an
+# empty corpus, a hidden-only or non-.txt-only corpus, an absolute / `..` / escaping path, a grounding-document
+# mutation, a non-grounding side-document mutation, and a tampered source/trace/report/manifest are each REFUSED.
+# corpus-scenario-pack writes the observed-outcome record + report; corpus-scenario-verify re-derives and refuses
+# any tamper; corpus-scenario-matrix verifies the pack then emits the matrix, which ALSO records the verified
+# case's SOURCE IDENTITY and a whole_corpus_bound fact (mutating a non-grounding document leaves the attribution
+# byte-identical yet still fails the bundle on trace.json — the structure hash binds the WHOLE corpus). Every
+# scenario keeps the boundary closed: nothing executes, becomes evidence, promotes, or trains; P12 stays
+# training_justified=false. No frozen crate edit; the library stays fs-free (pinned above). Doctrine: Corpus
+# scenarios vary the corpus input. They do not vary the authority. Source selection is verified and replayable.
+# The whole corpus is hash-bound. Verification comes before tracing. Nothing executes. Nothing becomes evidence.
+# Nothing promotes. Nothing trains.
+# ---------------------------------------------------------------------------------------------------
+# Surface signals: the CORPUS-2 API + commands exist and the shared pure decisions back the path scenarios.
+grep -q 'pub enum CorpusScenario' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn corpus_scenario_pack_files' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn verify_corpus_scenario_pack' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn corpus_scenario_matrix' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn list_corpus_scenarios' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn resolved_path_within' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn corpus_admits_filename' crates/cognitive-demo/src/lib.rs
+# Each scenario OBSERVES the real check (proves not asserts): the pack runs the CORPUS-0 verifier/checks, and the
+# whole-corpus binding is proven structurally (source unchanged, bundle still refused), never asserted.
+grep -q 'fn run_corpus_scenario' crates/cognitive-demo/src/lib.rs
+grep -q 'fn corpus_whole_binding_holds' crates/cognitive-demo/src/lib.rs
+# The 12 CORPUS-2 first-tests exist by name (a gutted/deleted test also drops the unit count pinned at 124 above).
+for _c2t in corpus_scenarios_list_all_cases corpus_clean_two_document_case_verifies corpus_empty_case_fails_closed corpus_hidden_only_case_refused corpus_non_txt_only_case_refused corpus_absolute_path_refused corpus_parent_traversal_refused corpus_symlink_escape_refused corpus_grounding_doc_mutation_invalidates_bundle corpus_side_doc_mutation_invalidates_bundle corpus_tampered_artifacts_refused corpus_scenario_matrix_records_source_and_boundaries; do
+  if ! grep -q "fn $_c2t" crates/cognitive-demo/src/lib.rs; then exit 1; fi
+done
+# The nine-line CORPUS-2 boundary is recorded verbatim in the source (all nine lines).
+for _c2bl in 'Corpus scenarios vary the corpus input.' 'They do not vary the authority.' 'Source selection is verified and replayable.' 'The whole corpus is hash-bound.' 'Verification comes before tracing.' 'Nothing executes.' 'Nothing becomes evidence.' 'Nothing promotes.' 'Nothing trains.'; do
+  if ! grep -qF "$_c2bl" crates/cognitive-demo/src/lib.rs; then exit 1; fi
+done
+# BEHAVIORAL smoke: run the WHOLE corpus-scenario flow end-to-end, prove the coverage + source identity from the
+# matrix's OWN serialized output, prove the whole-corpus-binding distinction is genuinely demonstrated, and prove
+# a tampered pack is refused by BOTH verify and matrix. The pack lives under target/ (gitignored) so no git debris
+# is left. Fail-closed on any unexpected success.
+cargo build --offline --quiet --manifest-path crates/cognitive-demo/Cargo.toml --bin cognitive-demo >/dev/null 2>&1
+_c2_dir="$(mktemp -d "$PWD/target/.corpus2_gate.XXXXXX")"
+_c2_rel="target/$(basename "$_c2_dir")"
+# corpus-scenarios lists all thirteen input scenarios.
+_c2_menu="$(./target/debug/cognitive-demo corpus-scenarios)"
+for _slug in clean-two-document empty-corpus hidden-only non-txt-only absolute-path parent-traversal symlink-escape grounding-mutation side-document-mutation tampered-source tampered-trace tampered-report tampered-manifest; do
+  case "$_c2_menu" in *"$_slug"*) : ;; *) rm -rf "$_c2_dir"; exit 1 ;; esac
+done
+# corpus-scenario-pack writes the pack; corpus-scenario-verify accepts the clean pack and prints the boundary.
+./target/debug/cognitive-demo corpus-scenario-pack --out "$_c2_dir/pack" >/dev/null 2>&1 || { rm -rf "$_c2_dir"; exit 1; }
+_c2_verify="$(./target/debug/cognitive-demo corpus-scenario-verify --path "$_c2_dir/pack" 2>/dev/null)" || { rm -rf "$_c2_dir"; exit 1; }
+case "$_c2_verify" in *'corpus-scenario-verify: OK'*) : ;; *) rm -rf "$_c2_dir"; exit 1 ;; esac
+case "$_c2_verify" in *'The whole corpus is hash-bound.'*) : ;; *) rm -rf "$_c2_dir"; exit 1 ;; esac
+# corpus-scenario-matrix verifies the pack then emits the coverage matrix; its OWN bytes prove the coverage.
+./target/debug/cognitive-demo corpus-scenario-matrix --path "$_c2_dir/pack" --out "$_c2_dir/matrix.json" >/dev/null 2>&1 || { rm -rf "$_c2_dir"; exit 1; }
+for _m in '"verified_count": 1' '"refused_count": 12' '"cells_total": 52' '"cells_proven": 52' '"all_expectations_met": true' '"all_boundaries_hold": true' '"whole_corpus_bound": true'; do
+  if ! grep -qF "$_m" "$_c2_dir/matrix.json"; then rm -rf "$_c2_dir"; exit 1; fi
+done
+# The matrix records the verified case's SOURCE IDENTITY (which document/span grounded the answer).
+for _s in '"document_title": "a-east.txt"' '"span_id": 0' '"span_text": "The east bridge reopened today."'; do
+  if ! grep -qF "$_s" "$_c2_dir/matrix.json"; then rm -rf "$_c2_dir"; exit 1; fi
+done
+# WHOLE-CORPUS BINDING is genuinely demonstrated (not just a boolean): the grounding mutation breaks the source
+# attribution first, while the non-grounding side mutation leaves it intact yet still breaks the whole-corpus trace.
+if ! grep -qF '"rejection_reason": "bundle-file-mismatch:corpus-source.json"' "$_c2_dir/matrix.json"; then rm -rf "$_c2_dir"; exit 1; fi
+if ! grep -qF '"rejection_reason": "bundle-file-mismatch:trace.json"' "$_c2_dir/matrix.json"; then rm -rf "$_c2_dir"; exit 1; fi
+# Every scenario slug appears in the matrix (it records all outcomes).
+for _slug in clean-two-document empty-corpus hidden-only non-txt-only absolute-path parent-traversal symlink-escape grounding-mutation side-document-mutation tampered-source tampered-trace tampered-report tampered-manifest; do
+  if ! grep -qF "\"$_slug\"" "$_c2_dir/matrix.json"; then rm -rf "$_c2_dir"; exit 1; fi
+done
+# No scenario produced an affirmative-authority status in the pack manifest.
+if grep -qE '"(execution_status|observation_status|promotion_status)": "(executed|recorded|promoted|granted|evidence)"' "$_c2_dir/pack/corpus-scenario-pack.json"; then rm -rf "$_c2_dir"; exit 1; fi
+# RE-DERIVE IS LOAD-BEARING: a tampered pack file must be refused by BOTH verify AND matrix.
+printf '\n{tampered}' >> "$_c2_dir/pack/corpus-scenario-pack.json"
+if ./target/debug/cognitive-demo corpus-scenario-verify --path "$_c2_dir/pack" >/dev/null 2>&1; then rm -rf "$_c2_dir"; exit 1; fi
+if ./target/debug/cognitive-demo corpus-scenario-matrix --path "$_c2_dir/pack" >/dev/null 2>&1; then rm -rf "$_c2_dir"; exit 1; fi
+# END-TO-END input safety: the matrix records hidden-only and non-.txt-only corpora as REFUSED. Prove those
+# outcomes end-to-end through the binary (not only via the pure admission filter in the lib), so a regression in
+# the shell's directory enumeration cannot leave the matrix asserting a refusal that no longer happens. A corpus
+# of only hidden files and a corpus of only non-.txt files each admit ZERO documents -> corpus-trace fails closed.
+mkdir -p "$_c2_dir/hidden_only" "$_c2_dir/non_txt_only"
+printf 'hidden a.' > "$_c2_dir/hidden_only/.secret.txt"
+printf 'hidden b.' > "$_c2_dir/hidden_only/.hidden.txt"
+printf 'note.' > "$_c2_dir/non_txt_only/notes.md"
+printf '{}' > "$_c2_dir/non_txt_only/data.json"
+if ./target/debug/cognitive-demo corpus-trace --input-dir "$_c2_rel/hidden_only" >/dev/null 2>&1; then rm -rf "$_c2_dir"; exit 1; fi
+if ./target/debug/cognitive-demo corpus-trace --input-dir "$_c2_rel/non_txt_only" >/dev/null 2>&1; then rm -rf "$_c2_dir"; exit 1; fi
+rm -rf "$_c2_dir"
 # ---------------------------------------------------------------------------------------------------
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
