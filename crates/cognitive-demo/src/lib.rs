@@ -4771,6 +4771,611 @@ pub fn run_dream_export_replay(
     ))
 }
 
+// ── DREAM-EXPORT-2 — Dream Export Scenario Matrix / Provenance Integrity ──────────────────────────────────────
+// A deterministic matrix over the EXISTING dream-export bridge: one CLEAN export that must VERIFY, plus six
+// tamper scenarios that must each be REFUSED (a tampered dream packet, a tampered receipt, a forged
+// dream_origin=false, a mutated dream_input_hash, a mutated dream_packet_id, and a forged authority_after_export
+// that injects the dream engine's private authority token). Each row records the OBSERVED outcome (never
+// asserted), so a tamper that slipped through would record outcome="verifies" against expected="refused" and fail
+// its test. The matrix also records the dream provenance fields, that the exported material stays hypothesis_only
+// and is DISTINGUISHABLE from a plain hypothesis, that probe requests never execute, and the
+// no-evidence / no-promotion / no-training boundary cells. Pure + re-derived-and-byte-compared on verify; it
+// creates NO authority and the dream's private authority token is only ever FORGED-then-REFUSED, never minted.
+
+/// The DREAM-EXPORT-2 scenario-matrix boundary. SOURCE-SAFE: the dream engine's private authority is named by its
+/// lowercase serialized token `dream_only`, because a release_check gate keeps the PascalCase identifier crate-
+/// private to dream-engine (so this very source file may not contain it — which is exactly what the line asserts).
+pub const DREAM_EXPORT_MATRIX_BOUNDARY_LINES: [&str; 9] = [
+    "Dream export scenarios vary the export artifact.",
+    "They do not vary the authority.",
+    "Dream provenance remains auditable.",
+    "Exported material remains HypothesisOnly.",
+    "dream_only remains private to dream-engine.",
+    "Probe requests do not execute.",
+    "Nothing becomes evidence.",
+    "Nothing promotes.",
+    "Nothing trains.",
+];
+
+/// One dream-export scenario: the CLEAN export (which must verify) or a deterministic tamper (which must be
+/// refused). Each names which surface refuses it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DreamExportScenario {
+    CleanExport,
+    TamperedDreamPacket,
+    TamperedReceipt,
+    ForgedDreamOriginFalse,
+    MutatedDreamInputHash,
+    MutatedDreamPacketId,
+    ForgedAuthorityAfterExport,
+}
+
+impl DreamExportScenario {
+    const ALL: [DreamExportScenario; 7] = [
+        DreamExportScenario::CleanExport,
+        DreamExportScenario::TamperedDreamPacket,
+        DreamExportScenario::TamperedReceipt,
+        DreamExportScenario::ForgedDreamOriginFalse,
+        DreamExportScenario::MutatedDreamInputHash,
+        DreamExportScenario::MutatedDreamPacketId,
+        DreamExportScenario::ForgedAuthorityAfterExport,
+    ];
+
+    fn slug(self) -> &'static str {
+        match self {
+            DreamExportScenario::CleanExport => "clean-export",
+            DreamExportScenario::TamperedDreamPacket => "tampered-dream-packet",
+            DreamExportScenario::TamperedReceipt => "tampered-receipt",
+            DreamExportScenario::ForgedDreamOriginFalse => "forged-dream-origin-false",
+            DreamExportScenario::MutatedDreamInputHash => "mutated-dream-input-hash",
+            DreamExportScenario::MutatedDreamPacketId => "mutated-dream-packet-id",
+            DreamExportScenario::ForgedAuthorityAfterExport => "forged-authority-after-export",
+        }
+    }
+
+    fn describe(self) -> &'static str {
+        match self {
+            DreamExportScenario::CleanExport => {
+                "the clean dream export re-derives byte-identically and verifies"
+            }
+            DreamExportScenario::TamperedDreamPacket => {
+                "a tampered source dream packet is refused before export"
+            }
+            DreamExportScenario::TamperedReceipt => {
+                "a tampered export receipt (via-existing-gate bit) is refused"
+            }
+            DreamExportScenario::ForgedDreamOriginFalse => {
+                "a forged dream_origin=false is refused (provenance cannot be stripped)"
+            }
+            DreamExportScenario::MutatedDreamInputHash => {
+                "a mutated dream_input_hash is refused (provenance binding holds)"
+            }
+            DreamExportScenario::MutatedDreamPacketId => {
+                "a mutated dream_packet_id is refused (provenance binding holds)"
+            }
+            DreamExportScenario::ForgedAuthorityAfterExport => {
+                "a forged authority_after_export (the dream's private token) is refused"
+            }
+        }
+    }
+
+    /// Which surface returns the verdict for this scenario.
+    fn target_surface(self) -> &'static str {
+        match self {
+            DreamExportScenario::CleanExport => "bundle_rederive_byte_compare",
+            DreamExportScenario::TamperedDreamPacket => "dream_packet_cross_check",
+            _ => "bundle_rederive_byte_compare",
+        }
+    }
+
+    fn expected_verifies(self) -> bool {
+        matches!(self, DreamExportScenario::CleanExport)
+    }
+}
+
+/// The OBSERVED outcome of one scenario: whether the tamper genuinely changed the canonical bytes, whether it
+/// injected the dream's private authority token (only the authority-forgery does), and the REAL verdict the
+/// EXISTING verifier returned. All observed, never asserted — the matrix records what actually happened.
+struct DreamExportAttempt {
+    mutation_applied: bool,
+    injects_dream_only: bool,
+    verdict: Result<(), TraceError>,
+}
+
+/// Run ONE dream-export scenario: build the canonical artifact fresh, apply the scenario's deterministic mutation
+/// to a COPY, and run the EXISTING verifier (the bundle re-derive byte-compare, or the dream-packet cross-check).
+/// Returns whether the mutation changed the bytes, whether it injected the dream's private token, and the real
+/// verdict (`Ok` = the clean export verifies; `Err` = a tamper is refused). Never mutates canonical data. Pure.
+fn run_dream_export_scenario(
+    documents: &[(String, String)],
+    frame_text: &str,
+    seed: u64,
+    weirdness: i64,
+    scenario: DreamExportScenario,
+) -> Result<DreamExportAttempt, TraceError> {
+    match scenario {
+        DreamExportScenario::CleanExport => {
+            let bundle = dream_export_bundle_json(documents, frame_text, seed, weirdness)?;
+            Ok(DreamExportAttempt {
+                mutation_applied: false,
+                injects_dream_only: false,
+                verdict: verify_dream_export_bundle_json(
+                    documents, frame_text, seed, weirdness, &bundle,
+                ),
+            })
+        }
+        DreamExportScenario::TamperedDreamPacket => {
+            let input = dream_export_input(documents, frame_text, seed, weirdness);
+            let valid = dream_engine::dream_packet_json(&input)
+                .map_err(|e| TraceError::DreamExport(e.to_string()))?;
+            let tampered = valid.replacen("dream-packet-v0.1", "dream-packet-v9.9", 1);
+            Ok(DreamExportAttempt {
+                mutation_applied: tampered != valid,
+                injects_dream_only: false,
+                verdict: run_dream_export(documents, frame_text, seed, weirdness, Some(&tampered))
+                    .map(|_| ()),
+            })
+        }
+        DreamExportScenario::TamperedReceipt => {
+            let bundle = dream_export_bundle_json(documents, frame_text, seed, weirdness)?;
+            let tampered = bundle.replacen(
+                "\"exported_via_existing_hypothesis_gate\": true",
+                "\"exported_via_existing_hypothesis_gate\": false",
+                1,
+            );
+            Ok(DreamExportAttempt {
+                mutation_applied: tampered != bundle,
+                injects_dream_only: false,
+                verdict: verify_dream_export_bundle_json(
+                    documents, frame_text, seed, weirdness, &tampered,
+                ),
+            })
+        }
+        DreamExportScenario::ForgedDreamOriginFalse => {
+            let bundle = dream_export_bundle_json(documents, frame_text, seed, weirdness)?;
+            let tampered = bundle.replacen("\"dream_origin\": true", "\"dream_origin\": false", 1);
+            Ok(DreamExportAttempt {
+                mutation_applied: tampered != bundle,
+                injects_dream_only: false,
+                verdict: verify_dream_export_bundle_json(
+                    documents, frame_text, seed, weirdness, &tampered,
+                ),
+            })
+        }
+        DreamExportScenario::MutatedDreamInputHash => {
+            let receipt = dream_export_bundle(documents, frame_text, seed, weirdness)?.receipt;
+            let bundle = dream_export_bundle_json(documents, frame_text, seed, weirdness)?;
+            let from = format!("\"dream_input_hash\": \"{}\"", receipt.dream_input_hash);
+            let tampered = bundle.replacen(&from, "\"dream_input_hash\": \"deadbeefdeadbeef\"", 1);
+            Ok(DreamExportAttempt {
+                mutation_applied: tampered != bundle,
+                injects_dream_only: false,
+                verdict: verify_dream_export_bundle_json(
+                    documents, frame_text, seed, weirdness, &tampered,
+                ),
+            })
+        }
+        DreamExportScenario::MutatedDreamPacketId => {
+            let receipt = dream_export_bundle(documents, frame_text, seed, weirdness)?.receipt;
+            let bundle = dream_export_bundle_json(documents, frame_text, seed, weirdness)?;
+            let from = format!("\"dream_packet_id\": \"{}\"", receipt.dream_packet_id);
+            let tampered =
+                bundle.replacen(&from, "\"dream_packet_id\": \"dream-0000000000000000\"", 1);
+            Ok(DreamExportAttempt {
+                mutation_applied: tampered != bundle,
+                injects_dream_only: false,
+                verdict: verify_dream_export_bundle_json(
+                    documents, frame_text, seed, weirdness, &tampered,
+                ),
+            })
+        }
+        DreamExportScenario::ForgedAuthorityAfterExport => {
+            // Forge the EXISTING hypothesis_only authority to the dream engine's private serialized token. The
+            // verifier re-derives and refuses it — proving the private dream authority cannot be laundered into an
+            // export. The token is only ever present in this FORGED copy; the canonical export never carries it.
+            let bundle = dream_export_bundle_json(documents, frame_text, seed, weirdness)?;
+            let tampered = bundle.replacen(
+                "\"authority_after_export\": \"hypothesis_only\"",
+                "\"authority_after_export\": \"dream_only\"",
+                1,
+            );
+            Ok(DreamExportAttempt {
+                mutation_applied: tampered != bundle,
+                injects_dream_only: tampered.contains("dream_only"),
+                verdict: verify_dream_export_bundle_json(
+                    documents, frame_text, seed, weirdness, &tampered,
+                ),
+            })
+        }
+    }
+}
+
+/// One scenario row: the identity, the surface, whether the mutation applied / injected the dream token, the
+/// expected vs OBSERVED outcome, whether they match, and the exact detail (rejection reason or clean
+/// confirmation). `Serialize` but NOT `Deserialize`. No affirmative-authority token is stored.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct DreamExportScenarioRow {
+    slug: String,
+    scenario: String,
+    target_surface: String,
+    mutation_applied: bool,
+    injects_dream_only: bool,
+    expected: String,
+    outcome: String,
+    matches_expected: bool,
+    detail: String,
+}
+
+/// The dream provenance the export preserves — recorded from the CLEAN receipt so the matrix proves provenance
+/// survives export. `authority_after_export` is the EXISTING [`Authority::HypothesisOnly`], never a new variant.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct DreamExportProvenance {
+    dream_packet_id: String,
+    dream_input_hash: String,
+    dream_seed: u64,
+    dream_weirdness: i64,
+    dream_engine_version: String,
+    dream_operator_ids: Vec<String>,
+    source_receipt_memory_hash: u64,
+    source_receipt_answer_hash: u64,
+    exported_hypothesis_hash: u64,
+    authority_after_export: Authority,
+    dream_origin: bool,
+}
+
+/// The matrix coverage: every outcome matched expectation, the exported material stays hypothesis_only and is
+/// distinguishable from a plain hypothesis, probe requests never execute, and the no-execution / no-evidence /
+/// no-promotion / no-training boundary cells. All derived from real fields. `Serialize` but NOT `Deserialize`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct DreamExportMatrixCoverage {
+    scenario_count: usize,
+    clean_verifies: bool,
+    all_tampers_refused: bool,
+    all_match_expected: bool,
+    exported_material_is_hypothesis_only: bool,
+    dream_distinguishable_from_plain: bool,
+    probe_requests_execute: bool,
+    no_execution: bool,
+    no_evidence: bool,
+    no_promotion: bool,
+    no_training: bool,
+    canonical_export_hash: String,
+}
+
+/// The dream-export scenario matrix: every scenario row, the preserved dream provenance, the coverage summary,
+/// and the boundary. `Serialize` but NOT `Deserialize` — re-derived and byte-compared on verify, never parsed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct DreamExportScenarioMatrix {
+    schema: String,
+    rows: Vec<DreamExportScenarioRow>,
+    provenance: DreamExportProvenance,
+    coverage: DreamExportMatrixCoverage,
+    boundary: Vec<String>,
+}
+
+/// Build the canonical dream-export scenario matrix: run every scenario through the EXISTING verifier and record
+/// the OBSERVED outcome, then record the preserved provenance and the boundary cells from real fields. Pure and
+/// deterministic — every scenario is re-run from fixed inputs; `outcome`/`matches_expected` are observed, not
+/// asserted, so a tamper that slipped through records `matches_expected=false` and fails the tests.
+fn canonical_dream_export_matrix(
+    documents: &[(String, String)],
+    frame_text: &str,
+    seed: u64,
+    weirdness: i64,
+) -> Result<DreamExportScenarioMatrix, TraceError> {
+    // The clean bundle (provenance source of truth) and the source dream packet (probe-execution truth).
+    let bundle = dream_export_bundle(documents, frame_text, seed, weirdness)?;
+    let receipt = bundle.receipt.clone();
+    let input = dream_export_input(documents, frame_text, seed, weirdness);
+    let packet =
+        dream_engine::dream_packet(&input).map_err(|e| TraceError::DreamExport(e.to_string()))?;
+    let bundle_json = dream_export_bundle_json(documents, frame_text, seed, weirdness)?;
+
+    let mut rows = Vec::new();
+    let mut clean_verifies = false;
+    let mut all_tampers_refused = true;
+    let mut all_match_expected = true;
+    for scenario in DreamExportScenario::ALL {
+        let attempt = run_dream_export_scenario(documents, frame_text, seed, weirdness, scenario)?;
+        let verifies = attempt.verdict.is_ok();
+        let outcome = if verifies { "verifies" } else { "refused" };
+        let expected = if scenario.expected_verifies() {
+            "verifies"
+        } else {
+            "refused"
+        };
+        let matches_expected = outcome == expected;
+        let detail = match &attempt.verdict {
+            Ok(()) => "clean export re-derives byte-identically".to_string(),
+            Err(e) => e.to_string(),
+        };
+        if scenario == DreamExportScenario::CleanExport && verifies {
+            clean_verifies = true;
+        }
+        if !scenario.expected_verifies() && verifies {
+            all_tampers_refused = false;
+        }
+        if !matches_expected {
+            all_match_expected = false;
+        }
+        rows.push(DreamExportScenarioRow {
+            slug: scenario.slug().to_string(),
+            scenario: scenario.describe().to_string(),
+            target_surface: scenario.target_surface().to_string(),
+            mutation_applied: attempt.mutation_applied,
+            injects_dream_only: attempt.injects_dream_only,
+            expected: expected.to_string(),
+            outcome: outcome.to_string(),
+            matches_expected,
+            detail,
+        });
+    }
+
+    // Distinguishability: the dream-exported hypothesis cites a `dream:` provenance label and the bundle records
+    // dream_origin; a plain hypothesis cites neither. (Observed, so a regression that made them identical fails.)
+    let dream_cites_dream = bundle
+        .hypothesis
+        .evidence_inputs()
+        .iter()
+        .all(|e| e.source_label.starts_with("dream:"));
+    let plain = propose(HypothesisSpec {
+        statement: "Plain proposal with no dream origin.".to_string(),
+        prior: 500,
+        uncertainty: 500,
+        test_cost: 1,
+        risk: 100,
+        reversibility: 900,
+        evidence_inputs: vec![EvidenceRef {
+            answer_hash: 1,
+            memory_hash: 2,
+            source_label: "receipt:plain".to_string(),
+        }],
+        probe_description: "probe it".to_string(),
+    })
+    .map_err(TraceError::Hypothesis)?;
+    let plain_json = serde_json::to_string_pretty(&plain).expect("plain hypothesis serializes");
+    let dream_distinguishable_from_plain = dream_cites_dream
+        && plain
+            .evidence_inputs()
+            .iter()
+            .all(|e| !e.source_label.starts_with("dream:"))
+        && bundle_json.contains("\"dream_origin\": true")
+        && !plain_json.contains("dream_origin");
+
+    // Boundary cells from real fields: probes never execute; the exported material stays hypothesis_only and
+    // carries the hypothesis-layer quarantine (forbids serving as evidence / changing the training gate).
+    let probe_requests_execute = packet.probe_requests.iter().any(|p| p.executes);
+    let exported_material_is_hypothesis_only =
+        matches!(receipt.authority_after_export, Authority::HypothesisOnly)
+            && !bundle_json.contains("dream_only");
+    let no_evidence = receipt
+        .forbidden_uses
+        .iter()
+        .any(|u| u == "serve_as_evidence");
+    let no_training = receipt
+        .forbidden_uses
+        .iter()
+        .any(|u| u == "change_training_gate");
+    let no_promotion = matches!(receipt.authority_after_export, Authority::HypothesisOnly);
+
+    let provenance = DreamExportProvenance {
+        dream_packet_id: receipt.dream_packet_id.clone(),
+        dream_input_hash: receipt.dream_input_hash.clone(),
+        dream_seed: receipt.dream_seed,
+        dream_weirdness: receipt.dream_weirdness,
+        dream_engine_version: receipt.dream_engine_version.clone(),
+        dream_operator_ids: receipt.dream_operator_ids.clone(),
+        source_receipt_memory_hash: receipt.source_receipt_memory_hash,
+        source_receipt_answer_hash: receipt.source_receipt_answer_hash,
+        exported_hypothesis_hash: receipt.exported_hypothesis_hash,
+        authority_after_export: receipt.authority_after_export,
+        dream_origin: receipt.dream_origin,
+    };
+    let coverage = DreamExportMatrixCoverage {
+        scenario_count: rows.len(),
+        clean_verifies,
+        all_tampers_refused,
+        all_match_expected,
+        exported_material_is_hypothesis_only,
+        dream_distinguishable_from_plain,
+        probe_requests_execute,
+        no_execution: !probe_requests_execute,
+        no_evidence,
+        no_promotion,
+        no_training,
+        canonical_export_hash: bundle_content_hash(&bundle_json),
+    };
+    Ok(DreamExportScenarioMatrix {
+        schema: "dream-export-scenario-matrix-v0.1".to_string(),
+        rows,
+        provenance,
+        coverage,
+        boundary: DREAM_EXPORT_MATRIX_BOUNDARY_LINES
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+    })
+}
+
+/// The dream-export scenario matrix as pretty JSON. Pure and deterministic — re-derives byte-for-byte from the
+/// same corpus + frame + dials. This is what `dream-export-matrix --out` writes.
+pub fn dream_export_matrix(
+    documents: &[(String, String)],
+    frame_text: &str,
+    seed: u64,
+    weirdness: i64,
+) -> Result<String, TraceError> {
+    Ok(serde_json::to_string_pretty(&canonical_dream_export_matrix(
+        documents, frame_text, seed, weirdness,
+    )?)
+    .expect("DreamExportScenarioMatrix serializes"))
+}
+
+/// Re-derive the matrix from the SAME corpus + frame + dials and confirm the PROVIDED matrix JSON is byte-for-byte
+/// that matrix. The provided matrix is NEVER parsed back into authority — only COMPARED — so a tampered / stale /
+/// foreign matrix (e.g. one that flips a refused outcome to verifies) is REFUSED. Pure.
+pub fn verify_dream_export_matrix(
+    documents: &[(String, String)],
+    frame_text: &str,
+    seed: u64,
+    weirdness: i64,
+    provided: &str,
+) -> Result<(), TraceError> {
+    if provided == dream_export_matrix(documents, frame_text, seed, weirdness)? {
+        Ok(())
+    } else {
+        Err(TraceError::DreamExportMismatch)
+    }
+}
+
+/// Render the plain-text dream-export scenario-matrix report — pure FORMATTING of its recorded fields: the
+/// per-scenario expected/outcome verdict, the preserved provenance, the coverage cells, and the boundary. No new
+/// verdict, no authority object.
+fn render_dream_export_matrix(matrix: &DreamExportScenarioMatrix) -> String {
+    let mut out = String::from("DREAM EXPORT SCENARIO MATRIX (PROVENANCE INTEGRITY)\n");
+    out.push_str(&format!("schema: {}\n", matrix.schema));
+    out.push_str(
+        "(one clean export VERIFIES; every tamper is REFUSED by re-derive byte-compare)\n\n",
+    );
+
+    out.push_str("PER-SCENARIO EXPECTED x OUTCOME\n");
+    for row in &matrix.rows {
+        out.push_str(&format!("[{}]\n", row.slug));
+        out.push_str(&format!("    scenario:         {}\n", row.scenario));
+        out.push_str(&format!("    surface:          {}\n", row.target_surface));
+        out.push_str(&format!("    mutation applied: {}\n", row.mutation_applied));
+        out.push_str(&format!("    expected:         {}\n", row.expected));
+        out.push_str(&format!("    outcome:          {}\n", row.outcome));
+        out.push_str(&format!("    matches expected: {}\n", row.matches_expected));
+        out.push_str(&format!("    detail:           {}\n", row.detail));
+    }
+
+    out.push_str("\nDREAM PROVENANCE (preserved across export, auditable)\n");
+    out.push_str(&format!(
+        "    dream_packet_id:        {}\n",
+        matrix.provenance.dream_packet_id
+    ));
+    out.push_str(&format!(
+        "    dream_input_hash:       {}\n",
+        matrix.provenance.dream_input_hash
+    ));
+    out.push_str(&format!(
+        "    dream_seed:             {}\n",
+        matrix.provenance.dream_seed
+    ));
+    out.push_str(&format!(
+        "    dream_engine_version:   {}\n",
+        matrix.provenance.dream_engine_version
+    ));
+    out.push_str(&format!(
+        "    exported_hypothesis:    {}\n",
+        matrix.provenance.exported_hypothesis_hash
+    ));
+    out.push_str("    authority_after_export: hypothesis_only\n");
+    out.push_str(&format!(
+        "    dream_origin:           {}\n",
+        matrix.provenance.dream_origin
+    ));
+
+    out.push_str("\nCOVERAGE\n");
+    out.push_str(&format!(
+        "    scenarios:                       {}\n",
+        matrix.coverage.scenario_count
+    ));
+    out.push_str(&format!(
+        "    clean verifies:                  {}\n",
+        matrix.coverage.clean_verifies
+    ));
+    out.push_str(&format!(
+        "    all tampers refused:             {}\n",
+        matrix.coverage.all_tampers_refused
+    ));
+    out.push_str(&format!(
+        "    all match expected:              {}\n",
+        matrix.coverage.all_match_expected
+    ));
+    out.push_str(&format!(
+        "    exported material hypothesis_only:{}\n",
+        matrix.coverage.exported_material_is_hypothesis_only
+    ));
+    out.push_str(&format!(
+        "    dream distinguishable from plain:{}\n",
+        matrix.coverage.dream_distinguishable_from_plain
+    ));
+    out.push_str(&format!(
+        "    probe requests execute:          {}\n",
+        matrix.coverage.probe_requests_execute
+    ));
+    out.push_str(&format!(
+        "    no_execution:                    {}\n",
+        matrix.coverage.no_execution
+    ));
+    out.push_str(&format!(
+        "    no_evidence:                     {}\n",
+        matrix.coverage.no_evidence
+    ));
+    out.push_str(&format!(
+        "    no_promotion:                    {}\n",
+        matrix.coverage.no_promotion
+    ));
+    out.push_str(&format!(
+        "    no_training:                     {}\n",
+        matrix.coverage.no_training
+    ));
+    out.push_str(&format!(
+        "    canonical export hash:           {}\n",
+        matrix.coverage.canonical_export_hash
+    ));
+
+    out.push_str("\nBOUNDARY\n");
+    for line in DREAM_EXPORT_MATRIX_BOUNDARY_LINES {
+        out.push_str(&format!("    {line}\n"));
+    }
+    out
+}
+
+/// The `dream-export-matrix-report` command body: re-derive + verify the matrix from the SAME corpus + frame +
+/// dials (refuse a tampered matrix), then render the report from the re-derived (trusted) matrix. Pure (no I/O).
+pub fn run_dream_export_matrix_report(
+    documents: &[(String, String)],
+    frame_text: &str,
+    seed: u64,
+    weirdness: i64,
+    provided_matrix: &str,
+) -> Result<String, TraceError> {
+    verify_dream_export_matrix(documents, frame_text, seed, weirdness, provided_matrix)?;
+    Ok(render_dream_export_matrix(&canonical_dream_export_matrix(
+        documents, frame_text, seed, weirdness,
+    )?))
+}
+
+/// The `dream-export-matrix-verify` command body: re-derive the matrix and confirm the provided matrix is
+/// byte-identical — a determinism proof that also refuses any tampered matrix. Reads nothing as authority. Pure.
+pub fn run_dream_export_matrix_verify(
+    documents: &[(String, String)],
+    frame_text: &str,
+    seed: u64,
+    weirdness: i64,
+    provided_matrix: &str,
+) -> Result<String, TraceError> {
+    verify_dream_export_matrix(documents, frame_text, seed, weirdness, provided_matrix)?;
+    Ok(String::from(
+        "dream-export-matrix-verify: OK — the scenario matrix re-derives byte-identically; the clean export verifies and every tamper stays refused. Dream provenance is preserved; the exported material is hypothesis_only.\n",
+    ))
+}
+
+/// The `dream-export-scenarios` command: list the finite dream-export scenario set (slug + one-line description).
+/// Pure.
+pub fn list_dream_export_scenarios() -> String {
+    let mut out = String::from(
+        "cognitive-demo — dream-export scenarios (one clean export verifies; every tamper is refused):\n",
+    );
+    for s in DreamExportScenario::ALL {
+        out.push_str(&format!("    {:<30} {}\n", s.slug(), s.describe()));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4984,6 +5589,194 @@ mod tests {
             dream_export_bundle(&docs, &frame, 42, 2),
             Err(TraceError::DreamExport(_))
         ));
+    }
+
+    // --- DREAM-EXPORT-2 scenario matrix / provenance integrity tests ---
+
+    #[test]
+    fn dream_export_matrix_lists_all_scenarios() {
+        let listed = list_dream_export_scenarios();
+        for s in DreamExportScenario::ALL {
+            assert!(listed.contains(s.slug()), "missing scenario: {}", s.slug());
+        }
+        assert_eq!(DreamExportScenario::ALL.len(), 7);
+    }
+
+    #[test]
+    fn dream_export_matrix_clean_verifies() {
+        let (docs, frame, seed, w) = dream_export_fixture();
+        let m = canonical_dream_export_matrix(&docs, &frame, seed, w).expect("matrix");
+        let clean = m
+            .rows
+            .iter()
+            .find(|r| r.slug == "clean-export")
+            .expect("clean row");
+        assert_eq!(clean.outcome, "verifies");
+        assert_eq!(clean.expected, "verifies");
+        assert!(clean.matches_expected);
+        assert!(m.coverage.clean_verifies);
+    }
+
+    #[test]
+    fn dream_export_matrix_all_tampers_refused() {
+        let (docs, frame, seed, w) = dream_export_fixture();
+        let m = canonical_dream_export_matrix(&docs, &frame, seed, w).expect("matrix");
+        for row in m.rows.iter().filter(|r| r.slug != "clean-export") {
+            assert_eq!(row.outcome, "refused", "{} was not refused", row.slug);
+            assert_eq!(row.expected, "refused");
+            assert!(row.matches_expected);
+        }
+        assert!(m.coverage.all_tampers_refused);
+    }
+
+    #[test]
+    fn dream_export_matrix_all_match_expected() {
+        let (docs, frame, seed, w) = dream_export_fixture();
+        let m = canonical_dream_export_matrix(&docs, &frame, seed, w).expect("matrix");
+        assert!(m.coverage.all_match_expected);
+        assert!(m.rows.iter().all(|r| r.matches_expected));
+        assert_eq!(m.coverage.scenario_count, 7);
+    }
+
+    #[test]
+    fn dream_export_matrix_records_dream_provenance() {
+        let (docs, frame, seed, w) = dream_export_fixture();
+        let bundle = dream_export_bundle(&docs, &frame, seed, w).expect("bundle");
+        let m = canonical_dream_export_matrix(&docs, &frame, seed, w).expect("matrix");
+        // The matrix records the SAME provenance the clean receipt carries — provenance SURVIVES export.
+        assert_eq!(m.provenance.dream_packet_id, bundle.receipt.dream_packet_id);
+        assert_eq!(
+            m.provenance.dream_input_hash,
+            bundle.receipt.dream_input_hash
+        );
+        assert_eq!(m.provenance.dream_seed, bundle.receipt.dream_seed);
+        assert_eq!(
+            m.provenance.exported_hypothesis_hash,
+            bundle.receipt.exported_hypothesis_hash
+        );
+        assert!(m.provenance.dream_origin);
+        assert!(!m.provenance.dream_operator_ids.is_empty());
+    }
+
+    #[test]
+    fn dream_export_matrix_authority_remains_hypothesis_only() {
+        let (docs, frame, seed, w) = dream_export_fixture();
+        let m = canonical_dream_export_matrix(&docs, &frame, seed, w).expect("matrix");
+        assert!(matches!(
+            m.provenance.authority_after_export,
+            Authority::HypothesisOnly
+        ));
+        assert!(m.coverage.exported_material_is_hypothesis_only);
+        // The clean export bundle the matrix is built over never carries the dream's private token.
+        let bundle_json = dream_export_bundle_json(&docs, &frame, seed, w).expect("bundle");
+        assert!(!bundle_json.contains("dream_only"));
+        assert!(bundle_json.contains("hypothesis_only"));
+    }
+
+    #[test]
+    fn dream_export_matrix_distinguishes_plain_from_dream() {
+        let (docs, frame, seed, w) = dream_export_fixture();
+        let m = canonical_dream_export_matrix(&docs, &frame, seed, w).expect("matrix");
+        assert!(m.coverage.dream_distinguishable_from_plain);
+    }
+
+    #[test]
+    fn dream_export_matrix_probe_requests_do_not_execute() {
+        let (docs, frame, seed, w) = dream_export_fixture();
+        let m = canonical_dream_export_matrix(&docs, &frame, seed, w).expect("matrix");
+        assert!(!m.coverage.probe_requests_execute);
+        assert!(m.coverage.no_execution);
+    }
+
+    #[test]
+    fn dream_export_matrix_records_no_evidence_promotion_training() {
+        let (docs, frame, seed, w) = dream_export_fixture();
+        let m = canonical_dream_export_matrix(&docs, &frame, seed, w).expect("matrix");
+        assert!(m.coverage.no_evidence);
+        assert!(m.coverage.no_promotion);
+        assert!(m.coverage.no_training);
+    }
+
+    #[test]
+    fn dream_export_matrix_replay_byte_identical() {
+        let (docs, frame, seed, w) = dream_export_fixture();
+        let a = dream_export_matrix(&docs, &frame, seed, w).expect("a");
+        let b = dream_export_matrix(&docs, &frame, seed, w).expect("b");
+        assert_eq!(a, b);
+        verify_dream_export_matrix(&docs, &frame, seed, w, &a).expect("verifies");
+        run_dream_export_matrix_report(&docs, &frame, seed, w, &a).expect("report");
+        run_dream_export_matrix_verify(&docs, &frame, seed, w, &a).expect("verify");
+    }
+
+    #[test]
+    fn dream_export_matrix_verify_rejects_tampered_matrix() {
+        let (docs, frame, seed, w) = dream_export_fixture();
+        let matrix = dream_export_matrix(&docs, &frame, seed, w).expect("matrix");
+        // Flip a refused outcome to "verifies" to claim a tamper passed — re-derivation refuses the doctored matrix.
+        let doctored = matrix.replacen("\"outcome\": \"refused\"", "\"outcome\": \"verifies\"", 1);
+        assert_ne!(doctored, matrix);
+        assert!(matches!(
+            run_dream_export_matrix_report(&docs, &frame, seed, w, &doctored),
+            Err(TraceError::DreamExportMismatch)
+        ));
+        assert!(matches!(
+            run_dream_export_matrix_verify(&docs, &frame, seed, w, &doctored),
+            Err(TraceError::DreamExportMismatch)
+        ));
+    }
+
+    #[test]
+    fn dream_export_matrix_authority_forgery_injects_dream_token_and_is_refused() {
+        let (docs, frame, seed, w) = dream_export_fixture();
+        let m = canonical_dream_export_matrix(&docs, &frame, seed, w).expect("matrix");
+        let row = m
+            .rows
+            .iter()
+            .find(|r| r.slug == "forged-authority-after-export")
+            .expect("authority-forgery row");
+        // The forgery genuinely injected the dream's private serialized token AND was refused.
+        assert!(row.injects_dream_only);
+        assert!(row.mutation_applied);
+        assert_eq!(row.outcome, "refused");
+        assert!(row.matches_expected);
+    }
+
+    #[test]
+    fn dream_export_matrix_report_shows_provenance_and_outcomes() {
+        let (docs, frame, seed, w) = dream_export_fixture();
+        let matrix = dream_export_matrix(&docs, &frame, seed, w).expect("matrix");
+        let report =
+            run_dream_export_matrix_report(&docs, &frame, seed, w, &matrix).expect("report");
+        assert!(report.contains("DREAM EXPORT SCENARIO MATRIX"));
+        assert!(report.contains("clean-export"));
+        assert!(report.contains("verifies"));
+        assert!(report.contains("refused"));
+        assert!(report.contains("dream_packet_id:"));
+        assert!(report.contains("authority_after_export: hypothesis_only"));
+        assert!(report.contains("no_evidence:"));
+        assert!(report.contains("Dream provenance remains auditable."));
+    }
+
+    #[test]
+    fn dream_export_matrix_tampers_actually_mutate() {
+        let (docs, frame, seed, w) = dream_export_fixture();
+        let m = canonical_dream_export_matrix(&docs, &frame, seed, w).expect("matrix");
+        // Every tamper scenario must genuinely alter the canonical bytes — a no-op mutation cannot masquerade as a
+        // refusal proof. (The clean scenario applies no mutation, so it is excluded.)
+        for row in m.rows.iter().filter(|r| r.slug != "clean-export") {
+            assert!(row.mutation_applied, "{} did not mutate", row.slug);
+        }
+    }
+
+    #[test]
+    fn dream_export_matrix_does_not_change_training_gate() {
+        let (docs, frame, seed, w) = dream_export_fixture();
+        let before = CognitiveTrace::demo().expect("trace").to_json();
+        let _ = dream_export_matrix(&docs, &frame, seed, w).expect("matrix");
+        let after = CognitiveTrace::demo().expect("trace").to_json();
+        // Building the matrix is pure — it cannot open training; the P12 verdict is unchanged and stays false.
+        assert_eq!(before, after);
+        assert!(before.contains("\"training_justified\": false"));
     }
 
     #[test]

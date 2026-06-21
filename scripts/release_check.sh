@@ -1323,11 +1323,11 @@ grep -q 'fn trace_does_not_change_training_gate' crates/cognitive-demo/src/lib.r
 grep -q 'fn trace_does_not_change_verifier_receipt' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_records_every_stage_id_and_links_the_chain' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_grants_no_new_authority' crates/cognitive-demo/src/lib.rs
-# Unit-test REALITY pin: exactly the 152 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
+# Unit-test REALITY pin: exactly the 167 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
 # MTRACE-1 (12) + MTRACE-2 (12) + DOCFLOW-0 (10) + DOCFLOW-2 (10) + CORPUS-0 (12) + CORPUS-2 (12) + NOVELTY-0 (15) +
-# DREAM-EXPORT-0 (13) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
+# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
 _int0_unit="$(cargo test --offline --lib --manifest-path crates/cognitive-demo/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 152
+test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 167
 test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
 # Determinism / no side effects: the trace is a pure, in-memory function — no clock, entropy, or network
 # anywhere in src/, and no floats anywhere in the crate. (`std::process::exit` in the CLI shell is a clean
@@ -3465,3 +3465,84 @@ grep -q 'fn dream_export_tampered_bundle_refused' crates/cognitive-demo/src/lib.
 grep -q 'fn plain_and_dream_hypothesis_distinguishable' crates/cognitive-demo/src/lib.rs
 grep -q 'fn dream_export_report_shows_provenance' crates/cognitive-demo/src/lib.rs
 grep -q 'fn dream_export_refuses_unverifiable_corpus' crates/cognitive-demo/src/lib.rs
+
+# ── DREAM-EXPORT-2 — Dream Export Scenario Matrix / Provenance Integrity (crates/cognitive-demo) ──────────────
+# A deterministic scenario matrix over the EXISTING dream-export bridge: ONE clean export that VERIFIES, plus SIX
+# tamper scenarios that are each REFUSED (a tampered source dream packet, a tampered receipt, a forged
+# dream_origin=false, a mutated dream_input_hash, a mutated dream_packet_id, and a forged authority_after_export
+# that injects the dream engine's private serialized token). Each row records the OBSERVED outcome, the matrix
+# records the preserved dream provenance fields, that the exported material stays hypothesis_only and is
+# DISTINGUISHABLE from a plain hypothesis, that probe requests never execute, and the no-evidence / no-promotion /
+# no-training boundary cells. Pure + re-derived-and-byte-compared on verify; it creates NO authority. The
+# behavioural pins live in the INT-0 unit count above (167 = +15 DREAM-EXPORT-2 tests); the name-greps + binary
+# smoke below pin WHICH behaviours are covered. The dream's PascalCase private authority token NEVER appears in the
+# demo source (gated crate-wide above) — the matrix names it only by its lowercase serialized form `dream_only`.
+# Doctrine: Dream export scenarios vary the export artifact. They do not vary the authority. Dream provenance
+# remains auditable. Exported material remains HypothesisOnly. dream_only remains private to dream-engine. Probe
+# requests do not execute. Nothing becomes evidence. Nothing promotes. Nothing trains.
+# Surface: the matrix API + the four commands exist (lib + shell).
+grep -q 'enum DreamExportScenario' crates/cognitive-demo/src/lib.rs
+grep -q 'fn run_dream_export_scenario' crates/cognitive-demo/src/lib.rs
+grep -q 'fn canonical_dream_export_matrix' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn dream_export_matrix' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn verify_dream_export_matrix' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn run_dream_export_matrix_report' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn run_dream_export_matrix_verify' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn list_dream_export_scenarios' crates/cognitive-demo/src/lib.rs
+grep -q '"dream-export-scenarios"' crates/cognitive-demo/src/main.rs
+grep -q '"dream-export-matrix"' crates/cognitive-demo/src/main.rs
+grep -q '"dream-export-matrix-report"' crates/cognitive-demo/src/main.rs
+grep -q '"dream-export-matrix-verify"' crates/cognitive-demo/src/main.rs
+# The matrix verifies by RE-DERIVE byte-compare (no Deserialize) and refuses tamper via DreamExportMismatch.
+grep -q 'provided == dream_export_matrix' crates/cognitive-demo/src/lib.rs
+# The seven scenarios exist by name (clean + six tampers).
+for _dxs in clean-export tampered-dream-packet tampered-receipt forged-dream-origin-false mutated-dream-input-hash mutated-dream-packet-id forged-authority-after-export; do
+  if ! grep -qF "\"$_dxs\"" crates/cognitive-demo/src/lib.rs; then exit 1; fi
+done
+# FORBIDDEN SHAPE stays impossible: no new authority enum; the PascalCase dream token never appears in the demo
+# (the crate-wide DreamOnly==0 pins above cover it); the matrix names the private token only by its lowercase form.
+test "$(grep -cE 'enum (Dream|Export)[A-Za-z]*Authority' crates/cognitive-demo/src/lib.rs)" -eq 0
+# The source-safe nine-line DREAM-EXPORT-2 matrix boundary is recorded verbatim in the source.
+for _dxmb in 'Dream export scenarios vary the export artifact.' 'They do not vary the authority.' 'Dream provenance remains auditable.' 'Exported material remains HypothesisOnly.' 'dream_only remains private to dream-engine.' 'Probe requests do not execute.' 'Nothing becomes evidence.' 'Nothing promotes.' 'Nothing trains.'; do
+  if ! grep -qF "$_dxmb" crates/cognitive-demo/src/lib.rs; then exit 1; fi
+done
+# The 15 DREAM-EXPORT-2 tests exist by name (a gutted/deleted test also drops the unit count pinned at 167 above).
+for _dxt in \
+  dream_export_matrix_lists_all_scenarios \
+  dream_export_matrix_clean_verifies \
+  dream_export_matrix_all_tampers_refused \
+  dream_export_matrix_all_match_expected \
+  dream_export_matrix_records_dream_provenance \
+  dream_export_matrix_authority_remains_hypothesis_only \
+  dream_export_matrix_distinguishes_plain_from_dream \
+  dream_export_matrix_probe_requests_do_not_execute \
+  dream_export_matrix_records_no_evidence_promotion_training \
+  dream_export_matrix_replay_byte_identical \
+  dream_export_matrix_verify_rejects_tampered_matrix \
+  dream_export_matrix_authority_forgery_injects_dream_token_and_is_refused \
+  dream_export_matrix_report_shows_provenance_and_outcomes \
+  dream_export_matrix_tampers_actually_mutate \
+  dream_export_matrix_does_not_change_training_gate; do
+  if ! grep -q "fn $_dxt(" crates/cognitive-demo/src/lib.rs; then exit 1; fi
+done
+# BINARY SMOKE (proves, not asserts): run the matrix CLI against a REAL local corpus + frame under the gitignored
+# target/ (relative paths), prove the clean export verifies, the coverage cells hold, the canonical matrix carries
+# NO PascalCase dream token, and a tampered matrix (a refused outcome flipped to verifies) is REFUSED end-to-end.
+cargo build --offline --quiet --manifest-path crates/cognitive-demo/Cargo.toml --bin cognitive-demo
+_dxm_dir="$(mktemp -d "$PWD/target/.dxm_gate.XXXXXX")"
+_dxm_rel="target/$(basename "$_dxm_dir")"
+mkdir -p "$_dxm_dir/corpus"
+printf 'The east bridge reopened today. Traffic resumed by noon.' > "$_dxm_dir/corpus/a-east.txt"
+printf 'The west tunnel remains closed. Crews continue repairs.' > "$_dxm_dir/corpus/b-west.txt"
+printf 'The east bridge stays closed indefinitely.\nTraffic never recovers after a closure.\n' > "$_dxm_dir/frame.txt"
+./target/debug/cognitive-demo dream-export-matrix --input-dir "$_dxm_rel/corpus" --frame "$_dxm_rel/frame.txt" --out "$_dxm_dir/matrix.json" >/dev/null 2>&1 || { rm -rf "$_dxm_dir"; exit 1; }
+./target/debug/cognitive-demo dream-export-matrix-verify --input-dir "$_dxm_rel/corpus" --frame "$_dxm_rel/frame.txt" --matrix "$_dxm_dir/matrix.json" >/dev/null 2>&1 || { rm -rf "$_dxm_dir"; exit 1; }
+for _dxc in '"clean_verifies": true' '"all_tampers_refused": true' '"all_match_expected": true' '"exported_material_is_hypothesis_only": true' '"dream_distinguishable_from_plain": true' '"probe_requests_execute": false' '"no_execution": true' '"no_evidence": true' '"no_promotion": true' '"no_training": true' '"authority_after_export": "hypothesis_only"' '"dream_origin": true'; do
+  if ! grep -qF "$_dxc" "$_dxm_dir/matrix.json"; then rm -rf "$_dxm_dir"; exit 1; fi
+done
+if grep -qF 'DreamOnly' "$_dxm_dir/matrix.json"; then rm -rf "$_dxm_dir"; exit 1; fi
+sed 's/"outcome": "refused"/"outcome": "verifies"/' "$_dxm_dir/matrix.json" > "$_dxm_dir/tampered.json"
+if cmp -s "$_dxm_dir/matrix.json" "$_dxm_dir/tampered.json"; then rm -rf "$_dxm_dir"; exit 1; fi
+if ./target/debug/cognitive-demo dream-export-matrix-verify --input-dir "$_dxm_rel/corpus" --frame "$_dxm_rel/frame.txt" --matrix "$_dxm_dir/tampered.json" >/dev/null 2>&1; then rm -rf "$_dxm_dir"; exit 1; fi
+if ./target/debug/cognitive-demo dream-export-matrix-report --input-dir "$_dxm_rel/corpus" --frame "$_dxm_rel/frame.txt" --matrix "$_dxm_dir/tampered.json" >/dev/null 2>&1; then rm -rf "$_dxm_dir"; exit 1; fi
+rm -rf "$_dxm_dir"

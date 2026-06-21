@@ -31,6 +31,10 @@
 //!   cognitive-demo dream-export --input-dir DIR --frame PATH [--seed N] [--weirdness W] [--dream-packet PATH] [--out PATH]  # bridge a dream packet into the hypothesis-only path
 //!   cognitive-demo dream-export-report --input-dir DIR --frame PATH [--seed N] [--weirdness W] --export PATH [--out PATH]   # render the export (re-derive + refuse tamper)
 //!   cognitive-demo dream-export-replay --input-dir DIR --frame PATH [--seed N] [--weirdness W] --export PATH                # confirm the export replays byte-identically
+//!   cognitive-demo dream-export-scenarios                                                                                   # list the dream-export scenario set
+//!   cognitive-demo dream-export-matrix --input-dir DIR --frame PATH [--seed N] [--weirdness W] [--out PATH]                 # emit the scenario matrix (clean verifies; tampers refused)
+//!   cognitive-demo dream-export-matrix-report --input-dir DIR --frame PATH [--seed N] [--weirdness W] --matrix PATH [--out PATH]  # render the matrix (re-derive + refuse tamper)
+//!   cognitive-demo dream-export-matrix-verify --input-dir DIR --frame PATH [--seed N] [--weirdness W] --matrix PATH         # confirm the matrix replays byte-identically
 //!
 //! DREAM-EXPORT-0 adds the dream provenance bridge ON TOP of the existing hypothesis-only path: it re-derives the
 //! terminal `DreamPacket` (from `dream-engine`) for the SAME corpus + frame + dials, builds a `HypothesisSpec`
@@ -110,18 +114,19 @@
 use cognitive_demo::{
     canonical_bundle, check_local_input_path, corpus_admits_filename, corpus_bundle,
     corpus_scenario_matrix, corpus_scenario_pack_files, doc_bundle, doc_scenario_matrix,
-    doc_scenario_pack_files, failure_pack_files, list_corpus_scenarios, list_doc_scenarios,
-    list_failure_cases, list_questions, list_scenarios, resolved_path_within, run_ask,
-    run_corpus_report, run_corpus_trace, run_doc_report, run_doc_trace, run_dream_export,
-    run_dream_export_replay, run_dream_export_report, run_novelty_packet, run_novelty_replay,
-    run_novelty_report, run_replay, run_report, run_trace, scenario_bundle, scenario_matrix,
-    scenario_matrix_report, scenario_pack_manifest, verify_bundle, verify_corpus_bundle,
-    verify_corpus_scenario_pack, verify_doc_bundle, verify_doc_scenario_pack, verify_failure_pack,
-    verify_scenario_matrix, verify_scenario_pack, Scenario, BUNDLE_BOUNDARY_LINES, BUNDLE_FILES,
-    CORPUS_BOUNDARY_LINES, CORPUS_BUNDLE_FILES, CORPUS_SCENARIO_BOUNDARY_LINES,
-    CORPUS_SCENARIO_PACK_FILES, DOC_BOUNDARY_LINES, DOC_SCENARIO_BOUNDARY_LINES,
-    DOC_SCENARIO_PACK_FILES, FAILURE_BOUNDARY_LINES, FAILURE_PACK_FILES, MATRIX_BOUNDARY_LINES,
-    MTRACE_BOUNDARY_LINES, PACK_MANIFEST_FILE,
+    doc_scenario_pack_files, dream_export_matrix, failure_pack_files, list_corpus_scenarios,
+    list_doc_scenarios, list_dream_export_scenarios, list_failure_cases, list_questions,
+    list_scenarios, resolved_path_within, run_ask, run_corpus_report, run_corpus_trace,
+    run_doc_report, run_doc_trace, run_dream_export, run_dream_export_matrix_report,
+    run_dream_export_matrix_verify, run_dream_export_replay, run_dream_export_report,
+    run_novelty_packet, run_novelty_replay, run_novelty_report, run_replay, run_report, run_trace,
+    scenario_bundle, scenario_matrix, scenario_matrix_report, scenario_pack_manifest,
+    verify_bundle, verify_corpus_bundle, verify_corpus_scenario_pack, verify_doc_bundle,
+    verify_doc_scenario_pack, verify_failure_pack, verify_scenario_matrix, verify_scenario_pack,
+    Scenario, BUNDLE_BOUNDARY_LINES, BUNDLE_FILES, CORPUS_BOUNDARY_LINES, CORPUS_BUNDLE_FILES,
+    CORPUS_SCENARIO_BOUNDARY_LINES, CORPUS_SCENARIO_PACK_FILES, DOC_BOUNDARY_LINES,
+    DOC_SCENARIO_BOUNDARY_LINES, DOC_SCENARIO_PACK_FILES, FAILURE_BOUNDARY_LINES,
+    FAILURE_PACK_FILES, MATRIX_BOUNDARY_LINES, MTRACE_BOUNDARY_LINES, PACK_MANIFEST_FILE,
 };
 
 fn main() {
@@ -476,6 +481,51 @@ fn dispatch(args: &[String]) -> Result<(), String> {
             let bundle = read_plain_file(args, "--export")?;
             let summary = run_dream_export_replay(&documents, &frame, seed, weirdness, &bundle)
                 .map_err(|e| e.to_string())?;
+            print!("{summary}");
+            Ok(())
+        }
+        Some("dream-export-scenarios") => {
+            // List the finite dream-export scenario set (one clean export verifies; every tamper is refused). Pure.
+            print!("{}", list_dream_export_scenarios());
+            Ok(())
+        }
+        Some("dream-export-matrix") => {
+            // Emit the deterministic dream-export scenario matrix: the clean export (verifies) + every tamper
+            // (refused), the preserved dream provenance, the coverage cells, and the boundary. Re-derived from the
+            // corpus + frame + dials, so it replays byte-identically.
+            let documents = read_local_corpus(args)?;
+            let frame = read_frame(args)?;
+            let seed = flag_u64(args, "--seed", DREAM_DEFAULT_SEED)?;
+            let weirdness = flag_i64(args, "--weirdness", DREAM_DEFAULT_WEIRDNESS)?;
+            let json = dream_export_matrix(&documents, &frame, seed, weirdness)
+                .map_err(|e| e.to_string())?;
+            emit(&json, flag_value(args, "--out"))
+        }
+        Some("dream-export-matrix-report") => {
+            // Re-derive the matrix from the SAME corpus + frame + dials, confirm the provided --matrix IS that
+            // matrix (refuse a tampered matrix), then render the scenario report. The corpus + frame are the source
+            // of truth, so this command requires --input-dir + --frame alongside --matrix.
+            let documents = read_local_corpus(args)?;
+            let frame = read_frame(args)?;
+            let seed = flag_u64(args, "--seed", DREAM_DEFAULT_SEED)?;
+            let weirdness = flag_i64(args, "--weirdness", DREAM_DEFAULT_WEIRDNESS)?;
+            let matrix = read_plain_file(args, "--matrix")?;
+            let report =
+                run_dream_export_matrix_report(&documents, &frame, seed, weirdness, &matrix)
+                    .map_err(|e| e.to_string())?;
+            emit(&report, flag_value(args, "--out"))
+        }
+        Some("dream-export-matrix-verify") => {
+            // Re-derive the matrix from the corpus + frame + dials and confirm the provided --matrix is
+            // byte-identical — a determinism proof that also refuses any tampered matrix. Reads nothing as authority.
+            let documents = read_local_corpus(args)?;
+            let frame = read_frame(args)?;
+            let seed = flag_u64(args, "--seed", DREAM_DEFAULT_SEED)?;
+            let weirdness = flag_i64(args, "--weirdness", DREAM_DEFAULT_WEIRDNESS)?;
+            let matrix = read_plain_file(args, "--matrix")?;
+            let summary =
+                run_dream_export_matrix_verify(&documents, &frame, seed, weirdness, &matrix)
+                    .map_err(|e| e.to_string())?;
             print!("{summary}");
             Ok(())
         }
@@ -1022,6 +1072,10 @@ fn usage() -> String {
      novelty-replay --input-dir DIR --frame PATH --packet PATH | \
      dream-export --input-dir DIR --frame PATH [--seed N] [--weirdness W] [--dream-packet PATH] [--out PATH] | \
      dream-export-report --input-dir DIR --frame PATH [--seed N] [--weirdness W] --export PATH [--out PATH] | \
-     dream-export-replay --input-dir DIR --frame PATH [--seed N] [--weirdness W] --export PATH>"
+     dream-export-replay --input-dir DIR --frame PATH [--seed N] [--weirdness W] --export PATH | \
+     dream-export-scenarios | \
+     dream-export-matrix --input-dir DIR --frame PATH [--seed N] [--weirdness W] [--out PATH] | \
+     dream-export-matrix-report --input-dir DIR --frame PATH [--seed N] [--weirdness W] --matrix PATH [--out PATH] | \
+     dream-export-matrix-verify --input-dir DIR --frame PATH [--seed N] [--weirdness W] --matrix PATH>"
         .to_string()
 }

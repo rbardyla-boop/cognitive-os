@@ -3,6 +3,41 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-21-I — Dream export scenario matrix / provenance integrity (DREAM-EXPORT-2)
+
+**Decision.** Add a deterministic dream-export scenario matrix in `crates/cognitive-demo` (above the existing
+DREAM-EXPORT-0 bridge, OUTSIDE the frozen authority model): one CLEAN export that VERIFIES, plus six tamper
+scenarios that are each REFUSED — a tampered source dream packet, a tampered receipt, a forged
+`dream_origin=false`, a mutated `dream_input_hash`, a mutated `dream_packet_id`, and a forged
+`authority_after_export` that injects the dream engine's private serialized token. Each row records the OBSERVED
+outcome (`verifies`/`refused`) and whether it matched expectation; the matrix also records the preserved dream
+provenance fields, that the exported material stays `hypothesis_only` and is DISTINGUISHABLE from a plain
+hypothesis, that probe requests never execute, and the no-execution / no-evidence / no-promotion / no-training
+coverage cells. Four CLI verbs: `dream-export-scenarios`, `dream-export-matrix`, `dream-export-matrix-report`,
+`dream-export-matrix-verify`. 15 unit tests (demo unit count 152 → 167). Capability sprint; **no tag**.
+
+**Why.** DREAM-EXPORT-0 added the bridge and DREAM-EXPORT-1 pinned the operator path; DREAM-EXPORT-2 makes the
+bridge AUDITABLE across valid and invalid export cases before any review / ranking / promotion work. The matrix is
+the dream-export analog of the existing scenario/failure packs: it follows the forge-and-reject pattern (the
+outcome is OBSERVED from the real verifier, never asserted, so a tamper that slipped through would record
+`matches_expected=false` and fail its test), and it is `Serialize` but NOT `Deserialize` — re-derived from the
+corpus + frame + dials and byte-compared, so a doctored matrix (e.g. one that flips a refused outcome to verifies)
+is refused. The matrix creates NO authority: the dream engine's PascalCase private authority identifier never
+appears in `cognitive-demo` source (a release_check gate keeps it crate-private to `dream-engine`), so the matrix
+names it only by its lowercase serialized token `dream_only`, and the authority-forgery scenario only ever
+FORGES-then-REFUSES that token, never mints it.
+
+**Boundary recorded.** Dream export scenarios vary the export artifact. They do not vary the authority. Dream
+provenance remains auditable. Exported material remains HypothesisOnly. DreamOnly remains private to
+`dream-engine`. Probe requests do not execute. Nothing becomes evidence. Nothing promotes. Nothing trains. The
+frozen `hypothesis-layer` and `dream-engine` sources are untouched (the matrix lives wholly in `cognitive-demo`);
+the single-variant `Authority` enum is unchanged; `DreamOnly` stays crate-private to `dream-engine`; P12 stays
+`training_justified=false`; P13–P15 stay closed. `release_check.sh` gates the matrix (the four verbs, the matrix
+API, the seven scenarios, the source-safe nine-line boundary, the 15 named tests, the bumped unit count, and a
+binary smoke that runs the matrix CLI, checks the coverage cells, and proves a tampered matrix is refused) and
+remains green + byte-silent. Canonical artifact:
+[`crates/cognitive-demo/src/lib.rs`](../crates/cognitive-demo/src/lib.rs) (DREAM-EXPORT-2 section).
+
 ## DD-2026-06-21-H — Dream export operator guard: document + smoke-test the dream export path (DREAM-EXPORT-1)
 
 **Decision.** Document the DREAM-EXPORT-0 operator path in `OPERATOR_MANUAL.md` (new §14, with the three verbs
