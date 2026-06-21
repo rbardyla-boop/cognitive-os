@@ -36,13 +36,21 @@ failure-verify --path DIR
 
 doc-trace --input PATH [--out PATH]         doc-report --input PATH --trace PATH [--out PATH]
 doc-bundle --input PATH --out DIR           doc-bundle-verify --input PATH --path DIR
+doc-scenarios                               doc-scenario-pack --out DIR
+doc-scenario-verify --path DIR              doc-scenario-matrix --path DIR [--out PATH]
 
 corpus-trace --input-dir DIR [--out PATH]   corpus-report --input-dir DIR --trace PATH [--out PATH]
 corpus-bundle --input-dir DIR --out DIR     corpus-bundle-verify --input-dir DIR --path DIR
+corpus-scenarios                            corpus-scenario-pack --out DIR
+corpus-scenario-verify --path DIR           corpus-scenario-matrix --path DIR [--out PATH]
 
 novelty-packet --input-dir DIR --corpus-trace PATH --frame PATH [--out PATH]
 novelty-report --input-dir DIR --frame PATH --packet PATH [--out PATH]
 novelty-replay --input-dir DIR --frame PATH --packet PATH
+
+dream-export --input-dir DIR --frame PATH [--seed N] [--weirdness W] [--dream-packet PATH] [--out PATH]
+dream-export-report --input-dir DIR --frame PATH [--seed N] [--weirdness W] --export PATH [--out PATH]
+dream-export-replay --input-dir DIR --frame PATH [--seed N] [--weirdness W] --export PATH
 ```
 
 The `doc-*` commands run the same pipeline from a **local operator-supplied document** instead of the
@@ -57,6 +65,12 @@ verified corpus trace and an operator `--frame`, they emit a deterministic novel
 become candidate *broken assumptions* (no truth claimed), the only grounded content is the **verified corpus
 span**, and the packet's authority is `hypothesis_only`. Novelty packets **propose but do not prove**; the
 operator frame is recorded but **never grounded as fact**.
+
+The `dream-export-*` commands run the prototype's **dream provenance bridge** — see §14. They let a terminal dream
+packet (the inert, seeded distortion artifact from the frozen `dream-engine`) cross into the **existing** hypothesis-only
+proposal path while preserving its dream origin, and they do so **without creating a new authority type**: the exported
+material is an ordinary `hypothesis_only` proposal whose dream origin stays auditable, and the dream engine's private
+`dream_only` authority never crosses.
 
 > **Reproducibility note (important).** Use `trace --out FILE` to write a trace you will later `report`,
 > `replay`, or `ask` against. Writing with a shell redirect (`trace > FILE`) appends a trailing newline,
@@ -93,7 +107,7 @@ function of fixed inputs.
 
 Each layer is frozen as an annotated point in history. Recover any milestone with
 `git checkout <tag>`; verify the whole stack at any time with `./scripts/release_check.sh`
-(it must exit 0 and print nothing — see §14/§15). Each tag has a freeze record document.
+(it must exit 0 and print nothing — see §15/§16). Each tag has a freeze record document.
 
 | Tag | Commit | Freezes | Record |
 | --- | --- | --- | --- |
@@ -116,8 +130,9 @@ git checkout reading-track-v0.1
 `./scripts/operator_smoke.sh` runs the whole documented operator path end-to-end against the freshly
 built binary — `trace --out`, `report`, `replay`, `questions`, `ask`, `bundle`/`bundle-verify`,
 `scenario-pack`/`scenario-verify`, `scenario-matrix`/`scenario-matrix-verify`,
-`failure-pack`/`failure-verify`, the document and corpus flows (`doc-*` / `corpus-*`), and the
-hypothesis-only novelty flow (`novelty-packet` / `novelty-report` / `novelty-replay`) — inside a throwaway
+`failure-pack`/`failure-verify`, the document and corpus flows (`doc-*` / `corpus-*`), the
+hypothesis-only novelty flow (`novelty-packet` / `novelty-report` / `novelty-replay`), and the dream export
+provenance bridge (`dream-export` / `dream-export-report` / `dream-export-replay`) — inside a throwaway
 temp dir (no repo debris), and **fails closed** if any
 documented command, boundary line, or verify step has drifted from this manual. It re-derives every
 generated artifact through the binary's own verify subcommands (it never trusts the bytes) and confirms a
@@ -427,7 +442,66 @@ Nothing promotes.
 Nothing trains.
 ```
 
-## 14. Authority boundaries
+## 14. How to run the dream export operator path
+
+The `dream-export-*` commands add the prototype's **dream provenance bridge**: they let a terminal dream packet
+(the inert, seeded distortion artifact produced by the frozen `dream-engine`) cross into the **existing
+hypothesis-only proposal path** while preserving its dream origin — and they do this **without creating a new
+authority type**. The crucial property is that the bridge **preserves dream provenance but grants no new
+authority**: the exported material is an ordinary `hypothesis_only` proposal (the same authority every
+hypothesis carries), its dream origin is recorded so it stays **auditable** (the exported hypothesis cites a
+`dream:` evidence label, and the receipt records the dream packet id, input hash, seed, engine version, and
+operators), and the dream engine's own private `dream_only` authority — `DreamOnly` — **never crosses**: it
+remains private to `dream-engine` and appears nowhere in the emitted export. The source dream's **probe requests
+do not execute** (each is recorded with `executes: false`), and a dream-exported hypothesis **can never become
+evidence, a promotion, or training**.
+
+`dream-export` re-derives (generates) the terminal dream packet from the **same** local corpus + operator frame +
+`--seed`/`--weirdness` dials, then bridges it through the existing hypothesis gate, emitting a `DreamExportReceipt`
+plus the proposed `HypothesisPacket`. If an operator supplies a `--dream-packet`, it is **refused unless it is
+byte-for-byte the re-derived packet** — a tampered, stale, or foreign packet cannot be laundered into an export.
+The corpus directory and the frame are read but not trusted, and — like every other local-input command — an
+absolute path, a `..` traversal, or a symlink that escapes the working directory is refused before anything is read.
+
+```sh
+# 1. Generate the dream packet and bridge it into the hypothesis-only path (exact bytes — replayable):
+./target/debug/cognitive-demo dream-export --input-dir corpus --frame frame.txt --out dream-export.json
+# -> dream-export.json — a DreamExportReceipt (dream provenance: packet id, input hash, seed, engine version,
+#    operators) + the proposed HypothesisPacket; authority_after_export "hypothesis_only"; dream_origin true;
+#    no "dream_only" authority anywhere.
+
+# 2. Render a plain operator report (re-derived from the SAME corpus + frame; a tampered export is refused):
+./target/debug/cognitive-demo dream-export-report --input-dir corpus --frame frame.txt --export dream-export.json
+# -> DREAM EXPORT (PROVENANCE BRIDGE — hypothesis_only, dream_origin) ... the source dream's probe requests are
+#    recorded with executes: false — NEVER executed.
+
+# 3. Confirm the export re-derives byte-identically (a determinism proof that also refuses any tamper):
+./target/debug/cognitive-demo dream-export-replay --input-dir corpus --frame frame.txt --export dream-export.json
+# -> dream-export-replay: OK — ... Dream origin is preserved; the exported material is hypothesis_only.
+```
+
+`dream-export-report` and `dream-export-replay` re-derive the whole export bundle from the **same** corpus + frame
++ dials and byte-compare, so a tampered receipt — including one whose `dream_origin` was flipped to `false` — is
+refused (non-zero exit), never rendered or replayed. The receipt is **never parsed back into authority**: it is only
+compared against the re-derived bundle, so off-wire tampering can never be laundered into a clean report or replay.
+The bundle records the dream packet's origin (so the dream is auditable) but carries only the **existing**
+`hypothesis_only` authority; the dream engine's private `dream_only` / `DreamOnly` authority never appears. The whole
+dream export flow is exercised end-to-end by `./scripts/operator_smoke.sh` (see §3), so this documentation cannot
+drift from the binary.
+
+```text
+The dream export operator path preserves provenance.
+It does not create a new authority.
+Exported dream material remains HypothesisOnly.
+Dream origin remains auditable.
+DreamOnly remains private to dream-engine.
+Probe requests do not execute.
+Nothing becomes evidence.
+Nothing promotes.
+Nothing trains.
+```
+
+## 15. Authority boundaries
 
 These are the load-bearing invariants the whole prototype preserves. Each is enforced mechanically by
 `./scripts/release_check.sh` from the artifacts' own bytes.
@@ -449,7 +523,7 @@ These are the load-bearing invariants the whole prototype preserves. Each is enf
    through the frozen hypothesis layer — it can never ground a claim, mutate memory, execute a probe,
    promote evidence, or self-authorize.
 
-## 15. Training status
+## 16. Training status
 
 Weight training is **closed**. The P12 training verdict is `training_not_justified` — the
 `TrainingDecision.training_justified` bit is `training_justified=false` — and every layer reads that
@@ -458,7 +532,7 @@ mode, promotion gate) stay closed under every freeze. Training stays forbidden u
 stable, recurring model failure that survives fixes to task spec, schema, prompt, examples, tooling,
 context, and verifier design. This manual makes no claim that training has opened.
 
-## 16. Next possible work
+## 17. Next possible work
 
 This manual is a comprehension and reproducibility checkpoint, not a new capability. Possible future work
 (none started, none authorized here):
@@ -471,6 +545,11 @@ This manual is a comprehension and reproducibility checkpoint, not a new capabil
   candidates bound to verified receipts, with authority `hypothesis_only`. It is deliberately deterministic
   and model-free. Any stronger novelty engine (e.g. a model-backed proposer) would be a new sprint under the
   same cadence and would still only *propose* — never prove, execute, promote, or train.
+- **A dream provenance bridge** (§14) now lets a terminal dream packet from the frozen `dream-engine` cross into
+  that same hypothesis-only path while preserving its dream origin — *without* creating a new authority type. The
+  exported material stays `hypothesis_only`, the dream engine's private `dream_only` authority never crosses, and
+  the bridge proves but does not promote: nothing it exports becomes evidence, a promotion, or training. Any
+  richer dream export work (ranking, review, scenario packs) would extend that surface, not open a new authority.
 - **RDT-0 (recurrent-depth)** material is noted as future inspiration only; it is not started.
 
 Any future capability must go through the same cadence that produced every layer above — a written rubric,

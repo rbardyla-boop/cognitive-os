@@ -2236,6 +2236,66 @@ for _nbl in 'The novelty operator path proposes.' 'It does not prove.' 'It cites
   if ! grep -qF "$_nbl" scripts/operator_smoke.sh; then exit 1; fi
 done
 # ---------------------------------------------------------------------------------------------------
+# DREAM-EXPORT-1 — dream export operator guard. The operator manual (OPERATOR_MANUAL.md §14) documents the three
+# DREAM-EXPORT-0 commands (dream-export / dream-export-report / dream-export-replay), states that the bridge
+# PRESERVES dream provenance and creates NO new authority type, that exported material stays hypothesis_only, that
+# the dream engine's private dream_only/DreamOnly authority never crosses, that probe requests do not execute, and
+# that a dream-exported hypothesis can never become evidence / promotion / training; the operator smoke
+# (scripts/operator_smoke.sh §13) runs the whole dream export flow end-to-end against a LOCAL corpus + frame —
+# dream-export FIRST (which re-derives/GENERATES the terminal dream packet and bridges it through the EXISTING
+# hypothesis gate; dream-engine is a quarantined library with no standalone packet emitter), then
+# dream-export-report / dream-export-replay — proving the export carries the EXISTING hypothesis_only authority,
+# records dream_origin (auditable), emits NO dream_only/DreamOnly token, and that every tamper is refused: a
+# foreign/tampered --dream-packet, a tampered DreamExportReceipt, and a receipt forged to dream_origin=false are
+# each refused. A documentation + drift-guard sprint — no code crate change, no new behavior (the unit count
+# pinned above is unchanged). The smoke is already RUN by the OPS-1 lock above (a dream-export drift makes it fail
+# closed and aborts the gate); the pins below stop the dream export coverage from being silently dropped from the
+# smoke or the manual. Doctrine: The dream export operator path preserves provenance. It does not create a new
+# authority. Exported dream material remains HypothesisOnly. Dream origin remains auditable. DreamOnly remains
+# private to dream-engine. Probe requests do not execute. Nothing becomes evidence. Nothing promotes. Nothing trains.
+# ---------------------------------------------------------------------------------------------------
+# The manual documents the three dream-export commands (manual surface == binary surface).
+for _dxc in 'dream-export --input-dir' 'dream-export-report --input-dir' 'dream-export-replay --input-dir'; do
+  if ! grep -qF "$_dxc" OPERATOR_MANUAL.md; then exit 1; fi
+done
+# The manual states the dream-export doctrine verbatim: preserves provenance, NO new authority type, the private
+# dream_only authority never crosses, and never evidence / promotion / training.
+for _dxd in 'preserves dream provenance' 'without creating a new authority type' 'never crosses' 'can never become evidence, a promotion, or training'; do
+  if ! grep -qF "$_dxd" OPERATOR_MANUAL.md; then exit 1; fi
+done
+# The manual records the DREAM-EXPORT-1 nine-line dream-export-operator-path boundary verbatim.
+for _dxb in 'The dream export operator path preserves provenance.' 'It does not create a new authority.' 'Exported dream material remains HypothesisOnly.' 'Dream origin remains auditable.' 'DreamOnly remains private to dream-engine.' 'Probe requests do not execute.' 'Nothing becomes evidence.' 'Nothing promotes.' 'Nothing trains.'; do
+  if ! grep -qF "$_dxb" OPERATOR_MANUAL.md; then exit 1; fi
+done
+# The smoke creates the dream corpus + frame under target/ (relative local paths) and removes the temp dir on exit
+# (the OPS-1 lock above already pins the trap line, whose pinned prefix this extends with "$dreamwork").
+grep -qF 'target/.dream_smoke' scripts/operator_smoke.sh
+grep -qF '"$dreamwork"' scripts/operator_smoke.sh
+# The smoke runs dream-export FIRST with --out (never a redirect) — dream packet GENERATION happens here, inside
+# dream-export — then exercises all three dream-export commands with --input-dir.
+grep -qF 'dream-export --input-dir "$dreamrel/corpus" --frame "$dreamrel/frame.txt" --out' scripts/operator_smoke.sh
+for _dxc in 'dream-export --input-dir' 'dream-export-report --input-dir' 'dream-export-replay --input-dir'; do
+  if ! grep -qF "$_dxc" scripts/operator_smoke.sh; then exit 1; fi
+done
+# The smoke proves the export carries the EXISTING hypothesis_only authority, records dream_origin, and that the
+# private dream_only/DreamOnly authority does NOT cross into the emitted export. These fail strings are UNIQUE to
+# the §13 dream block, so removing the dream-export run (not just the target/ setup line) is caught here too.
+grep -qF 'dream-export did not record hypothesis_only authority_after_export' scripts/operator_smoke.sh
+grep -qF 'dream-export did not record dream_origin true' scripts/operator_smoke.sh
+grep -qF 'dream-export leaked a dream_only authority' scripts/operator_smoke.sh
+grep -qF 'dream-export leaked a DreamOnly authority' scripts/operator_smoke.sh
+# The smoke proves re-derive is load-bearing over the dream export: a foreign/tampered --dream-packet, a tampered
+# DreamExportReceipt, and a receipt forged to dream_origin=false are EACH refused end-to-end.
+grep -qF 'dream-export accepted a foreign/tampered dream packet' scripts/operator_smoke.sh
+grep -qF 'dream-export-replay accepted a tampered receipt' scripts/operator_smoke.sh
+grep -qF 'dream-export-report accepted dream_origin=false' scripts/operator_smoke.sh
+grep -qF 'dream-export-replay accepted dream_origin=false' scripts/operator_smoke.sh
+# The smoke records the DREAM-EXPORT-1 nine-line boundary verbatim (the OPS-1 lock above already pins the smoke
+# makes no false training claim).
+for _dxbl in 'The dream export operator path preserves provenance.' 'It does not create a new authority.' 'Exported dream material remains HypothesisOnly.' 'Dream origin remains auditable.' 'DreamOnly remains private to dream-engine.' 'Probe requests do not execute.' 'Nothing becomes evidence.' 'Nothing promotes.' 'Nothing trains.'; do
+  if ! grep -qF "$_dxbl" scripts/operator_smoke.sh; then exit 1; fi
+done
+# ---------------------------------------------------------------------------------------------------
 # OPS-2 — operator release snapshot / local archive manifest. OPERATOR_RELEASE_SNAPSHOT.md is a docs-only
 # local snapshot of the prototype state after OPS-1: the current HEAD commit (c33dea7), every frozen tag +
 # its commit, the recovery commands, the release_check + operator_smoke verification commands, what the

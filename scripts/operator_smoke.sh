@@ -68,7 +68,11 @@ corpusrel="target/$(basename "$corpuswork")"
 # so the operator-novelty sample lives under target/ (gitignored, inside cwd) and uses a RELATIVE path.
 noveltywork="$(mktemp -d "$PWD/target/.novelty_smoke.XXXXXX")"
 noveltyrel="target/$(basename "$noveltywork")"
-trap 'rm -rf "$work" "$docwork" "$corpuswork" "$noveltywork"' EXIT
+# DREAM-EXPORT-1: the dream-export-flow commands only read a corpus directory and a frame file INSIDE the working
+# dir, so the operator-dream sample lives under target/ (gitignored, inside cwd) and uses a RELATIVE path.
+dreamwork="$(mktemp -d "$PWD/target/.dream_smoke.XXXXXX")"
+dreamrel="target/$(basename "$dreamwork")"
+trap 'rm -rf "$work" "$docwork" "$corpuswork" "$noveltywork" "$dreamwork"' EXIT
 
 # ---- 1. canonical trace — ALWAYS --out (exact replayable bytes), NEVER a shell redirect ----
 $BIN trace --out "$work/trace.json"
@@ -191,6 +195,24 @@ for _nbl in 'The novelty operator path proposes.' 'It does not prove.' 'It cites
             'The operator frame is not a preserved fact.' 'Probe requests do not execute.' \
             'Nothing becomes evidence.' 'Nothing promotes.' 'Nothing trains.'; do
   grep -qF "$_nbl" "$MANUAL" || fail "manual NOVELTY boundary line drifted: $_nbl"
+done
+# The manual documents the three DREAM-EXPORT-0 operator commands (manual surface == binary surface) and states
+# the dream-export doctrine: the bridge preserves dream provenance and creates NO new authority, the exported
+# material stays hypothesis_only, the dream engine's private dream_only/DreamOnly authority never crosses, probe
+# requests do not execute, and a dream-exported hypothesis can never become evidence, a promotion, or training. It
+# records the DREAM-EXPORT-1 nine-line dream-export-operator-path boundary verbatim.
+for _dxc in 'dream-export --input-dir' 'dream-export-report --input-dir' 'dream-export-replay --input-dir'; do
+  grep -qF "$_dxc" "$MANUAL" || fail "manual no longer documents: $_dxc"
+done
+for _dxd in 'preserves dream provenance' 'without creating a new authority type' 'never crosses' \
+            'can never become evidence, a promotion, or training'; do
+  grep -qF "$_dxd" "$MANUAL" || fail "manual dream-export doctrine line drifted: $_dxd"
+done
+for _dxb in 'The dream export operator path preserves provenance.' 'It does not create a new authority.' \
+            'Exported dream material remains HypothesisOnly.' 'Dream origin remains auditable.' \
+            'DreamOnly remains private to dream-engine.' 'Probe requests do not execute.' \
+            'Nothing becomes evidence.' 'Nothing promotes.' 'Nothing trains.'; do
+  grep -qF "$_dxb" "$MANUAL" || fail "manual DREAM-EXPORT boundary line drifted: $_dxb"
 done
 
 # ---- 10. DOCFLOW operator path: run the doc flow from a LOCAL operator-supplied document ----
@@ -415,6 +437,86 @@ fi
 grep -v structure_hash "$noveltywork/trace.json" > "$noveltywork/trace_nohash.json"
 if $BIN novelty-packet --input-dir "$noveltyrel/corpus" --corpus-trace "$noveltywork/trace_nohash.json" --frame "$noveltyrel/frame.txt" >/dev/null 2>&1; then
   fail 'novelty-packet accepted a receipt-hash-stripped corpus trace'
+fi
+
+# ---- 13. DREAM EXPORT operator path: the dream provenance bridge into the hypothesis-only path ----
+# DREAM-EXPORT-1 boundary (recorded verbatim):
+#   The dream export operator path preserves provenance.
+#   It does not create a new authority.
+#   Exported dream material remains HypothesisOnly.
+#   Dream origin remains auditable.
+#   DreamOnly remains private to dream-engine.
+#   Probe requests do not execute.
+#   Nothing becomes evidence.
+#   Nothing promotes.
+#   Nothing trains.
+# The dream-export commands only read a corpus directory + a frame file INSIDE the working dir, so the sample lives
+# under target/ (relative paths). dream-export re-derives (GENERATES) the terminal dream packet from the corpus +
+# frame + dials and bridges it through the EXISTING hypothesis gate — no standalone packet emitter exists
+# (dream-engine is a quarantined library), so dream packet generation happens FIRST, here, inside dream-export.
+mkdir -p "$dreamwork/corpus"
+printf 'The east bridge reopened today. Traffic resumed by noon.' > "$dreamwork/corpus/a-east.txt"
+printf 'The west tunnel remains closed. Crews continue repairs.' > "$dreamwork/corpus/b-west.txt"
+printf 'The east bridge stays closed indefinitely.\nTraffic never recovers after a closure.\n' > "$dreamwork/frame.txt"
+# dream packet generation FIRST: dream-export re-derives the terminal dream packet and bridges it; --out writes
+# exact replayable bytes (never a redirect).
+$BIN dream-export --input-dir "$dreamrel/corpus" --frame "$dreamrel/frame.txt" --out "$dreamwork/export.json"
+# The export carries the EXISTING hypothesis_only authority (NOT a new dream authority), records the dream origin
+# (auditable), and routes through the existing gate.
+grep -qF '"authority_after_export": "hypothesis_only"' "$dreamwork/export.json" || fail 'dream-export did not record hypothesis_only authority_after_export'
+grep -qF '"dream_origin": true' "$dreamwork/export.json" || fail 'dream-export did not record dream_origin true'
+grep -qF '"exported_via_existing_hypothesis_gate": true' "$dreamwork/export.json" || fail 'dream-export did not route through the existing hypothesis gate'
+# Dream origin is AUDITABLE: the exported hypothesis cites a dream: provenance label.
+grep -qF '"source_label": "dream:' "$dreamwork/export.json" || fail 'dream-export did not record the dream provenance label'
+# THE LOAD-BEARING CROSSING PROPERTY: the dream engine's private dream_only / DreamOnly authority NEVER crosses —
+# it appears NOWHERE in the emitted export JSON (only the EXISTING hypothesis_only authority does).
+if grep -qiF 'dream_only' "$dreamwork/export.json"; then fail 'dream-export leaked a dream_only authority'; fi
+if grep -qiF 'dreamonly' "$dreamwork/export.json"; then fail 'dream-export leaked a DreamOnly authority'; fi
+# The source dream's probe requests do NOT execute (no executing probe leaks into the export).
+if grep -qF '"executes": true' "$dreamwork/export.json"; then fail 'dream-export recorded an executing probe request'; fi
+# The export records its forbidden uses (a dream-exported hypothesis may never become or do these).
+for _du in ground_claim serve_as_evidence change_training_gate; do
+  grep -qF "\"$_du\"" "$dreamwork/export.json" || fail "dream-export forbidden_uses missing: $_du"
+done
+# The eight-line DREAM-EXPORT-0 binary boundary is present in the export's own bytes (lowercase hypothesis_only).
+for _db in 'Dream export preserves provenance.' 'It does not create a new authority.' \
+           'Exported dream material remains hypothesis_only.' 'Probe requests do not execute.' 'Nothing trains.'; do
+  grep -qF "$_db" "$dreamwork/export.json" || fail "dream-export boundary line drifted: $_db"
+done
+# dream-export-report re-derives from the SAME corpus + frame and renders the PROVENANCE BRIDGE report: the
+# hypothesis_only/dream_origin banner, the auditable provenance, and the executes:false probe-provenance note.
+$BIN dream-export-report --input-dir "$dreamrel/corpus" --frame "$dreamrel/frame.txt" --export "$dreamwork/export.json" --out "$dreamwork/report.txt"
+grep -qF 'DREAM EXPORT (PROVENANCE BRIDGE — hypothesis_only, dream_origin)' "$dreamwork/report.txt" || fail 'dream-export-report missing the provenance banner'
+grep -qE 'authority_after_export: +hypothesis_only' "$dreamwork/report.txt" || fail 'dream-export-report did not state hypothesis_only'
+grep -qE 'dream_origin: +true' "$dreamwork/report.txt" || fail 'dream-export-report did not state dream_origin true'
+grep -qF 'executes: false — NEVER executed' "$dreamwork/report.txt" || fail 'dream-export-report did not state probe requests do not execute'
+grep -qF 'Nothing trains.' "$dreamwork/report.txt" || fail 'dream-export-report boundary line drifted'
+# dream-export-replay confirms the export re-derives byte-identically (a determinism proof; provenance preserved).
+out="$($BIN dream-export-replay --input-dir "$dreamrel/corpus" --frame "$dreamrel/frame.txt" --export "$dreamwork/export.json")"
+case "$out" in *'dream-export-replay: OK'*) : ;; *) fail 'dream-export-replay did not confirm the deterministic export' ;; esac
+case "$out" in *'hypothesis_only'*) : ;; *) fail 'dream-export-replay did not preserve hypothesis_only' ;; esac
+# RE-DERIVE IS LOAD-BEARING over the dream export — every tamper must be refused (never trusted from bytes):
+# (a) a FOREIGN / tampered --dream-packet (here the export bundle itself — NOT the byte-exact re-derived dream
+#     packet) cannot be laundered into an export. dream-export WITHOUT --dream-packet succeeded above, so this
+#     proves the --dream-packet cross-check is real and discriminating, not a no-op.
+if $BIN dream-export --input-dir "$dreamrel/corpus" --frame "$dreamrel/frame.txt" --dream-packet "$dreamwork/export.json" >/dev/null 2>&1; then
+  fail 'dream-export accepted a foreign/tampered dream packet'
+fi
+# (b) a tampered DreamExportReceipt (flip the via-existing-gate bit) is refused by replay.
+sed 's/"exported_via_existing_hypothesis_gate": true/"exported_via_existing_hypothesis_gate": false/' "$dreamwork/export.json" > "$dreamwork/receipt_tamper.json"
+if cmp -s "$dreamwork/export.json" "$dreamwork/receipt_tamper.json"; then fail 'dream-export receipt tamper was a no-op'; fi
+if $BIN dream-export-replay --input-dir "$dreamrel/corpus" --frame "$dreamrel/frame.txt" --export "$dreamwork/receipt_tamper.json" >/dev/null 2>&1; then
+  fail 'dream-export-replay accepted a tampered receipt'
+fi
+# (c) a receipt whose dream_origin was forged to FALSE is refused by BOTH report and replay — a forged non-dream
+#     origin cannot be laundered into a clean report or replay (dream origin is load-bearing and auditable).
+sed 's/"dream_origin": true/"dream_origin": false/' "$dreamwork/export.json" > "$dreamwork/origin_false.json"
+if cmp -s "$dreamwork/export.json" "$dreamwork/origin_false.json"; then fail 'dream-export dream_origin tamper was a no-op'; fi
+if $BIN dream-export-report --input-dir "$dreamrel/corpus" --frame "$dreamrel/frame.txt" --export "$dreamwork/origin_false.json" >/dev/null 2>&1; then
+  fail 'dream-export-report accepted dream_origin=false'
+fi
+if $BIN dream-export-replay --input-dir "$dreamrel/corpus" --frame "$dreamrel/frame.txt" --export "$dreamwork/origin_false.json" >/dev/null 2>&1; then
+  fail 'dream-export-replay accepted dream_origin=false'
 fi
 
 echo 'operator-smoke: OK — the documented operator path runs and the manual matches the binary'

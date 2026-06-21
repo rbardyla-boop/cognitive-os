@@ -3,6 +3,38 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-21-H — Dream export operator guard: document + smoke-test the dream export path (DREAM-EXPORT-1)
+
+**Decision.** Document the DREAM-EXPORT-0 operator path in `OPERATOR_MANUAL.md` (new §14, with the three verbs
+added to the command surface and the §3 smoke description) and extend `scripts/operator_smoke.sh` with a §13 that
+runs the whole dream export flow end-to-end against a LOCAL corpus + frame under the gitignored `target/` dir.
+`scripts/release_check.sh` gains a DREAM-EXPORT-1 lock that pins the manual surface/doctrine/boundary and the
+smoke's dream-export run + tamper refusals. A **documentation + drift-guard sprint only** — no code crate change,
+no new behavior, no new CLI verb (the demo unit count and every DREAM-EXPORT-0 structural pin are unchanged).
+Capability sprint; **no tag**.
+
+**Why.** DREAM-EXPORT-0 added operator-facing commands and a deliberately dangerous conceptual bridge (dream
+material crossing into the lawful chain). Before any ranking/review/export-scenario work, that bridge must be
+pinned in the manual an operator reads and guarded by a smoke that fails closed on drift — so the documentation
+can never quietly diverge from the binary, and the dream export coverage can never be silently dropped. The smoke
+is RUN by the existing OPS-1 lock (a dream-export drift aborts the whole gate); the new pins stop the coverage
+from being deleted from the smoke or the manual. Because `dream-engine` is a quarantined library with no
+standalone packet emitter, dream packet **generation happens inside `dream-export`** (which re-derives the
+terminal packet and bridges it through the EXISTING hypothesis gate); the smoke runs that generation FIRST, then
+report/replay, and proves a foreign/tampered `--dream-packet` is refused (the cross-check is real and
+discriminating, since `dream-export` without it succeeds).
+
+**Boundary recorded.** The dream export operator path preserves provenance. It does not create a new authority.
+Exported dream material remains HypothesisOnly. Dream origin remains auditable. DreamOnly remains private to
+`dream-engine`. Probe requests do not execute. Nothing becomes evidence. Nothing promotes. Nothing trains. The
+smoke proves, against the real binary: the export carries the EXISTING `hypothesis_only` authority, records
+`dream_origin: true`, routes through the existing gate, cites a `dream:` provenance label, emits NO
+`dream_only`/`DreamOnly` token, and that a foreign/tampered `--dream-packet`, a tampered `DreamExportReceipt`, and
+a receipt forged to `dream_origin=false` are EACH refused. The frozen `hypothesis-layer` and `dream-engine`
+sources are untouched; P12 stays `training_justified=false`; P13–P15 stay closed. `release_check.sh` remains green
+and byte-silent. Canonical artifact: [`OPERATOR_MANUAL.md`](../OPERATOR_MANUAL.md) §14 +
+[`scripts/operator_smoke.sh`](../scripts/operator_smoke.sh) §13.
+
 ## DD-2026-06-21-G — Dream export receipt / provenance bridge (DREAM-EXPORT-0)
 
 **Decision.** Add a dream provenance bridge in `crates/cognitive-demo` that takes a terminal `DreamPacket`
