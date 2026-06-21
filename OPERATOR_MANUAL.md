@@ -36,10 +36,17 @@ failure-verify --path DIR
 
 doc-trace --input PATH [--out PATH]         doc-report --input PATH --trace PATH [--out PATH]
 doc-bundle --input PATH --out DIR           doc-bundle-verify --input PATH --path DIR
+
+corpus-trace --input-dir DIR [--out PATH]   corpus-report --input-dir DIR --trace PATH [--out PATH]
+corpus-bundle --input-dir DIR --out DIR     corpus-bundle-verify --input-dir DIR --path DIR
 ```
 
 The `doc-*` commands run the same pipeline from a **local operator-supplied document** instead of the
 fixed corpus — see §11. The document is read but not trusted: it is verified before it is traced.
+
+The `corpus-*` commands run the same pipeline from a **local directory of `.txt` documents** — see §12. The
+corpus is enumerated, path-filtered, sorted, verified, grounded, and **hash-bound as a whole**; the documents
+are read but not trusted.
 
 > **Reproducibility note (important).** Use `trace --out FILE` to write a trace you will later `report`,
 > `replay`, or `ask` against. Writing with a shell redirect (`trace > FILE`) appends a trailing newline,
@@ -76,7 +83,7 @@ function of fixed inputs.
 
 Each layer is frozen as an annotated point in history. Recover any milestone with
 `git checkout <tag>`; verify the whole stack at any time with `./scripts/release_check.sh`
-(it must exit 0 and print nothing — see §12/§13). Each tag has a freeze record document.
+(it must exit 0 and print nothing — see §13/§14). Each tag has a freeze record document.
 
 | Tag | Commit | Freezes | Record |
 | --- | --- | --- | --- |
@@ -291,7 +298,66 @@ It does not promote.
 It does not train.
 ```
 
-## 12. Authority boundaries
+## 12. How to trace a local corpus
+
+The `corpus-*` commands run the **same** end-to-end pipeline as the canonical demo and the `doc-*` flow, but
+starting from a **local directory of `.txt` documents** instead of one document or the fixed bridge corpus. The
+crucial property is not "it reads a folder" — it is that the corpus is **enumerated, path-filtered, sorted,
+verified, grounded, and hash-bound as a whole**, and that **the documents are read but not trusted**. The
+directory is enumerated deterministically: only non-hidden `.txt` files are admitted (hidden files, non-`.txt`
+files, and any entry whose resolved path escapes the directory — e.g. a symlink — are refused, never read), and
+the admitted documents are sorted by name so the trace is replayable. The corpus's own first span becomes a
+**verified reading receipt**, and only then is it traced; an empty corpus (no admitted document grounds a span)
+fails closed and produces no trace.
+
+**Source selection is verified and replayable, never a semantic judgment.** Which document and span grounded the
+answer is recorded in `corpus-source.json` (`document_index`, the real `document_title` filename, `span_id`,
+`span_text`), re-derived from the frozen reader — it is the corpus's globally-first span, not a model's opinion
+about relevance. **The whole corpus is hash-bound:** the reading receipt's structure hash binds every document's
+title, spans, and sections, so mutating **any** document — the grounding document *or a non-grounding "side"
+document* — re-derives a different trace and invalidates the bundle. A side document cannot silently change while
+the bundle still verifies.
+
+The commands only read a **local directory inside the working directory.** An absolute path, a `..` traversal,
+or a symlinked directory that escapes the working directory is refused before anything is read.
+
+```sh
+# Trace a local corpus directory (exact bytes — replayable). --input-dir is the local folder of .txt docs:
+./target/debug/cognitive-demo corpus-trace --input-dir corpus --out trace.json
+# -> trace.json — a CognitiveTrace whose reading stage read and verified the corpus's first span
+
+# Render a plain report (re-derived from the SAME corpus + trace) with a SOURCE SELECTION section naming the
+# grounded document/span and listing every corpus document — never trusted from the trace bytes:
+./target/debug/cognitive-demo corpus-report --input-dir corpus --trace trace.json
+# -> COGNITIVE OS — END-TO-END TRACE REPORT ... + SOURCE SELECTION (grounded document, span, every document)
+
+# Build and verify a five-file repro bundle purely derived from the corpus:
+./target/debug/cognitive-demo corpus-bundle --input-dir corpus --out pack
+# -> corpus-bundle: wrote 5 files to .../pack  (corpus-source.json, trace.json, report.txt, questions.txt, manifest.json)
+./target/debug/cognitive-demo corpus-bundle-verify --input-dir corpus --path pack
+# -> corpus-bundle-verify: OK — every bundle file re-derives byte-identically from the operator corpus
+```
+
+`corpus-report` and `corpus-bundle-verify` re-derive every artifact from the **same** corpus and byte-compare,
+so a tampered document (grounding **or** side), source attribution, trace, report, questions file, or manifest is
+refused (non-zero exit) — never rendered, replayed, or accepted. The reading stage's answer is the corpus's own
+first span, so the trace demonstrably read the operator's documents; it never grants that text any authority, and
+no document ever becomes evidence. The whole corpus flow is exercised end-to-end by
+`./scripts/operator_smoke.sh` (see §3), so this documentation cannot drift from the binary.
+
+```text
+The corpus operator path reads local documents.
+It does not trust local documents.
+Source selection is verified and replayable.
+The whole corpus is hash-bound.
+Verification comes before tracing.
+Nothing executes.
+Nothing becomes evidence.
+Nothing promotes.
+Nothing trains.
+```
+
+## 13. Authority boundaries
 
 These are the load-bearing invariants the whole prototype preserves. Each is enforced mechanically by
 `./scripts/release_check.sh` from the artifacts' own bytes.
@@ -313,7 +379,7 @@ These are the load-bearing invariants the whole prototype preserves. Each is enf
    through the frozen hypothesis layer — it can never ground a claim, mutate memory, execute a probe,
    promote evidence, or self-authorize.
 
-## 13. Training status
+## 14. Training status
 
 Weight training is **closed**. The P12 training verdict is `training_not_justified` — the
 `TrainingDecision.training_justified` bit is `training_justified=false` — and every layer reads that
@@ -322,14 +388,15 @@ mode, promotion gate) stay closed under every freeze. Training stays forbidden u
 stable, recurring model failure that survives fixes to task spec, schema, prompt, examples, tooling,
 context, and verifier design. This manual makes no claim that training has opened.
 
-## 14. Next possible work
+## 15. Next possible work
 
 This manual is a comprehension and reproducibility checkpoint, not a new capability. Possible future work
 (none started, none authorized here):
 
 - **Parameterizing the demo corpus** beyond the single fixed bridge scenario has begun: the document flow
-  (§11) now traces a local operator-supplied document under the same re-derive-not-trust discipline. Further
-  document-flow work would extend that surface, not open a new authority.
+  (§11) traces a local operator-supplied document, and the corpus flow (§12) traces a local directory of `.txt`
+  documents — both under the same re-derive-not-trust discipline, with the corpus hash-bound as a whole. Further
+  document- or corpus-flow work (scenario packs, ranking) would extend those surfaces, not open a new authority.
 - **RDT-0 (recurrent-depth)** material is noted as future inspiration only; it is not started.
 
 Any future capability must go through the same cadence that produced every layer above — a written rubric,

@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# operator_smoke.sh — OPS-1 + DOCFLOW-1: Operator Smoke Script / Manual Drift Guard.
+# operator_smoke.sh — OPS-1 + DOCFLOW-1 + CORPUS-1: Operator Smoke Script / Manual Drift Guard.
 #
 # Runs the documented operator path end-to-end against the built cognitive-demo binary and proves the
 # OPERATOR_MANUAL.md has NOT drifted from the binary: every documented command still runs, every generated
@@ -12,6 +12,14 @@
 # document (under the gitignored target/ dir, inside the working dir — the doc commands only read local
 # paths), proves the trace started from the document's OWN verified read, and proves a tampered document,
 # trace, report, or manifest is still refused. The local document is READ, never TRUSTED.
+#
+# CORPUS-1 extends the same guard to the multi-document corpus path: §11 below runs the documented corpus
+# flow (corpus-trace --input-dir/--out, corpus-report, corpus-bundle, corpus-bundle-verify) against a LOCAL
+# directory of .txt documents (under the gitignored target/ dir), proves the directory filter matches CORPUS-0
+# (hidden / non-.txt / symlink-escape refused), proves the trace started from the corpus's OWN verified first
+# span, and proves that mutating the grounding document OR a non-grounding SIDE document — and tampering the
+# trace, report, or manifest — is refused. The corpus is hash-bound as a whole; the documents are READ, never
+# TRUSTED. No code crate changes — this sprint documents and smoke-tests existing CORPUS-0 behavior only.
 #
 # Deterministic, offline, temp-dir only (no repo debris), fail-closed: `set -e` means any documented
 # command exiting non-zero aborts this script non-zero — command failures are never swallowed. The only
@@ -42,7 +50,11 @@ work="$(mktemp -d)"
 # removed on exit (no repo debris).
 docwork="$(mktemp -d "$PWD/target/.docflow_smoke.XXXXXX")"
 docrel="target/$(basename "$docwork")"
-trap 'rm -rf "$work" "$docwork"' EXIT
+# CORPUS-1: the corpus-flow commands only read a directory INSIDE the working dir, so the operator-corpus
+# sample lives under target/ (gitignored, inside cwd) and is referenced by a RELATIVE path.
+corpuswork="$(mktemp -d "$PWD/target/.corpus_smoke.XXXXXX")"
+corpusrel="target/$(basename "$corpuswork")"
+trap 'rm -rf "$work" "$docwork" "$corpuswork"' EXIT
 
 # ---- 1. canonical trace — ALWAYS --out (exact replayable bytes), NEVER a shell redirect ----
 $BIN trace --out "$work/trace.json"
@@ -125,7 +137,9 @@ for _cmd in 'trace --out' 'report --trace' 'replay --trace' 'questions' 'ask --t
             'bundle-verify --path' 'scenario-pack --out' 'scenario-verify --path' 'scenario-matrix --pack' \
             'scenario-matrix-report --matrix' 'scenario-matrix-verify --pack' 'failure-pack --out' \
             'failure-verify --path' \
-            'doc-trace --input' 'doc-report --input' 'doc-bundle --input' 'doc-bundle-verify --input'; do
+            'doc-trace --input' 'doc-report --input' 'doc-bundle --input' 'doc-bundle-verify --input' \
+            'corpus-trace --input-dir' 'corpus-report --input-dir' 'corpus-bundle --input-dir' \
+            'corpus-bundle-verify --input-dir'; do
   grep -qF "$_cmd" "$MANUAL" || fail "manual no longer documents: $_cmd"
 done
 # The manual states the document flow reads local input but does NOT trust it (DOCFLOW-1 doctrine).
@@ -135,6 +149,16 @@ for _dbl in 'The document operator path explains and verifies local-document tra
             'It does not trust local input.' 'It does not create authority.' 'It does not execute.' \
             'It does not promote.' 'It does not train.'; do
   grep -qF "$_dbl" "$MANUAL" || fail "manual DOCFLOW boundary line drifted: $_dbl"
+done
+# The manual states the corpus is read but not trusted and hash-bound as a whole (CORPUS-1 doctrine), and
+# records the CORPUS-1 nine-line corpus-operator-path boundary verbatim.
+grep -qF 'read but not trusted' "$MANUAL" || fail 'manual no longer states the corpus is read but not trusted'
+grep -qF 'hash-bound as a whole' "$MANUAL" || fail 'manual no longer states the whole corpus is hash-bound'
+for _cbl in 'The corpus operator path reads local documents.' 'It does not trust local documents.' \
+            'Source selection is verified and replayable.' 'The whole corpus is hash-bound.' \
+            'Verification comes before tracing.' 'Nothing executes.' 'Nothing becomes evidence.' \
+            'Nothing promotes.' 'Nothing trains.'; do
+  grep -qF "$_cbl" "$MANUAL" || fail "manual CORPUS boundary line drifted: $_cbl"
 done
 # The manual still records training as closed; this smoke asserts that and never opens training.
 grep -qF 'training_justified=false' "$MANUAL" || fail 'manual no longer records training_justified=false'
@@ -193,6 +217,88 @@ done
 printf '\n{tampered}' >> "$docwork/trace.json"
 if $BIN doc-report --input "$docrel/doc.txt" --trace "$docwork/trace.json" >/dev/null 2>&1; then
   fail 'doc-report accepted a tampered trace'
+fi
+
+# ---- 11. CORPUS operator path: run the corpus flow from a LOCAL directory of .txt documents ----
+# CORPUS-1 boundary (recorded verbatim):
+#   The corpus operator path reads local documents.
+#   It does not trust local documents.
+#   Source selection is verified and replayable.
+#   The whole corpus is hash-bound.
+#   Verification comes before tracing.
+#   Nothing executes.
+#   Nothing becomes evidence.
+#   Nothing promotes.
+#   Nothing trains.
+# The corpus commands only read a directory INSIDE the working dir, so the sample corpus lives under target/
+# (relative path). Two admitted .txt documents (a-east grounding, b-west side) PLUS a hidden file, a non-.txt
+# file, and an escaping symlink that the directory filter must REFUSE — proving the filter matches CORPUS-0.
+mkdir -p "$corpuswork/corpus"
+printf 'The east bridge reopened today. Traffic resumed by noon.' > "$corpuswork/corpus/a-east.txt"
+printf 'The west tunnel remains closed. Crews continue repairs.' > "$corpuswork/corpus/b-west.txt"
+printf 'hidden secret.' > "$corpuswork/corpus/.hidden.txt"
+printf 'ignored note.' > "$corpuswork/corpus/notes.md"
+ln -s /etc/hostname "$corpuswork/corpus/escape.txt" 2>/dev/null || true
+# corpus-trace --input-dir --out: enumerate, filter, sort, verify, ground, hash-bind. The trace carries the
+# corpus's OWN verified first span and the boundary markers — proof the documents were read, NOT trusted.
+$BIN corpus-trace --input-dir "$corpusrel/corpus" --out "$corpuswork/trace.json"
+for _cm in '"starts_from_verified_receipt": true' '"reading_passed": true' '"nothing_executed": true' \
+           '"promotion_refused": true' '"nothing_becomes_evidence": true' \
+           '"execution_status": "requires_operator"' '"promotion_status": "rejected"' \
+           '"training_justified": false'; do
+  grep -qF "$_cm" "$corpuswork/trace.json" || fail "corpus-trace marker missing: $_cm"
+done
+# The trace really read the corpus's first span (the grounding document's first sentence), not the canonical corpus.
+grep -qF '"reading_answer": "The east bridge reopened today."' "$corpuswork/trace.json" \
+  || fail 'corpus-trace did not read the operator corpus first span'
+# No affirmative-authority status leaked into the corpus trace.
+if grep -qE '"(execution_status|observation_status|promotion_status)": "(executed|recorded|promoted|granted|evidence)"' "$corpuswork/trace.json"; then
+  fail 'corpus trace claims an executed/recorded/promoted/granted status'
+fi
+# corpus-report re-derives from the SAME corpus + trace and renders the SOURCE SELECTION (the grounded document,
+# unambiguous) listing EXACTLY the two admitted documents — proving the directory filter excluded the hidden
+# file, the .md, and the escaping symlink (matches CORPUS-0). The 9-line corpus boundary is present.
+$BIN corpus-report --input-dir "$corpusrel/corpus" --trace "$corpuswork/trace.json" --out "$corpuswork/report.txt"
+for _rm in 'SOURCE SELECTION' 'grounded document:  [0] a-east.txt' 'corpus documents:   2' 'Nothing trains.'; do
+  grep -qF "$_rm" "$corpuswork/report.txt" || fail "corpus-report missing: $_rm"
+done
+# The refused entries never became documents (their names/content do not appear in the report).
+if grep -qE 'hidden|notes\.md|escape\.txt' "$corpuswork/report.txt"; then fail 'corpus-report leaked a refused entry'; fi
+# corpus-bundle + corpus-bundle-verify (clean) re-derive byte-identically and print the corpus boundary; the
+# source attribution names the grounding document unambiguously.
+$BIN corpus-bundle --input-dir "$corpusrel/corpus" --out "$corpuswork/pack"
+grep -qF '"document_title": "a-east.txt"' "$corpuswork/pack/corpus-source.json" \
+  || fail 'corpus-source.json did not name the grounding document'
+out="$($BIN corpus-bundle-verify --input-dir "$corpusrel/corpus" --path "$corpuswork/pack")"
+case "$out" in *'corpus-bundle-verify: OK'*) : ;; *) fail 'corpus-bundle-verify did not pass on a clean bundle' ;; esac
+case "$out" in *'The corpus flow reads local documents.'*) : ;; *) fail 'corpus-bundle-verify did not emit the corpus boundary' ;; esac
+# RE-DERIVE IS LOAD-BEARING over the WHOLE corpus — every mutation must be refused (never trusted from bytes):
+# (a) mutating the GROUNDING document re-derives a different trace -> refused, then restore.
+printf 'The east bridge collapsed today. Traffic stopped by noon.' > "$corpuswork/corpus/a-east.txt"
+if $BIN corpus-bundle-verify --input-dir "$corpusrel/corpus" --path "$corpuswork/pack" >/dev/null 2>&1; then
+  fail 'corpus-bundle-verify accepted a mutated grounding document'
+fi
+printf 'The east bridge reopened today. Traffic resumed by noon.' > "$corpuswork/corpus/a-east.txt"
+# (b) mutating a NON-GROUNDING SIDE document also re-derives a different trace (structure hash binds the whole
+#     corpus) -> refused, then restore. This is the corpus-specific property a single-document guard cannot show.
+printf 'The west tunnel reopened early. Crews left.' > "$corpuswork/corpus/b-west.txt"
+if $BIN corpus-bundle-verify --input-dir "$corpusrel/corpus" --path "$corpuswork/pack" >/dev/null 2>&1; then
+  fail 'corpus-bundle-verify accepted a mutated non-grounding side document'
+fi
+printf 'The west tunnel remains closed. Crews continue repairs.' > "$corpuswork/corpus/b-west.txt"
+# (c) a tampered BUNDLE FILE (source / trace / report / questions / manifest) is refused — each file re-derives.
+for _cf in corpus-source.json trace.json report.txt questions.txt manifest.json; do
+  cp -r "$corpuswork/pack" "$corpuswork/pack_t"
+  printf '\n{tampered}' >> "$corpuswork/pack_t/$_cf"
+  if $BIN corpus-bundle-verify --input-dir "$corpusrel/corpus" --path "$corpuswork/pack_t" >/dev/null 2>&1; then
+    fail "corpus-bundle-verify accepted a tampered $_cf"
+  fi
+  rm -rf "$corpuswork/pack_t"
+done
+# (d) a tampered standalone TRACE is refused by corpus-report.
+printf '\n{tampered}' >> "$corpuswork/trace.json"
+if $BIN corpus-report --input-dir "$corpusrel/corpus" --trace "$corpuswork/trace.json" >/dev/null 2>&1; then
+  fail 'corpus-report accepted a tampered trace'
 fi
 
 echo 'operator-smoke: OK — the documented operator path runs and the manual matches the binary'

@@ -2121,6 +2121,61 @@ for _dbl in 'The document operator path explains and verifies local-document tra
   if ! grep -qF "$_dbl" scripts/operator_smoke.sh; then exit 1; fi
 done
 # ---------------------------------------------------------------------------------------------------
+# CORPUS-1 — corpus flow operator guard. The operator manual (OPERATOR_MANUAL.md §12) documents the four
+# CORPUS-0 commands (corpus-trace / corpus-report / corpus-bundle / corpus-bundle-verify), states the corpus is
+# READ but NOT trusted, that source selection is verified and replayable, and that the WHOLE corpus is
+# hash-bound; the operator smoke (scripts/operator_smoke.sh §11) runs the whole corpus flow end-to-end against a
+# LOCAL directory of .txt documents, proving the directory filter matches CORPUS-0 (hidden / non-.txt /
+# symlink-escape refused), the trace starts from the corpus's OWN verified first span, and that mutating the
+# grounding document OR a non-grounding SIDE document — and tampering the source / trace / report / questions /
+# manifest — is refused. A documentation + drift-guard sprint — no code crate change, no new behavior (the unit
+# count pinned at 112 above is unchanged). The smoke is already RUN by the OPS-1 lock above (a corpus-flow drift
+# makes it fail closed and aborts the gate); the pins below stop the corpus coverage from being silently dropped
+# from the smoke or the manual. Doctrine: The corpus operator path reads local documents. It does not trust local
+# documents. Source selection is verified and replayable. The whole corpus is hash-bound. Verification comes
+# before tracing. Nothing executes. Nothing becomes evidence. Nothing promotes. Nothing trains.
+# ---------------------------------------------------------------------------------------------------
+# The manual documents the four corpus commands (manual surface == binary surface).
+for _cc in 'corpus-trace --input-dir' 'corpus-report --input-dir' 'corpus-bundle --input-dir' 'corpus-bundle-verify --input-dir'; do
+  if ! grep -qF "$_cc" OPERATOR_MANUAL.md; then exit 1; fi
+done
+# The manual states the corpus is read-but-not-trusted, hash-bound as a whole, and source selection is
+# verified and replayable; and records the CORPUS-1 nine-line boundary verbatim.
+grep -qF 'read but not trusted' OPERATOR_MANUAL.md
+grep -qF 'hash-bound as a whole' OPERATOR_MANUAL.md
+grep -qF 'Source selection is verified and replayable.' OPERATOR_MANUAL.md
+for _cbl in 'The corpus operator path reads local documents.' 'It does not trust local documents.' 'Source selection is verified and replayable.' 'The whole corpus is hash-bound.' 'Verification comes before tracing.' 'Nothing executes.' 'Nothing becomes evidence.' 'Nothing promotes.' 'Nothing trains.'; do
+  if ! grep -qF "$_cbl" OPERATOR_MANUAL.md; then exit 1; fi
+done
+# The smoke creates the corpus under target/ (relative local path) and removes all temp dirs on exit (no debris).
+grep -qF 'target/.corpus_smoke' scripts/operator_smoke.sh
+grep -qF 'rm -rf "$work" "$docwork" "$corpuswork"' scripts/operator_smoke.sh
+# Its §11 corpus run additionally asserts NO affirmative-authority status leaked into the corpus trace. This
+# fail string is UNIQUE to the §11 block, so removing the corpus-flow run (not just the target/ setup line
+# above) is caught here too — the corpus coverage cannot be silently dropped from any single reference point.
+grep -qF 'corpus trace claims an executed/recorded/promoted/granted status' scripts/operator_smoke.sh
+# The smoke exercises all four corpus commands with --input-dir, and corpus-trace writes with --out (never a redirect).
+for _cc in 'corpus-trace --input-dir' 'corpus-report --input-dir' 'corpus-bundle --input-dir' 'corpus-bundle-verify --input-dir'; do
+  if ! grep -qF "$_cc" scripts/operator_smoke.sh; then exit 1; fi
+done
+grep -qF 'corpus-trace --input-dir "$corpusrel/corpus" --out' scripts/operator_smoke.sh
+# The smoke proves the trace read the corpus's OWN first span, and proves the directory filter (exactly two
+# admitted documents — hidden / non-.txt / symlink excluded, matching CORPUS-0).
+grep -qF '"reading_answer": "The east bridge reopened today."' scripts/operator_smoke.sh
+grep -qF 'corpus documents:   2' scripts/operator_smoke.sh
+# The smoke proves re-derive is load-bearing over the WHOLE corpus: mutating the GROUNDING document AND a
+# non-grounding SIDE document are BOTH refused (the corpus-specific binding a single-document guard cannot show),
+# and tampered bundle files (incl. corpus-source.json) and a tampered standalone trace are refused.
+grep -qF 'accepted a mutated grounding document' scripts/operator_smoke.sh
+grep -qF 'accepted a mutated non-grounding side document' scripts/operator_smoke.sh
+grep -qF 'for _cf in corpus-source.json trace.json report.txt questions.txt manifest.json' scripts/operator_smoke.sh
+grep -qF 'corpus-report accepted a tampered trace' scripts/operator_smoke.sh
+# The smoke records the CORPUS-1 nine-line boundary verbatim (the OPS-1 lock above already pins the smoke
+# makes no false training claim).
+for _cbl in 'The corpus operator path reads local documents.' 'It does not trust local documents.' 'Source selection is verified and replayable.' 'The whole corpus is hash-bound.' 'Verification comes before tracing.' 'Nothing executes.' 'Nothing becomes evidence.' 'Nothing promotes.' 'Nothing trains.'; do
+  if ! grep -qF "$_cbl" scripts/operator_smoke.sh; then exit 1; fi
+done
+# ---------------------------------------------------------------------------------------------------
 # OPS-2 — operator release snapshot / local archive manifest. OPERATOR_RELEASE_SNAPSHOT.md is a docs-only
 # local snapshot of the prototype state after OPS-1: the current HEAD commit (c33dea7), every frozen tag +
 # its commit, the recovery commands, the release_check + operator_smoke verification commands, what the

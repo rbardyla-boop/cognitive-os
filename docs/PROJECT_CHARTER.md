@@ -3,6 +3,42 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-21-A — Corpus flow operator guard / manual + smoke integration (CORPUS-1)
+
+**Decision.** Extend the operator-facing guard layer to cover the CORPUS-0 commands without adding any
+behavior: `OPERATOR_MANUAL.md` now documents `corpus-trace` / `corpus-report` / `corpus-bundle` /
+`corpus-bundle-verify` (new §12, with real flags and outputs), states the corpus is *read but not trusted*,
+that *source selection is verified and replayable* (never a semantic judgment by a model), and that the *whole
+corpus is hash-bound* (a side-document mutation cannot silently pass); the operator smoke
+`scripts/operator_smoke.sh` now runs the whole corpus flow end-to-end against a LOCAL directory of `.txt`
+documents (new §11). No `crates/` source changes — the unit count stays 112.
+
+**Why.** CORPUS-0 added operator-facing commands. Before adding corpus scenarios or ranking behavior, the
+manual and the smoke guard must cover the new commands so the corpus flow cannot become undocumented or drift
+from the binary — the same drift discipline OPS-0/OPS-1 and DOCFLOW-1 established. This is a documentation +
+drift-guard sprint, not a capability sprint, so `a.md` is left unchanged.
+
+**Boundary recorded.** The manual and smoke record the nine-line corpus-operator-path boundary verbatim: *The
+corpus operator path reads local documents. It does not trust local documents. Source selection is verified and
+replayable. The whole corpus is hash-bound. Verification comes before tracing. Nothing executes. Nothing becomes
+evidence. Nothing promotes. Nothing trains.* The smoke creates a temp local corpus under the gitignored
+`target/` directory (relative path, since the corpus commands only read a directory inside the working dir) with
+two admitted `.txt` documents PLUS a hidden file, a `.md`, and an escaping symlink the filter must refuse; it
+runs `corpus-trace --input-dir --out`, `corpus-report`, `corpus-bundle`, and `corpus-bundle-verify`, proves the
+directory filter matches CORPUS-0 (exactly two admitted documents; the report names the grounded document and
+leaks no refused entry), proves the trace started from the corpus's OWN verified first span, and proves
+re-derive is load-bearing over the WHOLE corpus — mutating the grounding document OR a non-grounding SIDE
+document, and tampering each bundle file (`corpus-source.json` / trace / report / questions / manifest) or the
+standalone trace, are all refused. The smoke is RUN by the OPS-1 lock (a corpus-flow drift makes it fail closed
+and aborts the gate); a new CORPUS-1 gate block additionally pins the corpus commands, the *read but not
+trusted* / *hash-bound as a whole* / *source selection verified and replayable* statements, the grounding- and
+side-document tamper coverage, and the nine boundary lines in both the manual and the smoke, so the coverage
+cannot be silently removed. Verified by a green, byte-silent `release_check.sh`; live sabotage of the new pins
+(restored byte-identical via `cp`+`md5`); and an independent read-only adversarial panel (refute-by-default
+lenses). No code crate behavior changes, P12 stays `training_justified=false`, P13–P15 closed, and the seven
+milestone tags are unmoved. Recorded in [OPERATOR_MANUAL.md](../OPERATOR_MANUAL.md) and
+[scripts/operator_smoke.sh](../scripts/operator_smoke.sh). Local only — no remote push.
+
 ## DD-2026-06-20-L — Multi-document local corpus trace / source-selection boundary (CORPUS-0)
 
 **Decision.** Extend `crates/cognitive-demo` with the multi-document local corpus flow: four commands
