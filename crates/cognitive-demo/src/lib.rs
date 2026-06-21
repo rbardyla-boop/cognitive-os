@@ -81,6 +81,14 @@ pub enum TraceError {
     /// DOCFLOW-0: the operator-supplied input path is not a safe local path (absolute, parent-dir
     /// traversal, or otherwise escaping the working directory) — the document flow refuses to read it.
     UnsafeInputPath(String),
+    /// CORPUS-0: the operator-supplied corpus directory yields no readable sentence span (no admitted
+    /// `.txt` document, or only empty/heading-only documents), so no verified reading receipt can be
+    /// produced — the corpus flow fails closed rather than tracing an empty/ungrounded read.
+    EmptyCorpus,
+    /// CORPUS-0: a provided corpus trace JSON is not byte-for-byte the trace re-derived from the SAME
+    /// operator corpus (tampered, stale, or foreign) — so it is refused for corpus-report rather than
+    /// laundered into authority.
+    CorpusTraceMismatch,
 }
 
 impl std::fmt::Display for TraceError {
@@ -125,6 +133,14 @@ impl std::fmt::Display for TraceError {
             TraceError::UnsafeInputPath(path) => write!(
                 f,
                 "refusing unsafe input path '{path}' — the document flow reads only a local file inside the working directory"
+            ),
+            TraceError::EmptyCorpus => write!(
+                f,
+                "the corpus has no readable sentence span, so no verified reading receipt can be produced"
+            ),
+            TraceError::CorpusTraceMismatch => write!(
+                f,
+                "the provided trace is not the trace re-derived from this corpus (tampered, stale, or foreign)"
             ),
         }
     }
@@ -2623,6 +2639,8 @@ struct DocScenarioMatrix {
 fn doc_rejection_token(err: &TraceError) -> String {
     match err {
         TraceError::EmptyDocument => "empty-document".to_string(),
+        TraceError::EmptyCorpus => "empty-corpus".to_string(),
+        TraceError::CorpusTraceMismatch => "corpus-trace-mismatch".to_string(),
         TraceError::UnsafeInputPath(_) => "unsafe-input-path".to_string(),
         TraceError::BundleMismatch(name) => format!("bundle-file-mismatch:{name}"),
         TraceError::BundleMissingFile(name) => format!("bundle-missing-file:{name}"),
@@ -2997,6 +3015,241 @@ pub fn doc_scenario_matrix() -> Result<String, TraceError> {
         boundary: doc_scenario_boundary(),
     };
     Ok(serde_json::to_string_pretty(&matrix).expect("DocScenarioMatrix serializes"))
+}
+
+// --- CORPUS-0: multi-document local corpus trace / source-selection boundary. Where DOCFLOW-0 traces ONE
+//     operator document, CORPUS-0 traces a small LOCAL CORPUS DIRECTORY of `.txt` documents through the SAME
+//     end-to-end pipeline. The shell enumerates the directory (path-validated, only non-hidden `.txt` files,
+//     each canonicalize-contained so no symlink escapes, sorted by name for determinism) and passes the
+//     `(title, content)` documents to the pure library; the library asks the FROZEN corpus builder for the
+//     corpus's OWN first span, builds a grounding plan over it, and starts the trace from a VERIFIED read0
+//     receipt (fails closed with `EmptyCorpus` if the corpus grounds nothing). The trace's structure hash
+//     binds EVERY document (title + spans + sections), so a tamper of ANY document — even a non-grounding
+//     one — re-derives a different trace and is refused. Source selection is made UNAMBIGUOUS by an explicit
+//     `CorpusSource` attribution (which document index/title/span/text grounded the answer), re-derived and
+//     byte-compared in the bundle. The corpus is READ, never TRUSTED: nothing executes, becomes evidence,
+//     promotes, or trains; P12 stays training_justified=false. No filesystem access here — the shell reads
+//     the directory and validates every path. ---
+
+/// The eight-line CORPUS-0 boundary, printed as the corpus-bundle / corpus-report summary and pinned as data
+/// so a test/gate can assert every line is present.
+pub const CORPUS_BOUNDARY_LINES: [&str; 8] = [
+    "The corpus flow reads local documents.",
+    "It does not trust local documents.",
+    "Source selection is verified and replayable.",
+    "Verification comes before tracing.",
+    "Nothing executes.",
+    "Nothing becomes evidence.",
+    "Nothing promotes.",
+    "Nothing trains.",
+];
+
+/// The fixed question the corpus flow asks. Constant (never derived from the corpus), so the trace stays a
+/// pure function of the corpus CONTENT and document NAMES alone.
+pub const CORPUS_QUESTION: &str = "What does the corpus state in its first span?";
+
+/// The source-attribution file name in the corpus bundle (re-derived and byte-compared on verify).
+pub const CORPUS_SOURCE_FILE: &str = "corpus-source.json";
+
+/// The corpus bundle file names, in write order: the unambiguous source attribution, then the same
+/// trace/report/questions/manifest as the canonical bundle.
+pub const CORPUS_BUNDLE_FILES: [&str; 5] = [
+    CORPUS_SOURCE_FILE,
+    BUNDLE_TRACE_FILE,
+    BUNDLE_REPORT_FILE,
+    BUNDLE_QUESTIONS_FILE,
+    BUNDLE_MANIFEST_FILE,
+];
+
+/// Decide whether a directory entry's FILE NAME is admitted into the corpus: it must be a plain, non-hidden
+/// `.txt` file. A leading `.` (hidden file, including a bare `.txt`) is refused, and only a non-empty stem
+/// followed by the exact `.txt` suffix is accepted. PURE and unit-testable — the shell applies it to filter
+/// entries before any read, so a hidden or non-`.txt` file never becomes a trusted document. (The shell
+/// adds canonicalize-and-contain as defense in depth, so a symlink cannot escape the directory either.)
+pub fn corpus_admits_filename(name: &str) -> bool {
+    if name.starts_with('.') {
+        return false;
+    }
+    match name.strip_suffix(".txt") {
+        Some(stem) => !stem.is_empty(),
+        None => false,
+    }
+}
+
+/// Which document and span grounded the corpus answer: the document's index and title in the sorted corpus,
+/// the grounding span's id, and that span's verbatim text. Derived from the FROZEN corpus metadata, so source
+/// identity is unambiguous and replayable. `Serialize` but NOT `Deserialize` — re-derived and byte-compared,
+/// never parsed back into authority.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct CorpusSource {
+    schema: String,
+    document_index: usize,
+    document_title: String,
+    span_id: u64,
+    span_text: String,
+}
+
+/// Build the `(documents, question, plan)` reading inputs for an operator-supplied corpus. The plan grounds
+/// on the corpus's OWN first span — read through the frozen corpus builder (the same one `produce_run` uses)
+/// — so the claim and synthesized answer ground EXACTLY against the first span of the first document that has
+/// one. Returns [`TraceError::EmptyCorpus`] if the corpus yields no span. Pure (no I/O).
+fn corpus_inputs(documents: &[(String, String)]) -> Result<DocReadingInputs, TraceError> {
+    let corpus = corpus_from_documents(documents);
+    let first_id = corpus
+        .metadata()
+        .iter()
+        .flat_map(|doc| doc.span_ids.iter().copied())
+        .next()
+        .ok_or(TraceError::EmptyCorpus)?;
+    let first_text = corpus
+        .read_span(first_id)
+        .map(|span| span.text().to_string())
+        .ok_or(TraceError::EmptyCorpus)?;
+    let plan = doc_reading_plan(first_id, &first_text);
+    Ok((documents.to_vec(), CORPUS_QUESTION.to_string(), plan))
+}
+
+/// Re-derive the unambiguous source attribution for the corpus: find the FIRST document (in sorted order)
+/// that owns a span, and record its index/title and that span's id/text. This is the SAME span the trace
+/// grounds on (the globally-first span id), so the attribution and the trace cannot disagree. Returns
+/// [`TraceError::EmptyCorpus`] if no document grounds a span. Pure (no I/O).
+fn corpus_source(documents: &[(String, String)]) -> Result<CorpusSource, TraceError> {
+    let corpus = corpus_from_documents(documents);
+    for (index, doc) in corpus.metadata().iter().enumerate() {
+        if let Some(&span_id) = doc.span_ids.first() {
+            let span_text = corpus
+                .read_span(span_id)
+                .map(|span| span.text().to_string())
+                .ok_or(TraceError::EmptyCorpus)?;
+            return Ok(CorpusSource {
+                schema: "cognitive-corpus-source-v0.1".to_string(),
+                document_index: index,
+                document_title: doc.title.clone(),
+                span_id: span_id.0,
+                span_text,
+            });
+        }
+    }
+    Err(TraceError::EmptyCorpus)
+}
+
+/// The source attribution as pretty JSON (the `corpus-source.json` bundle file). Pure.
+fn corpus_source_json(documents: &[(String, String)]) -> Result<String, TraceError> {
+    Ok(serde_json::to_string_pretty(&corpus_source(documents)?).expect("CorpusSource serializes"))
+}
+
+/// Build the end-to-end trace for an operator-supplied corpus. Identical pipeline to
+/// [`CognitiveTrace::build`] — it starts from a FROZEN-VERIFIED reading receipt over the corpus and fails
+/// closed ([`TraceError::VerifierRejected`]/[`TraceError::EmptyCorpus`]) if that read does not verify. The
+/// receipt's structure hash binds every document, so the trace re-derives differently if ANY document
+/// changes. Pure (no I/O); the shell reads the directory and passes its documents as `documents`.
+pub fn corpus_trace(documents: &[(String, String)]) -> Result<CognitiveTrace, TraceError> {
+    let (documents, question, plan) = corpus_inputs(documents)?;
+    CognitiveTrace::build(&documents, &question, &plan)
+}
+
+/// The `corpus-trace` command body: build the corpus trace and serialize it. Pure.
+pub fn run_corpus_trace(documents: &[(String, String)]) -> Result<String, TraceError> {
+    Ok(corpus_trace(documents)?.to_json())
+}
+
+/// Re-derive the corpus trace from `documents` and confirm the PROVIDED trace JSON is byte-for-byte that
+/// trace. Like [`verify_doc_trace_json`], the provided trace is NEVER parsed back into authority
+/// (`CognitiveTrace` is `Serialize` but not `Deserialize`) — it is only COMPARED against the freshly
+/// re-derived trace, so a tampered/stale/foreign trace is REFUSED ([`TraceError::CorpusTraceMismatch`]). The
+/// corpus is the source of truth, which is why corpus-report requires `--input-dir`. Pure (no I/O).
+pub fn verify_corpus_trace_json(
+    documents: &[(String, String)],
+    provided: &str,
+) -> Result<CognitiveTrace, TraceError> {
+    let canonical = corpus_trace(documents)?;
+    if provided == canonical.to_json() {
+        Ok(canonical)
+    } else {
+        Err(TraceError::CorpusTraceMismatch)
+    }
+}
+
+/// Render the corpus operator report: the trace report, then a SOURCE SELECTION section that names the
+/// grounded document (index + title), its span id and text, and lists every corpus document (title + span
+/// count) so source identity is unambiguous, then the eight-line CORPUS-0 boundary. Pure FORMATTING derived
+/// from the corpus and its verified trace.
+fn corpus_report_body(
+    documents: &[(String, String)],
+    trace: &CognitiveTrace,
+) -> Result<String, TraceError> {
+    let source = corpus_source(documents)?;
+    let corpus = corpus_from_documents(documents);
+    let mut out = trace.to_report();
+    out.push_str("\nSOURCE SELECTION\n");
+    out.push_str(&format!(
+        "    grounded document:  [{}] {}\n",
+        source.document_index, source.document_title
+    ));
+    out.push_str(&format!("    grounded span:      {}\n", source.span_id));
+    out.push_str(&format!("    grounded text:      {}\n", source.span_text));
+    out.push_str(&format!(
+        "    corpus documents:   {}\n",
+        corpus.metadata().len()
+    ));
+    for (index, doc) in corpus.metadata().iter().enumerate() {
+        out.push_str(&format!(
+            "      [{index}] {} ({} spans)\n",
+            doc.title,
+            doc.span_ids.len()
+        ));
+    }
+    out.push_str("\nBOUNDARY\n");
+    for line in CORPUS_BOUNDARY_LINES {
+        out.push_str(&format!("    {line}\n"));
+    }
+    Ok(out)
+}
+
+/// The `corpus-report` command body: render the corpus report for a provided trace — but only after
+/// [`verify_corpus_trace_json`] confirms it IS the trace re-derived from `documents`, so the report always
+/// describes the real verified trace and never an untrusted file's claims. Pure (no I/O).
+pub fn run_corpus_report(
+    documents: &[(String, String)],
+    provided_trace_json: &str,
+) -> Result<String, TraceError> {
+    let trace = verify_corpus_trace_json(documents, provided_trace_json)?;
+    corpus_report_body(documents, &trace)
+}
+
+/// The full repro bundle for an operator corpus as (filename, content) pairs in write order: the unambiguous
+/// source attribution, then the verified trace, its report (with the source-selection section), the
+/// questions transcript, and a manifest hashing all four content files. Pure: every file is derived from the
+/// corpus's verified trace, so the corpus bundle is a reproducible DEMONSTRATION, never trusted authority.
+pub fn corpus_bundle(
+    documents: &[(String, String)],
+) -> Result<Vec<(&'static str, String)>, TraceError> {
+    let trace = corpus_trace(documents)?;
+    let content: Vec<(&'static str, String)> = vec![
+        (CORPUS_SOURCE_FILE, corpus_source_json(documents)?),
+        (BUNDLE_TRACE_FILE, trace.to_json()),
+        (BUNDLE_REPORT_FILE, corpus_report_body(documents, &trace)?),
+        (BUNDLE_QUESTIONS_FILE, trace.questions_doc()),
+    ];
+    let manifest = bundle_manifest_with(
+        &content,
+        "trace.json + corpus-source.json re-derive byte-identically from the operator corpus",
+    );
+    let mut files = content;
+    files.push((BUNDLE_MANIFEST_FILE, manifest));
+    Ok(files)
+}
+
+/// Verify a provided corpus bundle WITHOUT trusting it: re-derive the bundle from the SAME `documents` and
+/// require every file present and byte-identical. A missing file is [`TraceError::BundleMissingFile`]; any
+/// tampered/stale/foreign file (including the source attribution or manifest) is [`TraceError::BundleMismatch`];
+/// and a TAMPERED CORPUS (any document changed, even a non-grounding one) yields a different trace structure
+/// hash, so the whole bundle fails to match. Returns `Ok(())` only on a full, exact re-derivation. Pure (no I/O).
+pub fn verify_corpus_bundle(
+    documents: &[(String, String)],
+    provided: &[(String, String)],
+) -> Result<(), TraceError> {
+    compare_bundle(&corpus_bundle(documents)?, provided)
 }
 
 #[cfg(test)]
@@ -4801,5 +5054,215 @@ mod tests {
         // No scenario produced an executed/promoted authority claim.
         let json = doc_scenario_pack_manifest().unwrap();
         assert!(!json.contains("\"verified\": true,\n            \"refused\": true"));
+    }
+
+    // --- CORPUS-0: multi-document local corpus trace / source-selection boundary ---
+
+    /// A small two-document corpus, in the SORTED order the shell loader produces (so the first span
+    /// belongs to `a-east.txt`). Used by the CORPUS-0 tests.
+    fn corpus_sample() -> Vec<(String, String)> {
+        vec![
+            (
+                "a-east.txt".to_string(),
+                "The east bridge reopened today. Traffic resumed by noon.".to_string(),
+            ),
+            (
+                "b-west.txt".to_string(),
+                "The west tunnel remains closed. Crews continue repairs.".to_string(),
+            ),
+        ]
+    }
+
+    /// The corpus bundle for `documents` as owned (name, content) pairs, the shape a verifier reads from disk.
+    fn corpus_provided(documents: &[(String, String)]) -> Vec<(String, String)> {
+        corpus_bundle(documents)
+            .unwrap()
+            .iter()
+            .map(|(name, content)| (name.to_string(), content.clone()))
+            .collect()
+    }
+
+    #[test]
+    fn corpus_trace_starts_from_verified_receipt() {
+        // The corpus flow must VERIFY before tracing: the trace starts from a passed read0 receipt.
+        let trace =
+            corpus_trace(&corpus_sample()).expect("a well-formed corpus produces a verified trace");
+        assert!(trace.starts_from_verified_receipt());
+        assert!(trace.reading_passed());
+    }
+
+    #[test]
+    fn corpus_trace_cites_receipt_hash() {
+        // The hypothesis cites the corpus's own receipt by hash (provenance from the verified read).
+        let trace = corpus_trace(&corpus_sample()).unwrap();
+        assert!(trace.hypothesis_cites_receipt());
+        assert_eq!(trace.cited_answer_hash(), trace.reading_answer_hash());
+        assert_eq!(trace.cited_memory_hash(), trace.reading_memory_hash());
+    }
+
+    #[test]
+    fn corpus_trace_records_grounding_document_and_span() {
+        // Source identity is UNAMBIGUOUS: the attribution names the first document (sorted), the
+        // globally-first span id, and that span's verbatim text — and the trace grounds on that same text.
+        let source = corpus_source(&corpus_sample()).unwrap();
+        assert_eq!(source.document_index, 0);
+        assert_eq!(source.document_title, "a-east.txt");
+        assert_eq!(source.span_id, 0);
+        assert_eq!(source.span_text, "The east bridge reopened today.");
+        let trace = corpus_trace(&corpus_sample()).unwrap();
+        assert!(
+            trace.to_json().contains("The east bridge reopened today."),
+            "the trace grounds on the recorded source span"
+        );
+    }
+
+    #[test]
+    fn corpus_admits_only_plain_local_txt_files() {
+        // Only non-hidden `.txt` files are admitted; hidden files and non-`.txt` files are refused.
+        assert!(corpus_admits_filename("report.txt"));
+        assert!(corpus_admits_filename("a-east.txt"));
+        assert!(corpus_admits_filename("sub.notes.txt"));
+        assert!(
+            !corpus_admits_filename(".secret.txt"),
+            "hidden file refused"
+        );
+        assert!(!corpus_admits_filename(".txt"), "bare hidden .txt refused");
+        assert!(!corpus_admits_filename("notes.md"), "non-txt refused");
+        assert!(
+            !corpus_admits_filename("archive.txt.bak"),
+            "non-txt suffix refused"
+        );
+        assert!(!corpus_admits_filename("README"));
+        assert!(!corpus_admits_filename(""));
+    }
+
+    #[test]
+    fn corpus_empty_fails_closed() {
+        // An empty corpus (no documents), an empty document, and a heading-only document all yield no
+        // readable span, so the flow fails closed with EmptyCorpus — never an ambiguous success or a panic.
+        assert!(matches!(corpus_trace(&[]), Err(TraceError::EmptyCorpus)));
+        assert!(matches!(
+            corpus_trace(&[("e.txt".to_string(), String::new())]),
+            Err(TraceError::EmptyCorpus)
+        ));
+        assert!(matches!(
+            corpus_trace(&[("h.txt".to_string(), "# Heading only".to_string())]),
+            Err(TraceError::EmptyCorpus)
+        ));
+        // The source attribution fails closed identically.
+        assert!(matches!(corpus_source(&[]), Err(TraceError::EmptyCorpus)));
+    }
+
+    #[test]
+    fn corpus_bundle_verifies_clean_input() {
+        // A bundle re-derives byte-identically from the SAME corpus.
+        let provided = corpus_provided(&corpus_sample());
+        assert!(verify_corpus_bundle(&corpus_sample(), &provided).is_ok());
+    }
+
+    #[test]
+    fn corpus_bundle_rejects_tampered_corpus() {
+        // The bundle commits to the WHOLE corpus via the receipt's structure hash: changing ANY document —
+        // including the SECOND, non-grounding one — re-derives a different trace, so the clean bundle no
+        // longer matches.
+        let clean = corpus_provided(&corpus_sample());
+        let mut tampered_second = corpus_sample();
+        tampered_second[1].1 = "The west tunnel reopened early. Crews left.".to_string();
+        assert!(
+            matches!(
+                verify_corpus_bundle(&tampered_second, &clean),
+                Err(TraceError::BundleMismatch(_))
+            ),
+            "a non-grounding document tamper invalidates the bundle"
+        );
+        // Changing the FIRST (grounding) document is likewise refused.
+        let mut tampered_first = corpus_sample();
+        tampered_first[0].1 = "The east bridge collapsed today. Traffic stopped.".to_string();
+        assert!(matches!(
+            verify_corpus_bundle(&tampered_first, &clean),
+            Err(TraceError::BundleMismatch(_))
+        ));
+    }
+
+    #[test]
+    fn corpus_bundle_rejects_tampered_artifact() {
+        // Each tampered bundle file (source / trace / report / questions / manifest) is refused by
+        // re-derivation, named by the file that no longer matches.
+        for file in CORPUS_BUNDLE_FILES {
+            let mut provided = corpus_provided(&corpus_sample());
+            let mut changed = false;
+            for (name, content) in provided.iter_mut() {
+                if name == file {
+                    content.push_str("\n{tampered}");
+                    changed = true;
+                }
+            }
+            assert!(changed, "forged {file}");
+            assert!(
+                matches!(
+                    verify_corpus_bundle(&corpus_sample(), &provided),
+                    Err(TraceError::BundleMismatch(ref f)) if f == file
+                ),
+                "{file} is refused by re-derivation"
+            );
+        }
+    }
+
+    #[test]
+    fn corpus_report_records_source_selection_and_refuses_tamper() {
+        // The report names the grounded document/span and lists every corpus document, and a tampered trace
+        // is refused (re-derive, never trust).
+        let trace = corpus_trace(&corpus_sample()).unwrap();
+        let report = run_corpus_report(&corpus_sample(), &trace.to_json()).unwrap();
+        assert!(report.contains("SOURCE SELECTION"));
+        assert!(report.contains("[0] a-east.txt"));
+        assert!(report.contains("The east bridge reopened today."));
+        assert!(
+            report.contains("b-west.txt"),
+            "every corpus document is listed"
+        );
+        assert!(report.contains("Nothing trains."));
+        let mut tampered = trace.to_json();
+        tampered.push_str("\n{tampered}");
+        assert!(matches!(
+            run_corpus_report(&corpus_sample(), &tampered),
+            Err(TraceError::CorpusTraceMismatch)
+        ));
+    }
+
+    #[test]
+    fn corpus_flow_does_not_change_training_gate() {
+        let trace = corpus_trace(&corpus_sample()).unwrap();
+        assert!(trace.training_gate_unchanged());
+        assert!(!trace.training_justified());
+    }
+
+    #[test]
+    fn corpus_flow_does_not_execute_or_promote() {
+        let trace = corpus_trace(&corpus_sample()).unwrap();
+        assert!(trace.nothing_executed());
+        assert!(trace.observation_quarantined());
+        assert!(trace.promotion_refused());
+        assert!(trace.nothing_becomes_evidence());
+        assert_eq!(trace.execution_status(), "requires_operator");
+        assert_eq!(trace.promotion_status(), "rejected");
+    }
+
+    #[test]
+    fn corpus_source_is_deterministic_and_replayable() {
+        // The corpus bundle and trace are pure functions of the corpus content + document names: two runs
+        // are byte-identical, so the source selection is replayable.
+        assert_eq!(
+            corpus_bundle(&corpus_sample()).unwrap(),
+            corpus_bundle(&corpus_sample()).unwrap()
+        );
+        assert_eq!(
+            corpus_trace(&corpus_sample()).unwrap().to_json(),
+            corpus_trace(&corpus_sample()).unwrap().to_json()
+        );
+        // The grounded source is the globally-first span of the first document that owns one.
+        let source = corpus_source(&corpus_sample()).unwrap();
+        assert_eq!(source.span_id, 0);
+        assert_eq!(source.document_index, 0);
     }
 }

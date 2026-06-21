@@ -3164,6 +3164,99 @@ NO new file, NO new dependency, and no frozen crate SOURCE is touched. The `read
 and `operator-controls-v0.1` (`34b4f47`) tags are unmoved, and P13–P15 stay closed. `release_check.sh` is exit 0 and
 byte-silent.
 
+## Multi-Document Local Corpus Trace / Source-Selection Boundary (CORPUS-0): read many local documents, trust none
+
+Date: 2026-06-20. DOCFLOW-0 traced ONE operator document; the document-flow arc was frozen as
+`document-flow-v0.1`. CORPUS-0 is the next capability: it points the SAME end-to-end pipeline at a small LOCAL
+CORPUS DIRECTORY of `.txt` documents, producing the same verified-to-refused trace and the same no-authority
+outputs, while proving document selection is read-only, deterministic, path-safe, and source-grounded.
+Doctrine: *The corpus flow reads local documents. It does not trust local documents. Source selection is
+verified and replayable. Verification comes before tracing. Nothing executes. Nothing becomes evidence.
+Nothing promotes. Nothing trains.*
+
+Four commands extend `crates/cognitive-demo`. `corpus-trace --input-dir DIR [--out PATH]` reads a local
+directory and writes the corpus's end-to-end trace; `corpus-report --input-dir DIR --trace PATH [--out PATH]`
+re-derives the trace from the same corpus, refuses a tampered/foreign trace, and renders the operator report
+with a SOURCE SELECTION section; `corpus-bundle --input-dir DIR --out DIR` writes the repro pack;
+`corpus-bundle-verify --input-dir DIR --path DIR` re-derives the pack from the same corpus and refuses any
+tamper. Like DOCFLOW-0, the whole flow is a thin parameterization of the existing
+`CognitiveTrace::build(documents, question, plan)` — no downstream stage is new: the hypothesis still cites
+the receipt by hash, the probe is queued never executed, the observation is quarantined, the promotion is
+refused, and P12 stays `training_justified=false`.
+
+The crux is *which document grounded the answer, and a trust boundary over the whole corpus*. `corpus_inputs`
+asks the FROZEN `corpus_from_documents` builder for the corpus's OWN first span (the globally-first span id,
+across all documents in sorted order) and builds a plan that grounds and synthesizes exactly that span, so the
+read0 verifier passes — and if it cannot (an empty corpus, an empty document, a heading-only document), `build`
+never gets a span and `corpus_trace` fails closed with the explicit `EmptyCorpus`, never an ambiguous success.
+Source identity is made UNAMBIGUOUS by an explicit `corpus-source.json` (`document_index`, the real
+`document_title` filename, `span_id`, `span_text`), re-derived by `corpus_source`, which finds the FIRST
+document that owns a span — the SAME globally-first span the trace grounds on, so the attribution and the trace
+can never disagree (proven for the empty-first-document edge case: a heading-only doc 0 correctly attributes to
+the first content-bearing document). The key property is the trust boundary: the reading receipt's
+`structure_hash` (`reading_structure_hash` in the trace) binds EVERY document — title, spans, and sections —
+so a mutation of ANY document, INCLUDING a non-grounding "side" document, re-derives a different trace and is
+refused. A side document cannot silently pass.
+
+Re-derive-never-trust extends cleanly to a corpus. `corpus_bundle` assembles the source attribution + the same
+trace/report/questions/manifest as the canonical bundle (reusing `bundle_manifest_with`) and `verify_corpus_bundle`
+reuses `compare_bundle`, re-deriving every file from the SAME corpus and byte-comparing; `CognitiveTrace` and the
+new `CorpusSource` remain `Serialize` but NOT `Deserialize`. So a tampered DOCUMENT (any of them) yields a
+different structure hash and a different trace, failing the comparison; a tampered source, trace, report,
+questions, or manifest in the bundle fails the comparison; and `corpus-report` refuses a trace that is not the
+byte-identical re-derivation (`CorpusTraceMismatch`). Because the corpus is the source of truth,
+`corpus-report`/`corpus-bundle-verify` require `--input-dir` — there is nothing else to re-derive against, and
+the provided files are never parsed back into authority.
+
+Input safety is a SHELL concern, since the filesystem read lives only in `main.rs`. `read_local_corpus` mirrors
+`read_local_input`, applied to the directory and to every entry: the pure `check_local_input_path` rejects an
+absolute / `..` / `~` / empty `--input-dir`; the resolved directory must canonicalize INSIDE the working
+directory; then each entry is admitted ONLY if its file name is a non-hidden `.txt` file (the pure
+`corpus_admits_filename` — hidden files and non-`.txt` files are refused) AND its canonical path stays INSIDE
+the corpus directory (so a symlink cannot escape) AND it is a regular file. Documents are sorted by name so span
+ids — and the whole trace — are deterministic. A directory with a hidden `.txt`, a `.md`, and a symlink to
+`/etc/hostname` yields a corpus of ONLY the plain local `.txt` files; an absolute, a `..`, or a symlinked
+`--input-dir` is refused outright.
+
+Verification matched the cadence. 12 new tests (the rubric's acceptance criteria, each test mapped to a
+criterion) bring the crate to 112 unit tests (12 INT-0 + 8 INT-1 + 12 INT-2 + 12 INT-3 + 12 MTRACE-0 + 12
+MTRACE-1 + 12 MTRACE-2 + 10 DOCFLOW-0 + 10 DOCFLOW-2 + 12 CORPUS-0), fmt + clippy clean. The `release_check.sh`
+CORPUS-0 block is load-bearing: surface signals for the corpus API + commands; pins that the flow goes through
+`CognitiveTrace::build` and `corpus_from_documents`, derives the source attribution and the `EmptyCorpus`
+fail-closed from the frozen metadata; all twelve test-name pins and the unit-count pin raised 100→112; the eight
+boundary lines verbatim; the shell path-validation pins (`read_local_corpus`, `corpus_admits_filename`, the
+per-entry `resolved_path_within(&root, &resolved)` containment); and a binary smoke that runs the whole flow
+against a real local corpus under gitignored `target/`, proves the boundary from the trace's OWN serialized
+output, proves the source attribution from `corpus-source.json`, proves the directory filter (a hidden file, a
+`.md`, and an escaping symlink are excluded → exactly two documents), and proves a tampered corpus (a
+non-grounding document), a tampered bundle file, a tampered trace, an empty corpus, an absolute path, a `..`
+path, and a symlinked directory are EACH refused. The library stays filesystem-free (the fs-confinement pin
+holds) and adds no `Deserialize` (already pinned).
+
+Four live sabotage probes proved distinct mechanisms, each restored byte-identical by `cp`+`md5` (never `git
+checkout`, since the changes are uncommitted): (a) weakening `corpus_admits_filename` to accept hidden files —
+caught by `corpus_admits_only_plain_local_txt_files` (exit 101); (b) making `verify_corpus_bundle` trust the
+provided files instead of re-deriving — caught by the `corpus_bundle_rejects_*` tests (exit 101); (c) drifting a
+CORPUS-0 boundary line, which kept the unit suite GREEN (112/0) yet still failed the gate (exit 1), caught by
+the source boundary pin; and (d) a clippy-clean shell regression that skips the directory admits filter, which
+kept all 112 lib tests green AND clippy clean — caught SOLELY by the binary smoke's "exactly two documents"
+directory-filter check (exit 1), proving the smoke is independently load-bearing for the shell wiring. A
+read-only adversarial panel (Workflow, four Explore lenses, refute-by-default — verify-before-tracing/receipt
+fidelity, source-selection/unambiguity, re-derive/tamper-rejection/corpus-wide binding,
+input-safety/scope/boundary/gate-vacuity) returned ZERO real findings, fully dry, with all 4/4 lenses run and
+none errored. (One panel agent created a `test_corpus/` scratch directory in the working tree via Bash despite
+the read-only instruction; it was benign — three plain `.txt` files, no symlinks, no source edit — and swept,
+restoring the tree to exactly the three changed files; the source stayed byte-identical to the pre-panel md5.)
+
+Boundary held: CORPUS-0 adds a multi-document INPUT but no new authority and no cognition. It reads a local
+corpus, verifies it through the frozen reader, and produces the same inert record — executing nothing, promoting
+nothing, mutating no memory, and leaving P12 `training_justified=false`. Purely additive within the integration
+layer: only `crates/cognitive-demo/src/{lib.rs,main.rs}` and the gate block change — NO `Cargo.toml`/`Cargo.lock`
+change, NO new file, NO new dependency, and no frozen crate SOURCE is touched. The `reading-track-v0.1`
+(`f6fa55a`), `hypothesis-track-v0.1` (`bb20acf`), `integration-demo-v0.1` (`95b586d`),
+`multi-trace-validation-v0.1` (`460be0c`), `operator-controls-v0.1` (`34b4f47`), and `document-flow-v0.1`
+(`0cc7399`) tags are unmoved, and P13–P15 stay closed. `release_check.sh` is exit 0 and byte-silent.
+
 ## Appendix — LLM Training as Constraint Engineering (supporting methodology)
 
 Date: 2026-06-13

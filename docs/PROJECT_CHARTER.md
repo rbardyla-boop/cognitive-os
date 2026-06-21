@@ -3,6 +3,45 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-20-L — Multi-document local corpus trace / source-selection boundary (CORPUS-0)
+
+**Decision.** Extend `crates/cognitive-demo` with the multi-document local corpus flow: four commands
+(`corpus-trace`, `corpus-report`, `corpus-bundle`, `corpus-bundle-verify`) that trace a small LOCAL DIRECTORY
+of `.txt` documents through the SAME `CognitiveTrace::build` pipeline DOCFLOW-0 and the canonical demo use. The
+shell (`read_local_corpus`) enumerates the directory — path-validated (absolute / `..` / `~` refused),
+canonicalize-contained within the working dir, admitting ONLY non-hidden `.txt` files (the pure
+`corpus_admits_filename`), each canonicalize-contained so a symlink cannot escape, sorted for determinism — and
+passes the documents to the pure library; the library grounds the trace on the corpus's OWN first span via the
+frozen `corpus_from_documents`, fails closed with the new `EmptyCorpus` when nothing grounds, and records an
+unambiguous `corpus-source.json` (`document_index`, real `document_title` filename, `span_id`, `span_text`). No
+model, no training, no new dependency, no new file, no frozen-crate edit.
+
+**Why.** DOCFLOW proved one local document; the next useful capability is many local documents, while proving
+the system selects and cites a source WITHOUT trusting the corpus. The load-bearing property is the trust
+boundary over the WHOLE corpus: the reading receipt's `structure_hash` (carried in the trace as
+`reading_structure_hash`) binds every document's title, spans, and sections, so a mutation of ANY document —
+including a non-grounding "side" document — re-derives a different trace and is refused. A side document cannot
+silently pass.
+
+**Boundary recorded.** The eight-line boundary is recorded verbatim (in `CORPUS_BOUNDARY_LINES`, the gate, and
+the a.md capability section): *The corpus flow reads local documents. It does not trust local documents. Source
+selection is verified and replayable. Verification comes before tracing. Nothing executes. Nothing becomes
+evidence. Nothing promotes. Nothing trains.* Re-derive-never-trust holds (`verify_corpus_bundle` /
+`verify_corpus_trace_json` re-derive and byte-compare; `CognitiveTrace` and `CorpusSource` are `Serialize` but
+NOT `Deserialize`; a tampered corpus, source, trace, report, questions, or manifest is refused —
+`BundleMismatch` / `CorpusTraceMismatch`). 12 new tests → 112 unit total, fmt + clippy clean; the
+`release_check.sh` CORPUS-0 block pins the surface, the 12 test names, the unit count (100→112), the eight
+boundary lines, the shell path-validation, and a binary smoke proving the flow end-to-end (boundary from the
+trace's own bytes, the source attribution, the directory filter excluding hidden/non-`.txt`/symlink, and every
+tamper / empty / unsafe-path refused). Verified by a green, byte-silent gate, four live sabotage probes
+(restored byte-identical via `cp`+`md5`; one caught SOLELY by the binary smoke), and an independent read-only
+adversarial panel (four Explore lenses, refute-by-default) that returned zero real findings, fully dry. Purely
+additive: only `crates/cognitive-demo/src/{lib.rs,main.rs}` + the gate block; the `reading-track-v0.1`
+(`f6fa55a`), `hypothesis-track-v0.1` (`bb20acf`), `integration-demo-v0.1` (`95b586d`),
+`multi-trace-validation-v0.1` (`460be0c`), `operator-controls-v0.1` (`34b4f47`), and `document-flow-v0.1`
+(`0cc7399`) tags are unmoved; P12 stays `training_justified=false`, P13–P15 closed. Recorded in
+[a.md](../a.md) (CORPUS-0 capability section). Local only — no remote push.
+
 ## DD-2026-06-20-K — Freeze the document flow milestone (DOCFLOW-0 → DOCFLOW-2) as document-flow-v0.1
 
 **Decision.** Freeze the DOCFLOW-0 → DOCFLOW-2 local-document-flow arc as the named, auditable tag

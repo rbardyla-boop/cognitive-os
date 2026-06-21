@@ -17,6 +17,20 @@
 //!   cognitive-demo doc-report       --input PATH --trace PATH # render the doc report (re-derive + refuse tamper)
 //!   cognitive-demo doc-bundle       --input PATH --out DIR    # repro bundle over the operator document
 //!   cognitive-demo doc-bundle-verify --input PATH --path DIR  # re-derive the doc bundle and refuse any tamper
+//!   cognitive-demo corpus-trace        --input-dir DIR [--out PATH]      # trace a LOCAL `.txt` corpus (verify-first)
+//!   cognitive-demo corpus-report       --input-dir DIR --trace PATH      # render the corpus report (re-derive + refuse tamper)
+//!   cognitive-demo corpus-bundle       --input-dir DIR --out DIR         # repro bundle over the operator corpus
+//!   cognitive-demo corpus-bundle-verify --input-dir DIR --path DIR       # re-derive the corpus bundle and refuse any tamper
+//!
+//! CORPUS-0 adds the multi-document local corpus flow: `corpus-trace` reads a LOCAL DIRECTORY of `.txt`
+//! documents (path-validated in this shell — absolute / `..` / symlink-escape refused; hidden / non-`.txt`
+//! files refused; sorted for determinism), asks the FROZEN reader for the corpus's own first span, and
+//! builds the SAME end-to-end trace from a VERIFIED reading receipt over the corpus (fails closed on an
+//! empty corpus). The trace's structure hash binds EVERY document, so a tamper of any document — even a
+//! non-grounding one — is refused. An unambiguous `corpus-source.json` records which document/span grounded
+//! the answer. `corpus-report`/`corpus-bundle-verify` re-derive from the SAME corpus and REFUSE a tampered
+//! corpus, source, trace, report, questions, or manifest. The corpus is read but never trusted: it executes
+//! nothing, promotes nothing, and trains nothing.
 //!
 //! DOCFLOW-0 adds the operator-supplied document flow: `doc-trace` reads a LOCAL text file (path-validated
 //! in this shell — absolute / `..` / symlink-escape refused), asks the FROZEN reader for the document's own
@@ -53,15 +67,17 @@
 //! here (never in the library or the example), which the release gate enforces.
 
 use cognitive_demo::{
-    canonical_bundle, check_local_input_path, doc_bundle, doc_scenario_matrix,
-    doc_scenario_pack_files, failure_pack_files, list_doc_scenarios, list_failure_cases,
-    list_questions, list_scenarios, resolved_path_within, run_ask, run_doc_report, run_doc_trace,
-    run_replay, run_report, run_trace, scenario_bundle, scenario_matrix, scenario_matrix_report,
-    scenario_pack_manifest, verify_bundle, verify_doc_bundle, verify_doc_scenario_pack,
+    canonical_bundle, check_local_input_path, corpus_admits_filename, corpus_bundle, doc_bundle,
+    doc_scenario_matrix, doc_scenario_pack_files, failure_pack_files, list_doc_scenarios,
+    list_failure_cases, list_questions, list_scenarios, resolved_path_within, run_ask,
+    run_corpus_report, run_corpus_trace, run_doc_report, run_doc_trace, run_replay, run_report,
+    run_trace, scenario_bundle, scenario_matrix, scenario_matrix_report, scenario_pack_manifest,
+    verify_bundle, verify_corpus_bundle, verify_doc_bundle, verify_doc_scenario_pack,
     verify_failure_pack, verify_scenario_matrix, verify_scenario_pack, Scenario,
-    BUNDLE_BOUNDARY_LINES, BUNDLE_FILES, DOC_BOUNDARY_LINES, DOC_SCENARIO_BOUNDARY_LINES,
-    DOC_SCENARIO_PACK_FILES, FAILURE_BOUNDARY_LINES, FAILURE_PACK_FILES, MATRIX_BOUNDARY_LINES,
-    MTRACE_BOUNDARY_LINES, PACK_MANIFEST_FILE,
+    BUNDLE_BOUNDARY_LINES, BUNDLE_FILES, CORPUS_BOUNDARY_LINES, CORPUS_BUNDLE_FILES,
+    DOC_BOUNDARY_LINES, DOC_SCENARIO_BOUNDARY_LINES, DOC_SCENARIO_PACK_FILES,
+    FAILURE_BOUNDARY_LINES, FAILURE_PACK_FILES, MATRIX_BOUNDARY_LINES, MTRACE_BOUNDARY_LINES,
+    PACK_MANIFEST_FILE,
 };
 
 fn main() {
@@ -271,6 +287,45 @@ fn dispatch(args: &[String]) -> Result<(), String> {
             let matrix = doc_scenario_matrix().map_err(|e| e.to_string())?;
             emit(&matrix, flag_value(args, "--out"))
         }
+        Some("corpus-trace") => {
+            // Read a LOCAL operator corpus DIRECTORY (path-validated; only non-hidden `.txt` files, each
+            // canonicalize-contained), then build the SAME end-to-end trace from a FROZEN-VERIFIED reading
+            // receipt over the corpus. The corpus is read, never trusted — corpus_trace fails closed if the
+            // read does not verify (or the corpus grounds nothing).
+            let documents = read_local_corpus(args)?;
+            let json = run_corpus_trace(&documents).map_err(|e| e.to_string())?;
+            emit(&json, flag_value(args, "--out"))
+        }
+        Some("corpus-report") => {
+            // Re-derive the corpus trace from the SAME --input-dir, confirm the provided --trace IS that
+            // trace (refuse a tampered/foreign trace), then render the operator report with the SOURCE
+            // SELECTION section. The corpus is the source of truth, so this command requires --input-dir.
+            let documents = read_local_corpus(args)?;
+            let trace = read_trace(args)?;
+            let report = run_corpus_report(&documents, &trace).map_err(|e| e.to_string())?;
+            emit(&report, flag_value(args, "--out"))
+        }
+        Some("corpus-bundle") => {
+            // Derive the repro bundle purely from the corpus's verified trace and write every file with exact
+            // bytes into --out (the only side effect lives in this shell).
+            let documents = read_local_corpus(args)?;
+            let out_dir = flag_value(args, "--out").ok_or("this command requires --out <dir>")?;
+            let files = corpus_bundle(&documents).map_err(|e| e.to_string())?;
+            write_bundle(out_dir, &files)?;
+            print!("{}", corpus_bundle_summary(out_dir, &files));
+            Ok(())
+        }
+        Some("corpus-bundle-verify") => {
+            // Read the provided pack AND the SAME --input-dir corpus, then verify by RE-DERIVING the bundle
+            // from the corpus and byte-comparing every file. A tampered corpus (any document) OR a tampered/
+            // missing bundle file is refused; nothing on disk is trusted.
+            let documents = read_local_corpus(args)?;
+            let dir = flag_value(args, "--path").ok_or("this command requires --path <dir>")?;
+            let provided = read_corpus_bundle(dir)?;
+            verify_corpus_bundle(&documents, &provided).map_err(|e| e.to_string())?;
+            print!("{}", corpus_bundle_verify_summary());
+            Ok(())
+        }
         _ => Err(usage()),
     }
 }
@@ -308,6 +363,62 @@ fn read_local_input(args: &[String]) -> Result<String, String> {
         ));
     }
     std::fs::read_to_string(&resolved).map_err(|e| format!("cannot read {path}: {e}"))
+}
+
+/// Read the LOCAL operator corpus named by `--input-dir PATH`: a directory of `.txt` documents, validated
+/// and confined before any read. Same two layers as [`read_local_input`], applied to the directory and to
+/// every entry: (1) the pure [`check_local_input_path`] rejects an absolute path, a `..` traversal, a `~`
+/// prefix, or an empty path WITHOUT filesystem access; (2) the resolved directory must stay INSIDE the
+/// canonicalized working directory. Then each entry is admitted ONLY if its file name is a non-hidden `.txt`
+/// file ([`corpus_admits_filename`] — hidden and non-`.txt` files are refused), its canonical path stays
+/// INSIDE the corpus directory (so a symlink cannot escape), and it is a regular file. Documents are sorted
+/// by name so span ids — and the whole trace — are deterministic. The bytes are passed to the library as
+/// untrusted CONTENT; the library verifies them through the frozen reader and fails closed on an empty
+/// corpus. The filesystem access lives ONLY here, in the shell.
+fn read_local_corpus(args: &[String]) -> Result<Vec<(String, String)>, String> {
+    let dir = flag_value(args, "--input-dir").ok_or("this command requires --input-dir <dir>")?;
+    check_local_input_path(dir).map_err(|e| e.to_string())?;
+    let cwd = std::env::current_dir()
+        .and_then(|d| d.canonicalize())
+        .map_err(|e| format!("cannot resolve the working directory: {e}"))?;
+    let root = std::fs::canonicalize(dir).map_err(|e| format!("cannot read {dir}: {e}"))?;
+    if !resolved_path_within(&cwd, &root) {
+        return Err(format!(
+            "refusing unsafe corpus path '{dir}' — it escapes the working directory"
+        ));
+    }
+    if !root.is_dir() {
+        return Err(format!(
+            "refusing corpus path '{dir}' — it is not a local directory"
+        ));
+    }
+    let mut documents: Vec<(String, String)> = Vec::new();
+    let entries = std::fs::read_dir(&root).map_err(|e| format!("cannot read {dir}: {e}"))?;
+    for entry in entries {
+        let path = entry.map_err(|e| format!("cannot read {dir}: {e}"))?.path();
+        let name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(n) => n.to_string(),
+            None => continue,
+        };
+        // Only non-hidden `.txt` files are admitted; hidden / non-`.txt` files are refused (never read).
+        if !corpus_admits_filename(&name) {
+            continue;
+        }
+        // Defense in depth: the entry must canonicalize to a REGULAR FILE inside the corpus root, so a
+        // symlink cannot escape the directory.
+        let resolved = match std::fs::canonicalize(&path) {
+            Ok(resolved) => resolved,
+            Err(_) => continue,
+        };
+        if !resolved_path_within(&root, &resolved) || !resolved.is_file() {
+            continue;
+        }
+        let content = std::fs::read_to_string(&resolved)
+            .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+        documents.push((name, content));
+    }
+    documents.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(documents)
 }
 
 /// Write `content` to `--out PATH` if given, otherwise print it to stdout. A file write stores the
@@ -455,6 +566,49 @@ fn doc_bundle_verify_summary() -> String {
     out
 }
 
+/// Read the expected corpus bundle files from `dir`. A file that is absent is simply omitted (so
+/// `verify_corpus_bundle` reports it missing rather than this shell guessing). The CONTENT is never trusted —
+/// it is only re-derived and byte-compared by the library.
+fn read_corpus_bundle(dir: &str) -> Result<Vec<(String, String)>, String> {
+    let mut found = Vec::new();
+    for name in CORPUS_BUNDLE_FILES {
+        let path = format!("{dir}/{name}");
+        if std::path::Path::new(&path).exists() {
+            let content =
+                std::fs::read_to_string(&path).map_err(|e| format!("cannot read {path}: {e}"))?;
+            found.push((name.to_string(), content));
+        }
+    }
+    Ok(found)
+}
+
+/// The human summary printed after `corpus-bundle` writes the pack: the files written and the CORPUS-0
+/// boundary (the corpus flow reads local documents but does not trust them, and acts on nothing).
+fn corpus_bundle_summary(dir: &str, files: &[(&str, String)]) -> String {
+    let mut out = format!("corpus-bundle: wrote {} files to {dir}\n", files.len());
+    for (name, content) in files {
+        out.push_str(&format!("    {name} ({} bytes)\n", content.len()));
+    }
+    out.push_str("BOUNDARY\n");
+    for line in CORPUS_BOUNDARY_LINES {
+        out.push_str(&format!("    {line}\n"));
+    }
+    out
+}
+
+/// The success summary printed after `corpus-bundle-verify` accepts a corpus bundle (every file re-derived
+/// byte-identically from the SAME operator corpus).
+fn corpus_bundle_verify_summary() -> String {
+    let mut out = String::from(
+        "corpus-bundle-verify: OK — every bundle file re-derives byte-identically from the operator corpus\n",
+    );
+    out.push_str("BOUNDARY\n");
+    for line in CORPUS_BOUNDARY_LINES {
+        out.push_str(&format!("    {line}\n"));
+    }
+    out
+}
+
 /// Write the scenario pack: one bundle subdirectory per scenario (each with the four bundle files) plus
 /// the scenario-pack manifest. Returns the number of bundle files written. The bundle CONTENT is a pure
 /// derivation from the frozen tracks; this shell only places the bytes on disk.
@@ -590,6 +744,8 @@ fn usage() -> String {
      doc-trace --input PATH [--out PATH] | doc-report --input PATH --trace PATH [--out PATH] | \
      doc-bundle --input PATH --out DIR | doc-bundle-verify --input PATH --path DIR | \
      doc-scenarios | doc-scenario-pack --out DIR | doc-scenario-verify --path DIR | \
-     doc-scenario-matrix --path DIR [--out PATH]>"
+     doc-scenario-matrix --path DIR [--out PATH] | \
+     corpus-trace --input-dir DIR [--out PATH] | corpus-report --input-dir DIR --trace PATH [--out PATH] | \
+     corpus-bundle --input-dir DIR --out DIR | corpus-bundle-verify --input-dir DIR --path DIR>"
         .to_string()
 }

@@ -1323,10 +1323,10 @@ grep -q 'fn trace_does_not_change_training_gate' crates/cognitive-demo/src/lib.r
 grep -q 'fn trace_does_not_change_verifier_receipt' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_records_every_stage_id_and_links_the_chain' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_grants_no_new_authority' crates/cognitive-demo/src/lib.rs
-# Unit-test REALITY pin: exactly the 100 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
-# MTRACE-1 (12) + MTRACE-2 (12) + DOCFLOW-0 (10) + DOCFLOW-2 (10) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
+# Unit-test REALITY pin: exactly the 112 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
+# MTRACE-1 (12) + MTRACE-2 (12) + DOCFLOW-0 (10) + DOCFLOW-2 (10) + CORPUS-0 (12) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
 _int0_unit="$(cargo test --offline --lib --manifest-path crates/cognitive-demo/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 100
+test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 112
 test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
 # Determinism / no side effects: the trace is a pure, in-memory function — no clock, entropy, or network
 # anywhere in src/, and no floats anywhere in the crate. (`std::process::exit` in the CLI shell is a clean
@@ -2398,6 +2398,106 @@ for _bl in 'The document flow reads local input.' 'It does not trust local input
 done
 # The milestone makes NO false training claim (it never asserts training opened).
 if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' DOCUMENT_FLOW_MILESTONE.md; then exit 1; fi
+# ---------------------------------------------------------------------------------------------------
+# CORPUS-0 — multi-document local corpus trace / source-selection boundary (crates/cognitive-demo). Where
+# DOCFLOW-0 traces ONE operator document, CORPUS-0 traces a small LOCAL CORPUS DIRECTORY of `.txt` documents
+# through the SAME end-to-end pipeline: the shell enumerates the directory (path-validated — absolute / `..` /
+# symlink-escape refused; only non-hidden `.txt` files admitted; sorted for determinism), the library asks the
+# FROZEN reader for the corpus's OWN first span (corpus_from_documents) and starts the trace from a VERIFIED
+# read0 receipt (fails closed with EmptyCorpus if the corpus grounds nothing). The receipt's structure hash
+# binds EVERY document, so a tamper of any document — even a non-grounding one — re-derives a different trace
+# and is refused. An unambiguous corpus-source.json records which document/span grounded the answer. The
+# corpus is READ, never TRUSTED: nothing executes, becomes evidence, promotes, or trains; P12 stays
+# training_justified=false. No frozen crate edit; the library stays fs-free (pinned above). Doctrine: The
+# corpus flow reads local documents. It does not trust local documents. Source selection is verified and
+# replayable. Verification comes before tracing. Nothing executes. Nothing becomes evidence. Nothing
+# promotes. Nothing trains.
+# ---------------------------------------------------------------------------------------------------
+# Surface signals: the corpus-flow API + commands exist and go through the frozen reader (not a hardcoded trace).
+grep -q 'pub fn corpus_trace' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn run_corpus_trace' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn run_corpus_report' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn corpus_bundle' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn verify_corpus_bundle' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn verify_corpus_trace_json' crates/cognitive-demo/src/lib.rs
+grep -q 'pub fn corpus_admits_filename' crates/cognitive-demo/src/lib.rs
+# The corpus trace REALLY goes through the frozen pipeline (build + frozen corpus builder), and the source
+# attribution + empty-corpus fail-closed are derived from the frozen metadata, never asserted.
+grep -q 'fn corpus_inputs' crates/cognitive-demo/src/lib.rs
+grep -q 'fn corpus_source' crates/cognitive-demo/src/lib.rs
+grep -q 'EmptyCorpus' crates/cognitive-demo/src/lib.rs
+# The shell reads the DIRECTORY with path validation + the admits filter + per-entry canonicalize-and-contain.
+grep -q 'fn read_local_corpus' crates/cognitive-demo/src/main.rs
+grep -q 'corpus_admits_filename' crates/cognitive-demo/src/main.rs
+grep -q 'resolved_path_within(&root, &resolved)' crates/cognitive-demo/src/main.rs
+# The 12 CORPUS-0 first-tests exist by name (a gutted/deleted test also drops the unit count pinned at 112 above).
+for _ct in corpus_trace_starts_from_verified_receipt corpus_trace_cites_receipt_hash corpus_trace_records_grounding_document_and_span corpus_admits_only_plain_local_txt_files corpus_empty_fails_closed corpus_bundle_verifies_clean_input corpus_bundle_rejects_tampered_corpus corpus_bundle_rejects_tampered_artifact corpus_report_records_source_selection_and_refuses_tamper corpus_flow_does_not_change_training_gate corpus_flow_does_not_execute_or_promote corpus_source_is_deterministic_and_replayable; do
+  if ! grep -q "fn $_ct" crates/cognitive-demo/src/lib.rs; then exit 1; fi
+done
+# The eight-line CORPUS-0 boundary is recorded verbatim in the source (all eight lines).
+for _cbl in 'The corpus flow reads local documents.' 'It does not trust local documents.' 'Source selection is verified and replayable.' 'Verification comes before tracing.' 'Nothing executes.' 'Nothing becomes evidence.' 'Nothing promotes.' 'Nothing trains.'; do
+  if ! grep -qF "$_cbl" crates/cognitive-demo/src/lib.rs; then exit 1; fi
+done
+# BEHAVIORAL smoke: run the WHOLE corpus flow end-to-end against a real local corpus directory, prove the
+# boundary + source selection from the OWN serialized output, prove the directory filter (hidden / non-txt /
+# symlink excluded), and prove every tamper / empty / unsafe-path is refused. The corpus lives under target/
+# (gitignored, inside the working dir) so the local-only path check accepts a relative path and no git debris
+# is left. Fail-closed: any unexpected success removes the dir and aborts the gate.
+cargo build --offline --quiet --manifest-path crates/cognitive-demo/Cargo.toml --bin cognitive-demo >/dev/null 2>&1
+_cor_dir="$(mktemp -d "$PWD/target/.corpus_gate.XXXXXX")"
+_cor_rel="target/$(basename "$_cor_dir")"
+mkdir -p "$_cor_dir/corpus"
+printf 'The east bridge reopened today. Traffic resumed by noon.' > "$_cor_dir/corpus/a-east.txt"
+printf 'The west tunnel remains closed. Crews continue repairs.' > "$_cor_dir/corpus/b-west.txt"
+printf 'hidden secret.' > "$_cor_dir/corpus/.hidden.txt"
+printf 'ignored note.' > "$_cor_dir/corpus/notes.md"
+ln -s /etc/hostname "$_cor_dir/corpus/escape.txt" 2>/dev/null
+# corpus-trace from a LOCAL relative dir: writes the trace; it carries the corpus's own verified read and
+# every boundary marker (verified receipt, cited hash, requires_operator, rejected, no evidence, training false).
+./target/debug/cognitive-demo corpus-trace --input-dir "$_cor_rel/corpus" --out "$_cor_dir/trace.json" >/dev/null 2>&1 || { rm -rf "$_cor_dir"; exit 1; }
+for _m in '"starts_from_verified_receipt": true' '"hypothesis_cites_receipt": true' '"reading_passed": true' '"nothing_executed": true' '"observation_quarantined": true' '"promotion_refused": true' '"nothing_becomes_evidence": true' '"execution_status": "requires_operator"' '"promotion_status": "rejected"' '"training_justified": false' '"training_gate_unchanged": true'; do
+  if ! grep -qF "$_m" "$_cor_dir/trace.json"; then rm -rf "$_cor_dir"; exit 1; fi
+done
+# The trace REALLY read the corpus's own first span (the grounding document's first sentence).
+grep -qF '"reading_answer": "The east bridge reopened today."' "$_cor_dir/trace.json" || { rm -rf "$_cor_dir"; exit 1; }
+# No affirmative-authority status leaked into the corpus trace.
+if grep -qE '"(execution_status|observation_status|promotion_status)": "(executed|recorded|promoted|granted|evidence)"' "$_cor_dir/trace.json"; then rm -rf "$_cor_dir"; exit 1; fi
+# corpus-report re-derives from the SAME corpus and renders the SOURCE SELECTION (grounded document/span,
+# unambiguous), lists exactly the TWO admitted documents (hidden / non-txt / symlink were refused), and the boundary.
+./target/debug/cognitive-demo corpus-report --input-dir "$_cor_rel/corpus" --trace "$_cor_dir/trace.json" --out "$_cor_dir/report.txt" >/dev/null 2>&1 || { rm -rf "$_cor_dir"; exit 1; }
+for _rm in 'SOURCE SELECTION' 'grounded document:  [0] a-east.txt' 'corpus documents:   2' 'Nothing trains.'; do
+  if ! grep -qF "$_rm" "$_cor_dir/report.txt"; then rm -rf "$_cor_dir"; exit 1; fi
+done
+# The refused entries never became documents: their names/content do not appear in the report.
+if grep -qE 'hidden|notes\.md|escape\.txt' "$_cor_dir/report.txt"; then rm -rf "$_cor_dir"; exit 1; fi
+# corpus-bundle + corpus-bundle-verify (clean) re-derive byte-identically; the source attribution is unambiguous.
+./target/debug/cognitive-demo corpus-bundle --input-dir "$_cor_rel/corpus" --out "$_cor_dir/pack" >/dev/null 2>&1 || { rm -rf "$_cor_dir"; exit 1; }
+for _sm in '"document_title": "a-east.txt"' '"span_id": 0' '"span_text": "The east bridge reopened today."'; do
+  if ! grep -qF "$_sm" "$_cor_dir/pack/corpus-source.json"; then rm -rf "$_cor_dir"; exit 1; fi
+done
+_cor_verify_out="$(./target/debug/cognitive-demo corpus-bundle-verify --input-dir "$_cor_rel/corpus" --path "$_cor_dir/pack" 2>/dev/null)" || { rm -rf "$_cor_dir"; exit 1; }
+case "$_cor_verify_out" in *'corpus-bundle-verify: OK'*) : ;; *) rm -rf "$_cor_dir"; exit 1 ;; esac
+case "$_cor_verify_out" in *'The corpus flow reads local documents.'*) : ;; *) rm -rf "$_cor_dir"; exit 1 ;; esac
+# RE-DERIVE IS LOAD-BEARING: a tampered CORPUS must be refused. Change the NON-grounding second document — the
+# structure hash binds every document, so even a non-grounding edit re-derives a different trace -> mismatch.
+printf 'The west tunnel reopened early. Crews left.' > "$_cor_dir/corpus/b-west.txt"
+if ./target/debug/cognitive-demo corpus-bundle-verify --input-dir "$_cor_rel/corpus" --path "$_cor_dir/pack" >/dev/null 2>&1; then rm -rf "$_cor_dir"; exit 1; fi
+printf 'The west tunnel remains closed. Crews continue repairs.' > "$_cor_dir/corpus/b-west.txt"
+# A tampered BUNDLE FILE must be refused.
+printf '\n{tampered}' >> "$_cor_dir/pack/trace.json"
+if ./target/debug/cognitive-demo corpus-bundle-verify --input-dir "$_cor_rel/corpus" --path "$_cor_dir/pack" >/dev/null 2>&1; then rm -rf "$_cor_dir"; exit 1; fi
+# A tampered TRACE must be refused by corpus-report.
+printf '\n{tampered}' >> "$_cor_dir/trace.json"
+if ./target/debug/cognitive-demo corpus-report --input-dir "$_cor_rel/corpus" --trace "$_cor_dir/trace.json" >/dev/null 2>&1; then rm -rf "$_cor_dir"; exit 1; fi
+# An EMPTY corpus fails closed (no admitted document grounds a span).
+mkdir -p "$_cor_dir/empty"
+if ./target/debug/cognitive-demo corpus-trace --input-dir "$_cor_rel/empty" >/dev/null 2>&1; then rm -rf "$_cor_dir"; exit 1; fi
+# UNSAFE corpus paths must be refused: absolute, parent traversal, and a symlink DIR that escapes the working dir.
+if ./target/debug/cognitive-demo corpus-trace --input-dir /etc >/dev/null 2>&1; then rm -rf "$_cor_dir"; exit 1; fi
+if ./target/debug/cognitive-demo corpus-trace --input-dir "../etc-escape" >/dev/null 2>&1; then rm -rf "$_cor_dir"; exit 1; fi
+ln -s /etc "$_cor_dir/linkdir" 2>/dev/null
+if ./target/debug/cognitive-demo corpus-trace --input-dir "$_cor_rel/linkdir" >/dev/null 2>&1; then rm -rf "$_cor_dir"; exit 1; fi
+rm -rf "$_cor_dir"
 # ---------------------------------------------------------------------------------------------------
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
