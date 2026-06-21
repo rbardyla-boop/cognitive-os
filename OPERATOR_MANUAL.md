@@ -39,6 +39,10 @@ doc-bundle --input PATH --out DIR           doc-bundle-verify --input PATH --pat
 
 corpus-trace --input-dir DIR [--out PATH]   corpus-report --input-dir DIR --trace PATH [--out PATH]
 corpus-bundle --input-dir DIR --out DIR     corpus-bundle-verify --input-dir DIR --path DIR
+
+novelty-packet --input-dir DIR --corpus-trace PATH --frame PATH [--out PATH]
+novelty-report --input-dir DIR --frame PATH --packet PATH [--out PATH]
+novelty-replay --input-dir DIR --frame PATH --packet PATH
 ```
 
 The `doc-*` commands run the same pipeline from a **local operator-supplied document** instead of the
@@ -47,6 +51,12 @@ fixed corpus — see §11. The document is read but not trusted: it is verified 
 The `corpus-*` commands run the same pipeline from a **local directory of `.txt` documents** — see §12. The
 corpus is enumerated, path-filtered, sorted, verified, grounded, and **hash-bound as a whole**; the documents
 are read but not trusted.
+
+The `novelty-*` commands run a **hypothesis-only proposer above a verified corpus trace** — see §13. Given a
+verified corpus trace and an operator `--frame`, they emit a deterministic novelty packet: the frame's lines
+become candidate *broken assumptions* (no truth claimed), the only grounded content is the **verified corpus
+span**, and the packet's authority is `hypothesis_only`. Novelty packets **propose but do not prove**; the
+operator frame is recorded but **never grounded as fact**.
 
 > **Reproducibility note (important).** Use `trace --out FILE` to write a trace you will later `report`,
 > `replay`, or `ask` against. Writing with a shell redirect (`trace > FILE`) appends a trailing newline,
@@ -83,7 +93,7 @@ function of fixed inputs.
 
 Each layer is frozen as an annotated point in history. Recover any milestone with
 `git checkout <tag>`; verify the whole stack at any time with `./scripts/release_check.sh`
-(it must exit 0 and print nothing — see §13/§14). Each tag has a freeze record document.
+(it must exit 0 and print nothing — see §14/§15). Each tag has a freeze record document.
 
 | Tag | Commit | Freezes | Record |
 | --- | --- | --- | --- |
@@ -105,8 +115,10 @@ git checkout reading-track-v0.1
 
 `./scripts/operator_smoke.sh` runs the whole documented operator path end-to-end against the freshly
 built binary — `trace --out`, `report`, `replay`, `questions`, `ask`, `bundle`/`bundle-verify`,
-`scenario-pack`/`scenario-verify`, `scenario-matrix`/`scenario-matrix-verify`, and
-`failure-pack`/`failure-verify` — inside a throwaway temp dir (no repo debris), and **fails closed** if any
+`scenario-pack`/`scenario-verify`, `scenario-matrix`/`scenario-matrix-verify`,
+`failure-pack`/`failure-verify`, the document and corpus flows (`doc-*` / `corpus-*`), and the
+hypothesis-only novelty flow (`novelty-packet` / `novelty-report` / `novelty-replay`) — inside a throwaway
+temp dir (no repo debris), and **fails closed** if any
 documented command, boundary line, or verify step has drifted from this manual. It re-derives every
 generated artifact through the binary's own verify subcommands (it never trusts the bytes) and confirms a
 tampered artifact is still refused. It runs as part of `./scripts/release_check.sh`, so manual drift breaks
@@ -357,7 +369,65 @@ Nothing promotes.
 Nothing trains.
 ```
 
-## 13. Authority boundaries
+## 13. How to run the novelty operator path
+
+The `novelty-*` commands add the prototype's first **hypothesis-only proposer**: a deterministic layer that
+sits *above* a verified corpus trace and produces a **novelty packet** — an assumption-breaking *proposal*
+bound to verified receipts. There is still **no model in the loop**; the operator's `--frame` is the
+proposer, and the harness only verifies, grounds, and structures. The crucial property is that **novelty
+packets propose but do not prove**: the frame's lines become candidate *broken assumptions* with **no truth
+claimed**, and the only grounded content in the packet is the **verified corpus span**. The operator frame is
+recorded but **never grounded as fact** — a frame's claim can be a broken-assumption candidate, never a
+preserved fact. **Preserved facts come only from verified corpus spans** (the harness refuses any preserved
+fact that is not a verbatim verified span). The packet's authority is `hypothesis_only`; it carries no score
+and grants no authority, **probe requests do not execute** (each is recorded with `executes: false`), and a
+novelty packet **can never become evidence, a promotion, or training**.
+
+A novelty packet is only ever produced **on top of a verified corpus trace**: `novelty-packet` re-derives the
+corpus trace from `--input-dir`, byte-verifies the operator-supplied `--corpus-trace` against it, and refuses
+to ground on a trace that is not the canonical one (e.g. a trace whose verifier receipt hash has been
+stripped). An empty frame (no candidate assumption) fails closed and produces no packet. The corpus directory
+and the frame are read but not trusted, and — like every other local-input command — an absolute path, a `..`
+traversal, or a symlink that escapes the working directory is refused before anything is read.
+
+```sh
+# 1. Produce the verified corpus trace the packet will cite (exact bytes — re-derived, never trusted):
+./target/debug/cognitive-demo corpus-trace --input-dir corpus --out trace.json
+
+# 2. Emit the hypothesis-only novelty packet from that verified trace + an operator frame:
+./target/debug/cognitive-demo novelty-packet --input-dir corpus --corpus-trace trace.json --frame frame.txt --out novelty.json
+# -> novelty.json — authority "hypothesis_only"; broken assumptions = the frame's lines (no truth claimed);
+#    preserved facts = the verified corpus span; every probe request executes:false; forbidden_uses records
+#    evidence/execution/promotion/training as uses this packet may never become or do.
+
+# 3. Render a plain operator report (re-derived from the SAME corpus + frame; a tampered packet is refused):
+./target/debug/cognitive-demo novelty-report --input-dir corpus --frame frame.txt --packet novelty.json
+# -> NOVELTY PACKET (PROPOSAL ONLY — hypothesis_only, not truth) ... PRESERVED FACTS (verified corpus spans ...)
+
+# 4. Confirm the packet re-derives byte-identically (a determinism proof that also refuses any tamper):
+./target/debug/cognitive-demo novelty-replay --input-dir corpus --frame frame.txt --packet novelty.json
+# -> novelty-replay: OK — ... It proposes; it does not prove.
+```
+
+`novelty-report` and `novelty-replay` re-derive the whole packet from the **same** corpus + frame and
+byte-compare, so a tampered packet — including one whose preserved facts were swapped for the frame's own
+(unverified) claim — is refused (non-zero exit), never rendered or replayed. The packet demonstrably cites
+the corpus's verified span; it never grants that span, or the operator's frame, any authority. The whole
+novelty flow is exercised end-to-end by `./scripts/operator_smoke.sh` (see §3), so this documentation cannot
+drift from the binary.
+
+```text
+The novelty operator path proposes.
+It does not prove.
+It cites verified receipts.
+The operator frame is not a preserved fact.
+Probe requests do not execute.
+Nothing becomes evidence.
+Nothing promotes.
+Nothing trains.
+```
+
+## 14. Authority boundaries
 
 These are the load-bearing invariants the whole prototype preserves. Each is enforced mechanically by
 `./scripts/release_check.sh` from the artifacts' own bytes.
@@ -379,7 +449,7 @@ These are the load-bearing invariants the whole prototype preserves. Each is enf
    through the frozen hypothesis layer — it can never ground a claim, mutate memory, execute a probe,
    promote evidence, or self-authorize.
 
-## 14. Training status
+## 15. Training status
 
 Weight training is **closed**. The P12 training verdict is `training_not_justified` — the
 `TrainingDecision.training_justified` bit is `training_justified=false` — and every layer reads that
@@ -388,7 +458,7 @@ mode, promotion gate) stay closed under every freeze. Training stays forbidden u
 stable, recurring model failure that survives fixes to task spec, schema, prompt, examples, tooling,
 context, and verifier design. This manual makes no claim that training has opened.
 
-## 15. Next possible work
+## 16. Next possible work
 
 This manual is a comprehension and reproducibility checkpoint, not a new capability. Possible future work
 (none started, none authorized here):
@@ -397,6 +467,10 @@ This manual is a comprehension and reproducibility checkpoint, not a new capabil
   (§11) traces a local operator-supplied document, and the corpus flow (§12) traces a local directory of `.txt`
   documents — both under the same re-derive-not-trust discipline, with the corpus hash-bound as a whole. Further
   document- or corpus-flow work (scenario packs, ranking) would extend those surfaces, not open a new authority.
+- **A hypothesis-only novelty layer** (§13) now sits above the corpus flow: it proposes assumption-breaking
+  candidates bound to verified receipts, with authority `hypothesis_only`. It is deliberately deterministic
+  and model-free. Any stronger novelty engine (e.g. a model-backed proposer) would be a new sprint under the
+  same cadence and would still only *propose* — never prove, execute, promote, or train.
 - **RDT-0 (recurrent-depth)** material is noted as future inspiration only; it is not started.
 
 Any future capability must go through the same cadence that produced every layer above — a written rubric,

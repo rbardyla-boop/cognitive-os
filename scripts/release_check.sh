@@ -2176,6 +2176,65 @@ for _cbl in 'The corpus operator path reads local documents.' 'It does not trust
   if ! grep -qF "$_cbl" scripts/operator_smoke.sh; then exit 1; fi
 done
 # ---------------------------------------------------------------------------------------------------
+# NOVELTY-1 — novelty flow operator guard. The operator manual (OPERATOR_MANUAL.md §13) documents the three
+# NOVELTY-0 commands (novelty-packet / novelty-report / novelty-replay), states that novelty packets PROPOSE but
+# do NOT prove, that the operator frame is recorded but never grounded as fact, that preserved facts come only
+# from verified corpus spans, that probe requests do not execute, and that a packet can never become evidence /
+# promotion / training; the operator smoke (scripts/operator_smoke.sh §12) runs the whole novelty flow end-to-end
+# against a LOCAL corpus + frame — corpus-trace FIRST (a packet is only produced on top of a VERIFIED trace),
+# then novelty-packet / novelty-report / novelty-replay — proving the packet's authority is hypothesis_only with
+# every probe request non-executing, the only grounded content is the VERIFIED corpus span, and every refusal:
+# an empty frame, an UNSUPPORTED preserved fact (the frame's own claim swapped in), a tampered packet, and a
+# receipt-hash-stripped corpus trace are each refused. A documentation + drift-guard sprint — no code crate
+# change, no new behavior (the unit count pinned above is unchanged). The smoke is already RUN by the OPS-1 lock
+# above (a novelty-flow drift makes it fail closed and aborts the gate); the pins below stop the novelty coverage
+# from being silently dropped from the smoke or the manual. Doctrine: The novelty operator path proposes. It does
+# not prove. It cites verified receipts. The operator frame is not a preserved fact. Probe requests do not
+# execute. Nothing becomes evidence. Nothing promotes. Nothing trains.
+# ---------------------------------------------------------------------------------------------------
+# The manual documents the three novelty commands (manual surface == binary surface).
+for _nc in 'novelty-packet --input-dir' 'novelty-report --input-dir' 'novelty-replay --input-dir'; do
+  if ! grep -qF "$_nc" OPERATOR_MANUAL.md; then exit 1; fi
+done
+# The manual states the novelty doctrine verbatim: propose-not-prove, frame-not-grounded-as-fact, preserved
+# facts come only from verified spans, and never evidence / promotion / training.
+for _ns in 'propose but do not prove' 'never grounded as fact' 'come only from verified corpus spans' 'can never become evidence, a promotion, or training'; do
+  if ! grep -qF "$_ns" OPERATOR_MANUAL.md; then exit 1; fi
+done
+# The manual records the NOVELTY-1 eight-line novelty-operator-path boundary verbatim.
+for _nbl in 'The novelty operator path proposes.' 'It does not prove.' 'It cites verified receipts.' 'The operator frame is not a preserved fact.' 'Probe requests do not execute.' 'Nothing becomes evidence.' 'Nothing promotes.' 'Nothing trains.'; do
+  if ! grep -qF "$_nbl" OPERATOR_MANUAL.md; then exit 1; fi
+done
+# The smoke creates the novelty corpus + frame under target/ (relative local paths) and removes the temp dir on
+# exit (the OPS-1 lock above already pins the four-dir trap line, which contains "$noveltywork").
+grep -qF 'target/.novelty_smoke' scripts/operator_smoke.sh
+grep -qF 'rm -rf "$work" "$docwork" "$corpuswork" "$noveltywork"' scripts/operator_smoke.sh
+# The smoke runs corpus-trace FIRST (the packet is only produced on top of a verified trace) with --out (never a
+# redirect), then exercises all three novelty commands with --input-dir.
+grep -qF 'corpus-trace --input-dir "$noveltyrel/corpus" --out' scripts/operator_smoke.sh
+for _nc in 'novelty-packet --input-dir' 'novelty-report --input-dir' 'novelty-replay --input-dir'; do
+  if ! grep -qF "$_nc" scripts/operator_smoke.sh; then exit 1; fi
+done
+# The smoke proves the packet is hypothesis_only, preserves the VERIFIED corpus span (not the frame's claim),
+# and that no affirmative-authority status leaked. This fail string is UNIQUE to the §12 novelty block, so
+# removing the novelty run (not just the target/ setup line above) is caught here too.
+grep -qF 'novelty-packet did not record hypothesis_only authority' scripts/operator_smoke.sh
+grep -qF 'novelty packet did not preserve the verified corpus span' scripts/operator_smoke.sh
+grep -qF 'novelty packet claims an executed/recorded/promoted/granted status' scripts/operator_smoke.sh
+# The smoke proves re-derive is load-bearing over the novelty packet: an empty frame, an UNSUPPORTED preserved
+# fact, a tampered packet, and a receipt-hash-stripped corpus trace are EACH refused end-to-end.
+grep -qF 'novelty-packet accepted an empty frame' scripts/operator_smoke.sh
+grep -qF 'novelty-report accepted an unsupported preserved fact' scripts/operator_smoke.sh
+grep -qF 'novelty-replay accepted an unsupported preserved fact' scripts/operator_smoke.sh
+grep -qF 'novelty-report accepted a tampered packet' scripts/operator_smoke.sh
+grep -qF 'novelty-replay accepted a tampered packet' scripts/operator_smoke.sh
+grep -qF 'novelty-packet accepted a receipt-hash-stripped corpus trace' scripts/operator_smoke.sh
+# The smoke records the NOVELTY-1 eight-line boundary verbatim (the OPS-1 lock above already pins the smoke
+# makes no false training claim).
+for _nbl in 'The novelty operator path proposes.' 'It does not prove.' 'It cites verified receipts.' 'The operator frame is not a preserved fact.' 'Probe requests do not execute.' 'Nothing becomes evidence.' 'Nothing promotes.' 'Nothing trains.'; do
+  if ! grep -qF "$_nbl" scripts/operator_smoke.sh; then exit 1; fi
+done
+# ---------------------------------------------------------------------------------------------------
 # OPS-2 — operator release snapshot / local archive manifest. OPERATOR_RELEASE_SNAPSHOT.md is a docs-only
 # local snapshot of the prototype state after OPS-1: the current HEAD commit (c33dea7), every frozen tag +
 # its commit, the recovery commands, the release_check + operator_smoke verification commands, what the

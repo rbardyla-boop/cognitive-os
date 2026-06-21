@@ -21,6 +21,16 @@
 # trace, report, or manifest — is refused. The corpus is hash-bound as a whole; the documents are READ, never
 # TRUSTED. No code crate changes — this sprint documents and smoke-tests existing CORPUS-0 behavior only.
 #
+# NOVELTY-1 extends the same guard to the hypothesis-only novelty path: §12 below runs the documented novelty
+# flow (corpus-trace --out FIRST, then novelty-packet --input-dir/--corpus-trace/--frame/--out, novelty-report,
+# novelty-replay) against a LOCAL corpus + frame (under the gitignored target/ dir), proves the packet's
+# authority is hypothesis_only with every probe request non-executing, proves the only grounded content is the
+# VERIFIED corpus span (the operator frame is recorded, never a preserved fact), and proves every refusal
+# end-to-end: an empty frame, an UNSUPPORTED preserved fact (the frame's own claim swapped in), a tampered
+# packet, and a receipt-hash-stripped corpus trace are each refused. Novelty packets PROPOSE but do not PROVE;
+# the frame and corpus are READ, never TRUSTED. No code crate changes — this sprint documents and smoke-tests
+# existing NOVELTY-0 behavior only.
+#
 # Deterministic, offline, temp-dir only (no repo debris), fail-closed: `set -e` means any documented
 # command exiting non-zero aborts this script non-zero — command failures are never swallowed. The only
 # redirections are on the negative (expected-to-fail) tamper checks, which ASSERT a refusal happens.
@@ -54,7 +64,11 @@ docrel="target/$(basename "$docwork")"
 # sample lives under target/ (gitignored, inside cwd) and is referenced by a RELATIVE path.
 corpuswork="$(mktemp -d "$PWD/target/.corpus_smoke.XXXXXX")"
 corpusrel="target/$(basename "$corpuswork")"
-trap 'rm -rf "$work" "$docwork" "$corpuswork"' EXIT
+# NOVELTY-1: the novelty-flow commands only read a corpus directory and a frame file INSIDE the working dir,
+# so the operator-novelty sample lives under target/ (gitignored, inside cwd) and uses a RELATIVE path.
+noveltywork="$(mktemp -d "$PWD/target/.novelty_smoke.XXXXXX")"
+noveltyrel="target/$(basename "$noveltywork")"
+trap 'rm -rf "$work" "$docwork" "$corpuswork" "$noveltywork"' EXIT
 
 # ---- 1. canonical trace — ALWAYS --out (exact replayable bytes), NEVER a shell redirect ----
 $BIN trace --out "$work/trace.json"
@@ -162,6 +176,22 @@ for _cbl in 'The corpus operator path reads local documents.' 'It does not trust
 done
 # The manual still records training as closed; this smoke asserts that and never opens training.
 grep -qF 'training_justified=false' "$MANUAL" || fail 'manual no longer records training_justified=false'
+# The manual documents the three NOVELTY-0 operator commands (manual surface == binary surface) and states the
+# novelty doctrine: packets propose but do not prove; the operator frame is recorded but never grounded as
+# fact; preserved facts come only from verified corpus spans; a packet can never become evidence, a promotion,
+# or training. It records the NOVELTY-1 eight-line novelty-operator-path boundary verbatim.
+for _nc in 'novelty-packet --input-dir' 'novelty-report --input-dir' 'novelty-replay --input-dir'; do
+  grep -qF "$_nc" "$MANUAL" || fail "manual no longer documents: $_nc"
+done
+for _ns in 'propose but do not prove' 'never grounded as fact' 'come only from verified corpus spans' \
+           'can never become evidence, a promotion, or training'; do
+  grep -qF "$_ns" "$MANUAL" || fail "manual novelty doctrine line drifted: $_ns"
+done
+for _nbl in 'The novelty operator path proposes.' 'It does not prove.' 'It cites verified receipts.' \
+            'The operator frame is not a preserved fact.' 'Probe requests do not execute.' \
+            'Nothing becomes evidence.' 'Nothing promotes.' 'Nothing trains.'; do
+  grep -qF "$_nbl" "$MANUAL" || fail "manual NOVELTY boundary line drifted: $_nbl"
+done
 
 # ---- 10. DOCFLOW operator path: run the doc flow from a LOCAL operator-supplied document ----
 # DOCFLOW-1 boundary (recorded verbatim):
@@ -299,6 +329,92 @@ done
 printf '\n{tampered}' >> "$corpuswork/trace.json"
 if $BIN corpus-report --input-dir "$corpusrel/corpus" --trace "$corpuswork/trace.json" >/dev/null 2>&1; then
   fail 'corpus-report accepted a tampered trace'
+fi
+
+# ---- 12. NOVELTY operator path: the hypothesis-only proposer ABOVE a verified corpus trace ----
+# NOVELTY-1 boundary (recorded verbatim):
+#   The novelty operator path proposes.
+#   It does not prove.
+#   It cites verified receipts.
+#   The operator frame is not a preserved fact.
+#   Probe requests do not execute.
+#   Nothing becomes evidence.
+#   Nothing promotes.
+#   Nothing trains.
+# The novelty commands only read a corpus directory + a frame file INSIDE the working dir, so the sample lives
+# under target/ (relative paths). Two admitted .txt documents (a-east grounding, b-west side) and an operator
+# frame whose lines are CANDIDATE broken assumptions — never trusted as fact.
+mkdir -p "$noveltywork/corpus"
+printf 'The east bridge reopened today. Traffic resumed by noon.' > "$noveltywork/corpus/a-east.txt"
+printf 'The west tunnel remains closed. Crews continue repairs.' > "$noveltywork/corpus/b-west.txt"
+printf 'The east bridge stays closed indefinitely.\nTraffic never recovers after a closure.\n' > "$noveltywork/frame.txt"
+# A novelty packet is ONLY ever produced on top of a VERIFIED corpus trace, so corpus-trace runs FIRST and its
+# trace is the source of truth the packet must cite. --out writes exact replayable bytes (never a redirect).
+$BIN corpus-trace --input-dir "$noveltyrel/corpus" --out "$noveltywork/trace.json"
+# novelty-packet: re-derive + byte-verify the corpus trace, then emit the hypothesis-only packet from the
+# VERIFIED corpus + operator frame.
+$BIN novelty-packet --input-dir "$noveltyrel/corpus" --corpus-trace "$noveltywork/trace.json" --frame "$noveltyrel/frame.txt" --out "$noveltywork/novelty.json"
+# Authority is hypothesis_only; the packet carries no score and no affirmative-authority status.
+grep -qF '"authority": "hypothesis_only"' "$noveltywork/novelty.json" || fail 'novelty-packet did not record hypothesis_only authority'
+if grep -qF '"score"' "$noveltywork/novelty.json"; then fail 'novelty packet carries a score'; fi
+# Every probe request is NON-executing (executes:false); none executes.
+grep -qF '"executes": false' "$noveltywork/novelty.json" || fail 'novelty packet did not record a non-executing probe request'
+if grep -qF '"executes": true' "$noveltywork/novelty.json"; then fail 'novelty packet records an executing probe request'; fi
+if grep -qE '"(execution_status|observation_status|promotion_status)": "(executed|recorded|promoted|granted|evidence)"' "$noveltywork/novelty.json"; then
+  fail 'novelty packet claims an executed/recorded/promoted/granted status'
+fi
+# forbidden_uses records exactly the four refused uses (a packet may never become or do these).
+for _fu in evidence execution promotion training; do
+  grep -qF "\"$_fu\"" "$noveltywork/novelty.json" || fail "novelty packet forbidden_uses missing: $_fu"
+done
+# THE LOAD-BEARING GROUNDING PROPERTY: the only grounded content is the VERIFIED corpus span; the operator
+# frame's claim is a broken-assumption candidate, NEVER a preserved fact.
+grep -qF '"The east bridge reopened today."' "$noveltywork/novelty.json" || fail 'novelty packet did not preserve the verified corpus span'
+# The eight-line NOVELTY-0 boundary is present in the packet's own bytes.
+for _nb in 'Novelty packets propose.' 'They do not prove.' 'Nothing becomes evidence.' 'Nothing trains.'; do
+  grep -qF "$_nb" "$noveltywork/novelty.json" || fail "novelty packet boundary line drifted: $_nb"
+done
+# novelty-report re-derives from the SAME corpus + frame and renders the PROPOSAL-ONLY report.
+$BIN novelty-report --input-dir "$noveltyrel/corpus" --frame "$noveltyrel/frame.txt" --packet "$noveltywork/novelty.json" --out "$noveltywork/report.txt"
+for _rm in 'PROPOSAL ONLY' 'PRESERVED FACTS (verified corpus spans' 'PROBE REQUESTS (recorded, NOT executed)' \
+           'never trusted as fact' 'Nothing trains.'; do
+  grep -qF "$_rm" "$noveltywork/report.txt" || fail "novelty-report missing: $_rm"
+done
+# novelty-replay confirms the packet re-derives byte-identically (a determinism proof: proposes, never proves).
+out="$($BIN novelty-replay --input-dir "$noveltyrel/corpus" --frame "$noveltyrel/frame.txt" --packet "$noveltywork/novelty.json")"
+case "$out" in *'does not prove'*) : ;; *) fail 'novelty-replay did not confirm the deterministic packet' ;; esac
+# RE-DERIVE IS LOAD-BEARING over the novelty packet — every refusal end-to-end (never trusted from bytes):
+# (a) an empty frame (no candidate assumption) fails closed — no packet is produced.
+printf '\n   \n' > "$noveltywork/empty_frame.txt"
+if $BIN novelty-packet --input-dir "$noveltyrel/corpus" --corpus-trace "$noveltywork/trace.json" --frame "$noveltyrel/empty_frame.txt" >/dev/null 2>&1; then
+  fail 'novelty-packet accepted an empty frame'
+fi
+# (b) an UNSUPPORTED preserved fact is refused: swap the preserved fact for the frame's OWN (unverified) claim.
+#     Only the standalone preserved_facts element line is rewritten (the candidate/falsifier lines that quote the
+#     span end differently and are untouched), so this proves the frame's claim cannot be laundered into a fact.
+sed 's/^\( *\)"The east bridge reopened today\."$/\1"The east bridge stays closed indefinitely."/' \
+  "$noveltywork/novelty.json" > "$noveltywork/unsupported.json"
+if cmp -s "$noveltywork/novelty.json" "$noveltywork/unsupported.json"; then fail 'novelty unsupported-fact tamper was a no-op'; fi
+if $BIN novelty-report --input-dir "$noveltyrel/corpus" --frame "$noveltyrel/frame.txt" --packet "$noveltywork/unsupported.json" >/dev/null 2>&1; then
+  fail 'novelty-report accepted an unsupported preserved fact'
+fi
+if $BIN novelty-replay --input-dir "$noveltyrel/corpus" --frame "$noveltyrel/frame.txt" --packet "$noveltywork/unsupported.json" >/dev/null 2>&1; then
+  fail 'novelty-replay accepted an unsupported preserved fact'
+fi
+# (c) a tampered packet is refused by BOTH report and replay.
+cp "$noveltywork/novelty.json" "$noveltywork/tampered.json"
+printf '\n{tampered}' >> "$noveltywork/tampered.json"
+if $BIN novelty-report --input-dir "$noveltyrel/corpus" --frame "$noveltyrel/frame.txt" --packet "$noveltywork/tampered.json" >/dev/null 2>&1; then
+  fail 'novelty-report accepted a tampered packet'
+fi
+if $BIN novelty-replay --input-dir "$noveltyrel/corpus" --frame "$noveltyrel/frame.txt" --packet "$noveltywork/tampered.json" >/dev/null 2>&1; then
+  fail 'novelty-replay accepted a tampered packet'
+fi
+# (d) a corpus trace with its verifier RECEIPT HASH stripped is NOT the verified trace -> novelty-packet refuses
+#     to ground on it (the packet is only ever produced on top of a verified corpus trace).
+grep -v structure_hash "$noveltywork/trace.json" > "$noveltywork/trace_nohash.json"
+if $BIN novelty-packet --input-dir "$noveltyrel/corpus" --corpus-trace "$noveltywork/trace_nohash.json" --frame "$noveltyrel/frame.txt" >/dev/null 2>&1; then
+  fail 'novelty-packet accepted a receipt-hash-stripped corpus trace'
 fi
 
 echo 'operator-smoke: OK — the documented operator path runs and the manual matches the binary'

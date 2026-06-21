@@ -3,6 +3,41 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-21-E — Novelty operator guard: document + smoke-test the novelty path (NOVELTY-1)
+
+**Decision.** Document the NOVELTY-0 novelty operator path in `OPERATOR_MANUAL.md` and bring it under the same
+manual-drift / smoke guard the document and corpus flows already have — **without adding any novelty behavior**.
+The manual gains a new §13 ("How to run the novelty operator path") documenting the three commands
+(`novelty-packet` / `novelty-report` / `novelty-replay`), the surface-table rows, the §3 self-check mention, and
+the eight-line NOVELTY-1 operator-path boundary; `scripts/operator_smoke.sh` gains a §12 that runs the whole
+novelty flow end-to-end against a LOCAL corpus + frame under `target/` (corpus-trace FIRST — a packet is only
+produced on top of a VERIFIED trace — then novelty-packet/report/replay), asserts the packet is `hypothesis_only`
+with every probe request non-executing and the verified corpus span (not the frame's claim) as the sole preserved
+fact, and proves every refusal end-to-end: an empty frame, an UNSUPPORTED preserved fact (the frame's own claim
+swapped into the standalone `preserved_facts` element), a tampered packet (refused by both report and replay), and
+a receipt-hash-stripped corpus trace. `scripts/release_check.sh` gains a NOVELTY-1 lock that pins the manual's
+novelty surface + doctrine + boundary and the smoke's novelty run + refusals by source inspection; the smoke is
+already RUN by the existing OPS-1 lock, so a novelty-flow drift fails the gate closed. NO code-crate edit — the
+`cognitive-demo` tree is byte-identical to `539afb4` and the unit count stays 139.
+
+**Why.** NOVELTY-0 added an operator-facing command surface and a new conceptual layer (a hypothesis-only
+proposer). Before building DREAM or any stronger novelty engine, the current novelty path is pinned in the manual
+and the smoke guard — exactly the operator-guard step that followed DOCFLOW-0 (DOCFLOW-1) and CORPUS-0 (CORPUS-1).
+Documentation + drift-guard sprint, so `a.md` is unchanged and there is no tag.
+
+**Boundary recorded.** The NOVELTY-1 eight-line boundary is recorded verbatim in the manual §13, the smoke §12
+header, and the gate lock: *The novelty operator path proposes. It does not prove. It cites verified receipts. The
+operator frame is not a preserved fact. Probe requests do not execute. Nothing becomes evidence. Nothing promotes.
+Nothing trains.* The manual states the load-bearing doctrine the smoke enforces: packets **propose but do not
+prove**; the operator frame is recorded but **never grounded as fact**; preserved facts **come only from verified
+corpus spans**; a packet **can never become evidence, a promotion, or training**. Verified by a green, byte-silent
+`release_check.sh`; live sabotage of the new pins (restored byte-identical via `cp`+`md5`, never `git checkout`);
+and an independent read-only adversarial panel. Only `OPERATOR_MANUAL.md`, `scripts/operator_smoke.sh`,
+`scripts/release_check.sh`, and this charter change; NO `Cargo.toml`/`Cargo.lock` change, NO crate source touched,
+NO new dependency, P12 stays `training_justified=false`, P13–P15 closed, and the eight milestone tags are unmoved.
+Recorded in [OPERATOR_MANUAL.md](../OPERATOR_MANUAL.md) and [scripts/release_check.sh](../scripts/release_check.sh).
+No tag for NOVELTY-1. Local only — no remote push.
+
 ## DD-2026-06-21-D — Hypothesis-only novelty packet harness (NOVELTY-0)
 
 **Decision.** Extend `crates/cognitive-demo` with the hypothesis-only novelty packet harness — the first layer
