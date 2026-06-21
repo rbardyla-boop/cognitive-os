@@ -2643,6 +2643,58 @@ if ./target/debug/cognitive-demo corpus-trace --input-dir "$_c2_rel/hidden_only"
 if ./target/debug/cognitive-demo corpus-trace --input-dir "$_c2_rel/non_txt_only" >/dev/null 2>&1; then rm -rf "$_c2_dir"; exit 1; fi
 rm -rf "$_c2_dir"
 # ---------------------------------------------------------------------------------------------------
+# CORPUS-3 — corpus flow milestone freeze. The CORPUS-0 -> CORPUS-2 multi-document local-corpus arc (the
+# multi-document corpus trace + source-selection boundary, the operator manual + smoke guard for the corpus
+# commands, and the input-integrity scenario pack / matrix) is frozen as corpus-flow-v0.1. The milestone
+# record (CORPUS_FLOW_MILESTONE.md) pins the CORPUS-0..CORPUS-2 commit lineage, the frozen base
+# (document-flow-v0.1 as the prior frozen local-document base + the six deeper milestone tags + commits), the
+# demonstrated capability, the read-not-trust boundary, the whole-corpus binding + non-grounding side-document
+# mutation behavior, the matrix source identity, the P12 training verdict, and the honest residuals, and is
+# locked here so the freeze cannot silently drift. The pinned commit hashes are auditable against `git log`;
+# this lock stays git-free and does NOT require the tag to exist (the tag is created only after a clean tree +
+# green gate). Documentation freeze only — no code crate change, no model, no training; the milestone records
+# training_not_justified. Doctrine: The corpus flow reads local documents. It does not trust local documents.
+# Source selection is verified and replayable. The whole corpus is hash-bound. Corpus scenarios vary the input.
+# They do not vary the authority. Nothing executes. Nothing becomes evidence. Nothing promotes. Nothing trains.
+# ---------------------------------------------------------------------------------------------------
+test -f CORPUS_FLOW_MILESTONE.md
+grep -q 'FROZEN' CORPUS_FLOW_MILESTONE.md
+grep -q 'corpus-flow-v0.1' CORPUS_FLOW_MILESTONE.md
+grep -q 'CORPUS-0' CORPUS_FLOW_MILESTONE.md
+grep -q 'CORPUS-1' CORPUS_FLOW_MILESTONE.md
+grep -q 'CORPUS-2' CORPUS_FLOW_MILESTONE.md
+grep -q 'training_not_justified' CORPUS_FLOW_MILESTONE.md
+grep -q 'training_justified=false' CORPUS_FLOW_MILESTONE.md
+# Full CORPUS-0..CORPUS-2 commit lineage is pinned (cross-checkable against git log).
+grep -qF 'b19dc47' CORPUS_FLOW_MILESTONE.md
+grep -qF 'ae58b99' CORPUS_FLOW_MILESTONE.md
+grep -qF 'e0791ed' CORPUS_FLOW_MILESTONE.md
+# document-flow-v0.1 is named as the prior frozen local-document base, and the six deeper frozen milestones are
+# referenced (tag + commit).
+grep -qF 'prior frozen local-document base' CORPUS_FLOW_MILESTONE.md
+for _t in document-flow-v0.1 operator-controls-v0.1 multi-trace-validation-v0.1 integration-demo-v0.1 hypothesis-track-v0.1 reading-track-v0.1 cognitive-os-governance-v0.1; do
+  if ! grep -qF "$_t" CORPUS_FLOW_MILESTONE.md; then exit 1; fi
+done
+for _sha in 0cc7399 34b4f47 460be0c 95b586d bb20acf f6fa55a bbd1113; do
+  if ! grep -qF "$_sha" CORPUS_FLOW_MILESTONE.md; then exit 1; fi
+done
+# The three frozen corpus capabilities are referenced by name (capability, operator guard, scenarios).
+grep -qF 'corpus-trace' CORPUS_FLOW_MILESTONE.md
+grep -qF 'OPERATOR_MANUAL.md' CORPUS_FLOW_MILESTONE.md
+grep -qF 'corpus-scenario-matrix' CORPUS_FLOW_MILESTONE.md
+# The CORPUS-2-specific properties the rubric requires are recorded: matrix source identity AND whole-corpus
+# binding, including the non-grounding side-document mutation behavior (a side doc cannot silently pass).
+grep -qF 'source identity' CORPUS_FLOW_MILESTONE.md
+grep -qF 'whole_corpus_bound' CORPUS_FLOW_MILESTONE.md
+grep -qF 'The whole corpus is hash-bound.' CORPUS_FLOW_MILESTONE.md
+grep -qF 'non-grounding side-document mutation' CORPUS_FLOW_MILESTONE.md
+# The ten-line corpus-flow boundary is recorded verbatim (all ten lines).
+for _bl in 'The corpus flow reads local documents.' 'It does not trust local documents.' 'Source selection is verified and replayable.' 'The whole corpus is hash-bound.' 'Corpus scenarios vary the input.' 'They do not vary the authority.' 'Nothing executes.' 'Nothing becomes evidence.' 'Nothing promotes.' 'Nothing trains.'; do
+  if ! grep -qF "$_bl" CORPUS_FLOW_MILESTONE.md; then exit 1; fi
+done
+# The milestone makes NO false training claim (it never asserts training opened).
+if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' CORPUS_FLOW_MILESTONE.md; then exit 1; fi
+# ---------------------------------------------------------------------------------------------------
 grep -q '"release": "cognitive-os-v0.1.0"' VERSION.json
 grep -q '"cip_schema": "cip-schema-v0.1"' VERSION.json
 grep -q '"memory_schema": "memory-schema-v0.1"' VERSION.json

@@ -3,6 +3,39 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-21-C — Freeze the corpus flow milestone (CORPUS-0 → CORPUS-2) as corpus-flow-v0.1
+
+**Decision.** Freeze the CORPUS-0 → CORPUS-2 multi-document local-corpus arc as the named, auditable tag
+`corpus-flow-v0.1`. A new `CORPUS_FLOW_MILESTONE.md` records the freeze: the CORPUS-0 (`b19dc47`, capability),
+CORPUS-1 (`ae58b99`, operator guard), and CORPUS-2 (`e0791ed`, input-integrity scenario pack / matrix) commit
+lineage; `document-flow-v0.1` @ `0cc7399` named as the prior frozen local-document base, plus the six deeper
+frozen milestones (`34b4f47` / `460be0c` / `95b586d` / `bb20acf` / `f6fa55a` / `bbd1113`); the demonstrated
+capability; the read-not-trust boundary; the whole-corpus binding (including the non-grounding side-document
+mutation behavior) and the matrix source identity; the P12 verdict; and the honest residuals. A documentation
+freeze only — no code-crate edit (the `cognitive-demo` tree is byte-identical to `e0791ed`), no model, no
+training.
+
+**Why.** The corpus flow is now a complete mini-arc with the same three-layer maturity document-flow had
+before freezing — multi-document capability, operator guard, and input-integrity scenario coverage — and
+should be frozen as a recoverable checkpoint before any ranking, retrieval, summarization, or novelty/probe
+behavior is added, exactly as the reading, hypothesis, integration, multi-trace, operator-controls, and
+document-flow arcs were each frozen before the next layer.
+
+**Boundary recorded.** The milestone records the ten-line boundary verbatim: *The corpus flow reads local
+documents. It does not trust local documents. Source selection is verified and replayable. The whole corpus is
+hash-bound. Corpus scenarios vary the input. They do not vary the authority. Nothing executes. Nothing becomes
+evidence. Nothing promotes. Nothing trains.* The freeze edits no frozen crate source (`git diff
+0cc7399..e0791ed` over the reading/hypothesis/train-gate crates is empty, and no `Cargo.toml`/`Cargo.lock`
+changed across the arc); P12 stays `training_justified=false`, P13–P15 closed. A `release_check.sh` CORPUS-3
+lock pins the milestone record (existence, FROZEN, the tag name, the CORPUS-0..CORPUS-2 hashes, `document-flow-v0.1`
+named as the prior frozen base + the deeper frozen-base tags and commits, the corpus surfaces by name, the
+matrix source identity, the whole-corpus-binding / non-grounding-side-document-mutation behavior, and the ten
+boundary lines) and guards against any milestone that falsely claims training has opened; the lock stays
+git-free and does NOT require the tag to exist. The tag is created only after a clean tree and a green,
+byte-silent gate. Verified by a green gate, live sabotage of the lock (restored byte-identical via `cp`+`md5`,
+never `git checkout`), and an independent read-only adversarial panel. Recorded in
+[CORPUS_FLOW_MILESTONE.md](../CORPUS_FLOW_MILESTONE.md). Local only — no remote push.
+
 ## DD-2026-06-21-B — Corpus scenario pack / input-integrity matrix (CORPUS-2)
 
 **Decision.** Extend `crates/cognitive-demo` with the corpus scenario pack — the corpus analog of DOCFLOW-2 —
