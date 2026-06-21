@@ -29,9 +29,9 @@
 #![forbid(unsafe_code)]
 
 use hypothesis_layer::{
-    propose, Authority, EvidenceRef, HypothesisError, HypothesisSpec, ProbeExecutionIntent,
-    ProbeObservationReceipt, ProbeRequest, PromotionRequest, PromotionTarget, ReviewDecision,
-    ReviewError, ReviewReceipt, ReviewerAuthority,
+    propose, Authority, EvidenceRef, HypothesisError, HypothesisPacket, HypothesisSpec,
+    ProbeExecutionIntent, ProbeObservationReceipt, ProbeRequest, PromotionRequest, PromotionTarget,
+    ReviewDecision, ReviewError, ReviewReceipt, ReviewerAuthority,
 };
 use reading_cli::{corpus_from_documents, produce_run, verify_file, CliError};
 use reading_substrate::SpanId;
@@ -103,6 +103,13 @@ pub enum TraceError {
     /// corpus and frame (tampered, stale, or foreign) — so it is refused for novelty-report/replay rather than
     /// trusted over the re-derivation.
     NoveltyPacketMismatch,
+    /// DREAM-EXPORT-0: dream-engine refused to produce or verify a dream packet for export — the
+    /// corpus did not verify, the dream was degenerate, the weirdness was out of range, or a provided
+    /// `--dream-packet` was tampered. Carries the engine's own explicit refusal message.
+    DreamExport(String),
+    /// DREAM-EXPORT-0: a provided dream-export bundle is not byte-for-byte the canonical re-derivation
+    /// (tampered, stale, or foreign) — refused rather than parsed back into authority.
+    DreamExportMismatch,
 }
 
 impl std::fmt::Display for TraceError {
@@ -171,6 +178,11 @@ impl std::fmt::Display for TraceError {
             TraceError::NoveltyPacketMismatch => write!(
                 f,
                 "the provided packet is not the packet re-derived from this corpus and frame (tampered, stale, or foreign)"
+            ),
+            TraceError::DreamExport(why) => write!(f, "dream export refused: {why}"),
+            TraceError::DreamExportMismatch => write!(
+                f,
+                "the provided dream-export bundle is not the canonical re-derivation (tampered, stale, or foreign)"
             ),
         }
     }
@@ -2687,6 +2699,8 @@ fn doc_rejection_token(err: &TraceError) -> String {
         TraceError::EmptyFrame => "empty-frame".to_string(),
         TraceError::UnsupportedPreservedFact => "unsupported-preserved-fact".to_string(),
         TraceError::NoveltyPacketMismatch => "novelty-packet-mismatch".to_string(),
+        TraceError::DreamExport(_) => "dream-export-refused".to_string(),
+        TraceError::DreamExportMismatch => "dream-export-mismatch".to_string(),
     }
 }
 
@@ -4377,9 +4391,600 @@ pub fn run_novelty_replay(
     ))
 }
 
+// --- DREAM-EXPORT-0: Dream Export Receipt / Provenance Bridge. A terminal, inert `DreamPacket` (from the
+//     STANDALONE dream-engine — DREAM-0, which itself has NO export path) is BRIDGED into the EXISTING
+//     hypothesis-only proposal path: the bridge re-derives the canonical dream packet from the SAME corpus +
+//     frame + seed + weirdness, builds a `HypothesisSpec` from the dream's distortion + verified grounding, and
+//     calls the EXISTING `hypothesis_layer::propose`. The result is a real `HypothesisPacket` carrying the
+//     EXISTING `Authority::HypothesisOnly` (read straight off the proposed packet — never a new authority). A
+//     `DreamExportReceipt` records dream-origin provenance (dream packet id, input hash, seed, engine version,
+//     operator ids, the dream's grounding receipt hashes) OUTSIDE the frozen hypothesis-layer authority model, so
+//     a dream-exported hypothesis stays DISTINGUISHABLE from an ordinary one and the dream origin stays
+//     auditable. The dream's private `dream_only` authority NEVER crosses the boundary — only ids/hashes/operator
+//     tokens do. Like every artifact here, the receipt + bundle are `Serialize` but NOT `Deserialize`: they are
+//     re-derived from the corpus + frame and byte-compared, never parsed back into authority, which is why
+//     dream-export-report/replay require `--input-dir` + `--frame` exactly as novelty-report/replay do.
+//     Doctrine: Dream export preserves provenance. It does not create a new authority. Exported dream material
+//     remains hypothesis_only. Dream origin remains auditable. Probe requests do not execute. Nothing becomes
+//     evidence, promotes, or trains. ---
+
+/// The eight-line DREAM-EXPORT-0 boundary, embedded verbatim in every export receipt and printed in the report,
+/// so the refusal is machine-checkable from the bundle's own bytes.
+pub const DREAM_EXPORT_BOUNDARY_LINES: [&str; 8] = [
+    "Dream export preserves provenance.",
+    "It does not create a new authority.",
+    "Exported dream material remains hypothesis_only.",
+    "Dream origin remains auditable.",
+    "Probe requests do not execute.",
+    "Nothing becomes evidence.",
+    "Nothing promotes.",
+    "Nothing trains.",
+];
+
+// The hypothesis a dream export proposes is HIGHLY SPECULATIVE: low prior, high uncertainty, and a reversible,
+// low-risk thought-probe. These are bounded per-mille values (0..=hypothesis_layer::SCALE), fixed so the
+// proposal re-derives byte-identically. The dream is a candidate to probe, never a claim.
+const DREAM_HYP_PRIOR: i64 = 100;
+const DREAM_HYP_UNCERTAINTY: i64 = 900;
+const DREAM_HYP_TEST_COST: i64 = 1;
+const DREAM_HYP_RISK: i64 = 100;
+const DREAM_HYP_REVERSIBILITY: i64 = 1000;
+
+/// The stable snake_case token for a dream distortion operator — mirrors dream-engine's own serde rename, so a
+/// receipt records WHICH distortions produced the dream without re-serializing the engine's private vocabulary.
+fn operator_token(op: dream_engine::DistortionOperator) -> &'static str {
+    use dream_engine::DistortionOperator::*;
+    match op {
+        RoleInversion => "role_inversion",
+        CategoryViolation => "category_violation",
+        ConstraintRemoval => "constraint_removal",
+        ContradictionBraid => "contradiction_braid",
+        ScaleShift => "scale_shift",
+    }
+}
+
+/// The provenance bridge between a terminal dream packet and the EXISTING hypothesis-only proposal path. It is
+/// `Serialize` but NOT `Deserialize`: it is re-derived and byte-compared, never parsed back into authority. It
+/// holds NO authority of its own — `authority_after_export` is the EXISTING [`Authority::HypothesisOnly`] read
+/// off the proposed packet, and the receipt only NAMES the dream by id/hash so the origin stays auditable
+/// OUTSIDE the frozen authority model.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct DreamExportReceipt {
+    pub schema: String,
+    pub export_id: String,
+    /// Dream provenance — the terminal packet this hypothesis descends from (named, never re-derived to authority).
+    pub dream_packet_id: String,
+    pub dream_input_hash: String,
+    pub dream_seed: u64,
+    pub dream_weirdness: i64,
+    pub dream_engine_version: String,
+    pub dream_operator_ids: Vec<String>,
+    pub source_receipt_memory_hash: u64,
+    pub source_receipt_answer_hash: u64,
+    /// The deterministic content id of the proposed hypothesis (its FNV-1a hash) — binds the receipt to it.
+    pub exported_hypothesis_hash: u64,
+    /// Always `true`: the export went through `hypothesis_layer::propose`, the EXISTING gate — not a new path.
+    pub exported_via_existing_hypothesis_gate: bool,
+    /// The EXISTING authority the exported material carries, read off the proposed packet. Always `HypothesisOnly`.
+    pub authority_after_export: Authority,
+    /// Always `true`: this hypothesis descends from a dream, so it stays DISTINGUISHABLE from an ordinary one.
+    pub dream_origin: bool,
+    /// The exported hypothesis's own forbidden-uses list (the canonical hypothesis-layer quarantine).
+    pub forbidden_uses: Vec<String>,
+    pub export_trace_hash: String,
+    pub boundary: Vec<String>,
+}
+
+/// A dream-export bundle: the provenance [`DreamExportReceipt`] plus the EXISTING-path [`HypothesisPacket`] it
+/// produced. `Serialize` but NOT `Deserialize` (it embeds a `HypothesisPacket`, which is itself not
+/// deserializable) — re-derived from the corpus + frame and byte-compared, never parsed back into authority.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct DreamExportBundle {
+    pub schema: String,
+    pub receipt: DreamExportReceipt,
+    pub hypothesis: HypothesisPacket,
+}
+
+/// Build the dream-engine input from the operator corpus + frame + dials. Pure.
+fn dream_export_input(
+    documents: &[(String, String)],
+    frame_text: &str,
+    seed: u64,
+    weirdness: i64,
+) -> dream_engine::DreamInput {
+    dream_engine::DreamInput {
+        documents: documents
+            .iter()
+            .map(|(name, text)| dream_engine::DreamDocument {
+                name: name.clone(),
+                text: text.clone(),
+            })
+            .collect(),
+        frame_text: frame_text.to_string(),
+        seed,
+        weirdness,
+    }
+}
+
+/// Re-derive the canonical dream packet and BRIDGE it into the existing hypothesis-only proposal path. The dream
+/// packet is re-derived here (fails closed via [`TraceError::DreamExport`] if the corpus does not verify or the
+/// dream is degenerate — so an export REQUIRES a valid re-derived packet), then a `HypothesisSpec` is built from
+/// the dream's impossible link (the distortion) and its VERIFIED grounding receipt (cited as evidence so the
+/// hypothesis is created-from-trace and the dream origin is auditable), and the EXISTING `propose` is called.
+/// The receipt records dream-origin provenance and the EXISTING authority. Pure (no I/O).
+fn dream_export_bundle(
+    documents: &[(String, String)],
+    frame_text: &str,
+    seed: u64,
+    weirdness: i64,
+) -> Result<DreamExportBundle, TraceError> {
+    // 1. Re-derive the terminal dream packet from the SAME inputs. dream-engine grounds it on a VERIFIED
+    //    canonical read and refuses a degenerate dream — so this fails closed if there is nothing valid to export.
+    let input = dream_export_input(documents, frame_text, seed, weirdness);
+    let packet =
+        dream_engine::dream_packet(&input).map_err(|e| TraceError::DreamExport(e.to_string()))?;
+
+    // 2. Build the hypothesis from the dream's distortion + its verified grounding. The statement is explicitly a
+    //    dream-origin PROPOSAL (hypothesis_only), and the evidence cites the dream's verified reading receipt —
+    //    so the exported hypothesis is created-from-trace AND carries a `dream:` provenance label.
+    let distortion = packet.impossible_links.first().ok_or_else(|| {
+        TraceError::DreamExport("the dream packet has no impossible link to export".to_string())
+    })?;
+    let probe = packet.probe_requests.first().ok_or_else(|| {
+        TraceError::DreamExport("the dream packet has no probe request to export".to_string())
+    })?;
+    let statement = format!(
+        "Dream-derived proposal (hypothesis_only, dream_origin): {}. This is a candidate to probe, not a claim — its only grounding is the verified reading receipt it cites.",
+        distortion.text
+    );
+    let evidence = vec![EvidenceRef {
+        answer_hash: packet.source_receipt_answer_hash,
+        memory_hash: packet.source_receipt_memory_hash,
+        source_label: format!("dream:{}", packet.packet_id),
+    }];
+    let spec = HypothesisSpec {
+        statement,
+        prior: DREAM_HYP_PRIOR,
+        uncertainty: DREAM_HYP_UNCERTAINTY,
+        test_cost: DREAM_HYP_TEST_COST,
+        risk: DREAM_HYP_RISK,
+        reversibility: DREAM_HYP_REVERSIBILITY,
+        evidence_inputs: evidence,
+        probe_description: probe.question.clone(),
+    };
+    // 3. The EXISTING hypothesis-only gate. The returned packet carries the EXISTING Authority::HypothesisOnly.
+    let hypothesis = propose(spec).map_err(TraceError::Hypothesis)?;
+
+    // 4. Collect the distinct distortion operators actually recorded on the packet (canonical order), as
+    //    provenance of WHICH distortions produced the dream. Scale-shift is recorded on candidate frames (text).
+    let mut dream_operator_ids: Vec<String> = Vec::new();
+    for op in dream_engine::OPERATORS {
+        let used = packet.broken_assumptions.iter().any(|b| b.operator == op)
+            || packet.impossible_links.iter().any(|l| l.operator == op)
+            || (op == dream_engine::DistortionOperator::ScaleShift
+                && !packet.candidate_frames.is_empty());
+        if used {
+            dream_operator_ids.push(operator_token(op).to_string());
+        }
+    }
+
+    // 5. The receipt binds the hypothesis to its dream origin OUTSIDE the frozen authority model. The export
+    //    trace hash is a deterministic digest of the dream->hypothesis binding (demonstrable; the load-bearing
+    //    check is byte-for-byte re-derivation in `verify_dream_export_bundle_json`).
+    let export_trace_hash = bundle_content_hash(&format!(
+        "{}|{}|{}|{}",
+        packet.dream_input_hash,
+        packet.packet_id,
+        hypothesis.hypothesis_id(),
+        packet.seed
+    ));
+    let export_id = format!(
+        "dream-export-{}",
+        bundle_content_hash(&format!(
+            "{}|{}",
+            packet.dream_input_hash,
+            hypothesis.hypothesis_id()
+        ))
+    );
+    let receipt = DreamExportReceipt {
+        schema: "dream-export-receipt-v0.1".to_string(),
+        export_id,
+        dream_packet_id: packet.packet_id.clone(),
+        dream_input_hash: packet.dream_input_hash.clone(),
+        dream_seed: packet.seed,
+        dream_weirdness: packet.weirdness,
+        dream_engine_version: packet.schema.clone(),
+        dream_operator_ids,
+        source_receipt_memory_hash: packet.source_receipt_memory_hash,
+        source_receipt_answer_hash: packet.source_receipt_answer_hash,
+        exported_hypothesis_hash: hypothesis.hypothesis_id(),
+        exported_via_existing_hypothesis_gate: true,
+        // Read the authority straight off the proposed packet — never a new or fabricated variant.
+        authority_after_export: hypothesis.authority(),
+        dream_origin: true,
+        forbidden_uses: hypothesis.forbidden_uses().to_vec(),
+        export_trace_hash,
+        boundary: DREAM_EXPORT_BOUNDARY_LINES
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+    };
+
+    Ok(DreamExportBundle {
+        schema: "dream-export-bundle-v0.1".to_string(),
+        receipt,
+        hypothesis,
+    })
+}
+
+/// The dream-export bundle as pretty JSON. Pure and deterministic (fixed field order), so it re-derives
+/// byte-for-byte from the same corpus + frame + dials.
+fn dream_export_bundle_json(
+    documents: &[(String, String)],
+    frame_text: &str,
+    seed: u64,
+    weirdness: i64,
+) -> Result<String, TraceError> {
+    Ok(serde_json::to_string_pretty(&dream_export_bundle(
+        documents, frame_text, seed, weirdness,
+    )?)
+    .expect("DreamExportBundle serializes"))
+}
+
+/// The `dream-export` command body: re-derive the dream packet and bridge it into the hypothesis-only path,
+/// emitting the export bundle. If a `--dream-packet` is provided, it is REFUSED unless it is byte-for-byte the
+/// re-derived dream packet (a tampered / stale / foreign packet cannot be laundered into an export). Pure (no I/O).
+pub fn run_dream_export(
+    documents: &[(String, String)],
+    frame_text: &str,
+    seed: u64,
+    weirdness: i64,
+    provided_dream_packet: Option<&str>,
+) -> Result<String, TraceError> {
+    if let Some(provided) = provided_dream_packet {
+        let input = dream_export_input(documents, frame_text, seed, weirdness);
+        dream_engine::verify_dream_packet_json(&input, provided)
+            .map_err(|e| TraceError::DreamExport(e.to_string()))?;
+    }
+    dream_export_bundle_json(documents, frame_text, seed, weirdness)
+}
+
+/// Re-derive the dream-export bundle from the SAME corpus + frame + dials and confirm the PROVIDED bundle JSON is
+/// byte-for-byte that bundle. The provided bundle is NEVER parsed back into authority — only COMPARED against the
+/// re-derived one — so a tampered / stale / foreign bundle is REFUSED ([`TraceError::DreamExportMismatch`]). Pure.
+pub fn verify_dream_export_bundle_json(
+    documents: &[(String, String)],
+    frame_text: &str,
+    seed: u64,
+    weirdness: i64,
+    provided: &str,
+) -> Result<(), TraceError> {
+    if provided == dream_export_bundle_json(documents, frame_text, seed, weirdness)? {
+        Ok(())
+    } else {
+        Err(TraceError::DreamExportMismatch)
+    }
+}
+
+/// Render the dream-export operator report from the re-derived bundle: the provenance banner (hypothesis_only,
+/// dream_origin), the dream packet id / input hash / seed / engine version / operator ids, the EXISTING authority
+/// after export, the exported hypothesis (a PROPOSAL, not truth) with its `dream:` evidence label (so the origin
+/// is auditable), the note that the source dream's probe requests do not execute, the forbidden uses, and the
+/// eight-line boundary. Pure FORMATTING derived from the bundle.
+fn dream_export_report_body(bundle: &DreamExportBundle) -> String {
+    let r = &bundle.receipt;
+    let h = &bundle.hypothesis;
+    let mut out =
+        String::from("DREAM EXPORT (PROVENANCE BRIDGE — hypothesis_only, dream_origin)\n");
+    out.push_str(&format!("    export_id:              {}\n", r.export_id));
+    out.push_str(&format!(
+        "    dream_packet_id:        {}\n",
+        r.dream_packet_id
+    ));
+    out.push_str(&format!(
+        "    dream_input_hash:       {}\n",
+        r.dream_input_hash
+    ));
+    out.push_str(&format!("    dream_seed:             {}\n", r.dream_seed));
+    out.push_str(&format!(
+        "    dream_weirdness:        {}\n",
+        r.dream_weirdness
+    ));
+    out.push_str(&format!(
+        "    dream_engine_version:   {}\n",
+        r.dream_engine_version
+    ));
+    out.push_str(&format!(
+        "    dream_operator_ids:     {}\n",
+        r.dream_operator_ids.join(", ")
+    ));
+    out.push_str("    authority_after_export: hypothesis_only\n");
+    out.push_str(&format!("    dream_origin:           {}\n", r.dream_origin));
+    out.push_str(&format!(
+        "    via_existing_gate:      {}\n",
+        r.exported_via_existing_hypothesis_gate
+    ));
+    out.push_str("\nEXPORTED HYPOTHESIS (PROPOSAL ONLY — hypothesis_only, not truth)\n");
+    out.push_str(&format!(
+        "    hypothesis_id:          {}\n",
+        h.hypothesis_id()
+    ));
+    out.push_str(&format!("    statement:              {}\n", h.statement()));
+    out.push_str(&format!(
+        "    expected_utility:       {}\n",
+        h.expected_utility()
+    ));
+    out.push_str("    evidence_inputs (dream provenance is auditable here):\n");
+    for e in h.evidence_inputs() {
+        out.push_str(&format!(
+            "    - {} (answer_hash={}, memory_hash={})\n",
+            e.source_label, e.answer_hash, e.memory_hash
+        ));
+    }
+    out.push_str(&format!(
+        "    recommended_probe:      {} (clearance: {:?})\n",
+        h.recommended_probe().description(),
+        h.recommended_probe().clearance()
+    ));
+    out.push_str("\nPROBE PROVENANCE\n");
+    out.push_str("    the source dream's probe requests are recorded with executes: false — NEVER executed\n");
+    out.push_str("\nFORBIDDEN USES (this exported hypothesis may never become or do)\n");
+    for use_ in &r.forbidden_uses {
+        out.push_str(&format!("    - {use_}\n"));
+    }
+    out.push_str("\nBOUNDARY\n");
+    for line in DREAM_EXPORT_BOUNDARY_LINES {
+        out.push_str(&format!("    {line}\n"));
+    }
+    out
+}
+
+/// The `dream-export-report` command body: re-derive + verify the bundle from the SAME corpus + frame + dials
+/// (refuse a tampered bundle), then render the operator report from the re-derived (trusted) bundle. The corpus +
+/// frame are the source of truth, so this command requires `--input-dir` + `--frame`. Pure (no I/O).
+pub fn run_dream_export_report(
+    documents: &[(String, String)],
+    frame_text: &str,
+    seed: u64,
+    weirdness: i64,
+    provided_bundle: &str,
+) -> Result<String, TraceError> {
+    verify_dream_export_bundle_json(documents, frame_text, seed, weirdness, provided_bundle)?;
+    Ok(dream_export_report_body(&dream_export_bundle(
+        documents, frame_text, seed, weirdness,
+    )?))
+}
+
+/// The `dream-export-replay` command body: re-derive the bundle from the corpus + frame + dials and confirm the
+/// provided bundle is byte-identical — a determinism proof that also refuses any tampered bundle. Reads nothing
+/// as authority; the export PROPOSES via the existing gate, it does not prove. Pure (no I/O).
+pub fn run_dream_export_replay(
+    documents: &[(String, String)],
+    frame_text: &str,
+    seed: u64,
+    weirdness: i64,
+    provided_bundle: &str,
+) -> Result<String, TraceError> {
+    verify_dream_export_bundle_json(documents, frame_text, seed, weirdness, provided_bundle)?;
+    Ok(String::from(
+        "dream-export-replay: OK — the export bundle re-derives byte-identically from the corpus and frame (deterministic). Dream origin is preserved; the exported material is hypothesis_only.\n",
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // --- DREAM-EXPORT-0 fixtures + tests ---
+
+    /// A two-document corpus + frame the dream engine grounds and distorts (one cross-document pair), with the
+    /// canonical seed/weirdness. Mirrors dream-engine's own fixture so the bridge exercises a real dream.
+    fn dream_export_fixture() -> (Vec<(String, String)>, String, u64, i64) {
+        let documents = vec![
+            (
+                "bridge_report".to_string(),
+                "Bridge A was reported structurally damaged after the June storm. Inspectors advised against using Bridge A until repairs are complete.".to_string(),
+            ),
+            (
+                "weather_log".to_string(),
+                "The June storm brought heavy rain and high winds overnight. Bridge B remained passable during light rain.".to_string(),
+            ),
+        ];
+        let frame =
+            "Documents are passive inputs.\nSource selection is mere retrieval.".to_string();
+        (documents, frame, 42, 2)
+    }
+
+    #[test]
+    fn dream_export_builds_from_verified_corpus() {
+        let (docs, frame, seed, w) = dream_export_fixture();
+        let bundle = dream_export_bundle(&docs, &frame, seed, w).expect("builds");
+        assert_eq!(bundle.schema, "dream-export-bundle-v0.1");
+        assert_eq!(bundle.receipt.schema, "dream-export-receipt-v0.1");
+        // The exported material is a real hypothesis carrying the EXISTING hypothesis-only authority.
+        assert_eq!(bundle.hypothesis.authority(), Authority::HypothesisOnly);
+    }
+
+    #[test]
+    fn dream_export_receipt_preserves_dream_provenance() {
+        let (docs, frame, seed, w) = dream_export_fixture();
+        let bundle = dream_export_bundle(&docs, &frame, seed, w).expect("builds");
+        // Re-derive the dream packet independently and confirm the receipt names exactly it.
+        let input = dream_export_input(&docs, &frame, seed, w);
+        let packet = dream_engine::dream_packet(&input).expect("packet");
+        assert_eq!(bundle.receipt.dream_packet_id, packet.packet_id);
+        assert_eq!(bundle.receipt.dream_input_hash, packet.dream_input_hash);
+        assert_eq!(bundle.receipt.dream_seed, packet.seed);
+        assert_eq!(bundle.receipt.dream_weirdness, packet.weirdness);
+        assert_eq!(
+            bundle.receipt.source_receipt_memory_hash,
+            packet.source_receipt_memory_hash
+        );
+        assert!(!bundle.receipt.dream_operator_ids.is_empty());
+    }
+
+    #[test]
+    fn dream_export_receipt_records_dream_origin_true() {
+        let (docs, frame, seed, w) = dream_export_fixture();
+        let bundle = dream_export_bundle(&docs, &frame, seed, w).expect("builds");
+        assert!(bundle.receipt.dream_origin);
+    }
+
+    #[test]
+    fn dream_export_authority_after_export_is_hypothesis_only() {
+        let (docs, frame, seed, w) = dream_export_fixture();
+        let bundle = dream_export_bundle(&docs, &frame, seed, w).expect("builds");
+        // The receipt's authority is the EXISTING enum, read off the proposed packet — not a new variant.
+        assert_eq!(
+            bundle.receipt.authority_after_export,
+            Authority::HypothesisOnly
+        );
+        assert_eq!(
+            bundle.receipt.authority_after_export,
+            bundle.hypothesis.authority()
+        );
+    }
+
+    #[test]
+    fn dream_export_uses_existing_hypothesis_gate() {
+        let (docs, frame, seed, w) = dream_export_fixture();
+        let bundle = dream_export_bundle(&docs, &frame, seed, w).expect("builds");
+        assert!(bundle.receipt.exported_via_existing_hypothesis_gate);
+        // The exported hypothesis carries the canonical hypothesis-layer forbidden-uses — proof it went through
+        // the real `propose` path, not a hand-built impostor. It can never serve as evidence or ground a claim.
+        assert!(!bundle.hypothesis.permits("serve_as_evidence"));
+        assert!(!bundle.hypothesis.permits("ground_claim"));
+        assert!(!bundle.hypothesis.permits("change_training_gate"));
+        assert_eq!(
+            bundle.receipt.forbidden_uses,
+            bundle.hypothesis.forbidden_uses()
+        );
+    }
+
+    #[test]
+    fn dream_export_carries_no_dream_authority() {
+        let (docs, frame, seed, w) = dream_export_fixture();
+        let json = dream_export_bundle_json(&docs, &frame, seed, w).expect("json");
+        // The dream's private `dream_only` authority NEVER crosses the boundary; only hypothesis_only does.
+        assert!(!json.contains("dream_only"));
+        assert!(json.contains("hypothesis_only"));
+    }
+
+    #[test]
+    fn dream_export_probe_requests_do_not_execute() {
+        let (docs, frame, seed, w) = dream_export_fixture();
+        // The source dream the export descends from carries only non-executing probe requests.
+        let input = dream_export_input(&docs, &frame, seed, w);
+        let packet = dream_engine::dream_packet(&input).expect("packet");
+        assert!(!packet.probe_requests.is_empty());
+        assert!(packet.probe_requests.iter().all(|p| !p.executes));
+    }
+
+    #[test]
+    fn dream_export_refuses_tampered_dream_packet() {
+        let (docs, frame, seed, w) = dream_export_fixture();
+        let input = dream_export_input(&docs, &frame, seed, w);
+        let valid = dream_engine::dream_packet_json(&input).expect("packet json");
+        // A byte-identical valid packet is accepted (and produces a bundle).
+        run_dream_export(&docs, &frame, seed, w, Some(&valid)).expect("valid packet exports");
+        // A tampered packet is refused — it is never laundered into an export.
+        let tampered = valid.replacen("dream-packet-v0.1", "dream-packet-v9.9", 1);
+        assert!(matches!(
+            run_dream_export(&docs, &frame, seed, w, Some(&tampered)),
+            Err(TraceError::DreamExport(_))
+        ));
+    }
+
+    #[test]
+    fn dream_export_replay_byte_identical() {
+        let (docs, frame, seed, w) = dream_export_fixture();
+        let a = dream_export_bundle_json(&docs, &frame, seed, w).expect("a");
+        let b = dream_export_bundle_json(&docs, &frame, seed, w).expect("b");
+        assert_eq!(a, b);
+        verify_dream_export_bundle_json(&docs, &frame, seed, w, &a).expect("verifies");
+        run_dream_export_report(&docs, &frame, seed, w, &a).expect("report");
+        run_dream_export_replay(&docs, &frame, seed, w, &a).expect("replay");
+    }
+
+    #[test]
+    fn dream_export_tampered_bundle_refused() {
+        let (docs, frame, seed, w) = dream_export_fixture();
+        let bundle = dream_export_bundle_json(&docs, &frame, seed, w).expect("bundle");
+        // Flip the dream_origin flag in the serialized bundle — re-derivation no longer matches, so it is refused.
+        let tampered = bundle.replacen("\"dream_origin\": true", "\"dream_origin\": false", 1);
+        assert_ne!(tampered, bundle);
+        assert!(matches!(
+            run_dream_export_report(&docs, &frame, seed, w, &tampered),
+            Err(TraceError::DreamExportMismatch)
+        ));
+        assert!(matches!(
+            run_dream_export_replay(&docs, &frame, seed, w, &tampered),
+            Err(TraceError::DreamExportMismatch)
+        ));
+    }
+
+    #[test]
+    fn plain_and_dream_hypothesis_distinguishable() {
+        let (docs, frame, seed, w) = dream_export_fixture();
+        let bundle = dream_export_bundle(&docs, &frame, seed, w).expect("builds");
+        // A dream-exported hypothesis cites a `dream:` provenance label; an ordinary one does not.
+        assert!(bundle
+            .hypothesis
+            .evidence_inputs()
+            .iter()
+            .all(|e| e.source_label.starts_with("dream:")));
+        let plain = propose(HypothesisSpec {
+            statement: "Plain proposal with no dream origin.".to_string(),
+            prior: 500,
+            uncertainty: 500,
+            test_cost: 1,
+            risk: 100,
+            reversibility: 900,
+            evidence_inputs: vec![EvidenceRef {
+                answer_hash: 1,
+                memory_hash: 2,
+                source_label: "receipt:plain".to_string(),
+            }],
+            probe_description: "probe it".to_string(),
+        })
+        .expect("plain hypothesis");
+        assert!(plain
+            .evidence_inputs()
+            .iter()
+            .all(|e| !e.source_label.starts_with("dream:")));
+        // The export bundle records dream origin; a bare hypothesis JSON does not.
+        let bundle_json = dream_export_bundle_json(&docs, &frame, seed, w).expect("bundle json");
+        let plain_json = serde_json::to_string_pretty(&plain).expect("plain json");
+        assert!(bundle_json.contains("\"dream_origin\": true"));
+        assert!(!plain_json.contains("dream_origin"));
+    }
+
+    #[test]
+    fn dream_export_report_shows_provenance() {
+        let (docs, frame, seed, w) = dream_export_fixture();
+        let bundle = dream_export_bundle_json(&docs, &frame, seed, w).expect("bundle");
+        let report = run_dream_export_report(&docs, &frame, seed, w, &bundle).expect("report");
+        assert!(report.contains("dream_origin:"));
+        assert!(report.contains("authority_after_export: hypothesis_only"));
+        assert!(report.contains("dream_packet_id:"));
+        assert!(report.contains("dream:")); // the auditable provenance label
+        assert!(report.contains("Dream origin remains auditable."));
+    }
+
+    #[test]
+    fn dream_export_refuses_unverifiable_corpus() {
+        // A single-document corpus yields no cross-document pair, so the dream is degenerate and the export
+        // fails closed — an export REQUIRES a valid re-derived dream packet.
+        let docs = vec![(
+            "only".to_string(),
+            "Bridge A was damaged. Bridge B stayed open.".to_string(),
+        )];
+        let frame = "Documents are passive inputs.".to_string();
+        assert!(matches!(
+            dream_export_bundle(&docs, &frame, 42, 2),
+            Err(TraceError::DreamExport(_))
+        ));
+    }
 
     #[test]
     fn end_to_end_trace_replays() {

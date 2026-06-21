@@ -3,6 +3,37 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-21-G — Dream export receipt / provenance bridge (DREAM-EXPORT-0)
+
+**Decision.** Add a dream provenance bridge in `crates/cognitive-demo` that takes a terminal `DreamPacket`
+(re-derived from `dream-engine` for the same corpus + frame + dials) and exports it into the EXISTING
+hypothesis-only proposal path. The bridge builds a `HypothesisSpec` from the dream's distortion and its VERIFIED
+grounding receipt, calls the EXISTING `hypothesis_layer::propose`, and wraps the resulting `HypothesisPacket`
+with a new `DreamExportReceipt` that preserves dream-origin provenance (dream packet id, input hash, seed,
+engine version, operator ids, grounding receipt hashes) OUTSIDE the frozen hypothesis-layer authority model.
+`cognitive-demo` gains a dependency on `dream-engine` (arrow: demo → engine). Three CLI verbs:
+`dream-export`, `dream-export-report`, `dream-export-replay`. Capability sprint; **no tag**.
+
+**Why.** A dream is only useful if its strangeness can re-enter the lawful chain — but it must do so WITHOUT
+acquiring authority and WITHOUT becoming indistinguishable from ordinary reasoning. The correct shape is
+`DreamPacket → DreamExportReceipt → existing HypothesisOnly proposal path`. The forbidden shape is
+`DreamPacket → new Authority::DreamOnly`. The bridge takes `authority_after_export` straight off the proposed
+packet (the EXISTING `Authority::HypothesisOnly`), so no new authority is ever minted; the dream's private
+`dream_only` authority NEVER crosses the boundary — only ids/hashes/operator tokens do, as provenance.
+
+**Boundary recorded.** Dream export preserves provenance. It does not create a new authority. Exported dream
+material remains `hypothesis_only`. Dream origin remains auditable (a `dream:` evidence label + a
+`dream_origin: true` receipt keep it DISTINGUISHABLE from an ordinary hypothesis). Probe requests do not
+execute. Nothing becomes evidence, promotes, or trains. The receipt + bundle are `Serialize` but NOT
+`Deserialize` (re-derived from primary inputs and byte-compared, never parsed back into authority — so
+report/replay require `--input-dir` + `--frame`, like the novelty verbs). The frozen `hypothesis-layer`
+`Authority` is unchanged (one enum, no `DreamOnly`); `DreamOnly` stays crate-private to `dream-engine`;
+`dream-engine`'s own quarantine tree is unchanged; P12 stays `training_justified=false`; P13–P15 stay closed.
+Canonical artifact: [`DREAM_EXPORT_0_PROVENANCE_BRIDGE_PLAN.md`](../DREAM_EXPORT_0_PROVENANCE_BRIDGE_PLAN.md).
+`release_check.sh` gates the bridge: the export goes through `propose`, records the existing authority and
+`dream_origin`, introduces no new authority enum or `DreamOnly` token, keeps the demo unit count and the
+no-`Deserialize` / purity pins, and pins the 13 DREAM-EXPORT-0 behaviours by name.
+
 ## DD-2026-06-21-F — Seeded deterministic distortion engine (DREAM-0)
 
 **Decision.** Add `crates/dream-engine` as a STANDALONE seeded deterministic distortion engine that DISTORTS

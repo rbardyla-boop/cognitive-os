@@ -1323,10 +1323,11 @@ grep -q 'fn trace_does_not_change_training_gate' crates/cognitive-demo/src/lib.r
 grep -q 'fn trace_does_not_change_verifier_receipt' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_records_every_stage_id_and_links_the_chain' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_grants_no_new_authority' crates/cognitive-demo/src/lib.rs
-# Unit-test REALITY pin: exactly the 139 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
-# MTRACE-1 (12) + MTRACE-2 (12) + DOCFLOW-0 (10) + DOCFLOW-2 (10) + CORPUS-0 (12) + CORPUS-2 (12) + NOVELTY-0 (15) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
+# Unit-test REALITY pin: exactly the 152 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
+# MTRACE-1 (12) + MTRACE-2 (12) + DOCFLOW-0 (10) + DOCFLOW-2 (10) + CORPUS-0 (12) + CORPUS-2 (12) + NOVELTY-0 (15) +
+# DREAM-EXPORT-0 (13) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
 _int0_unit="$(cargo test --offline --lib --manifest-path crates/cognitive-demo/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 139
+test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 152
 test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
 # Determinism / no side effects: the trace is a pure, in-memory function — no clock, entropy, or network
 # anywhere in src/, and no floats anywhere in the crate. (`std::process::exit` in the CLI shell is a clean
@@ -3351,3 +3352,56 @@ grep -q 'fn dream_replay_byte_identical_two_processes' crates/dream-engine/src/l
 grep -q 'fn dream_packet_tamper_refused' crates/dream-engine/src/lib.rs
 grep -q 'fn dream_unsupported_preserved_fact_refused' crates/dream-engine/src/lib.rs
 grep -q 'fn dream_packet_is_terminal_no_export' crates/dream-engine/src/lib.rs
+
+# ── DREAM-EXPORT-0 — Dream Export Receipt / Provenance Bridge (crates/cognitive-demo) ─────────────────────────
+# A terminal, inert DreamPacket (from the STANDALONE dream-engine, which itself has NO export path) is BRIDGED
+# into the EXISTING hypothesis-only proposal path with a DreamExportReceipt that preserves dream-origin
+# provenance OUTSIDE the frozen hypothesis-layer Authority. The correct shape is
+# DreamPacket -> DreamExportReceipt -> existing HypothesisOnly proposal path; the FORBIDDEN shape is
+# DreamPacket -> new Authority::DreamOnly. No new authority is created, exported material stays hypothesis_only,
+# dream origin stays auditable, and probe requests never execute. (The behavioural pins live in the INT-0 unit
+# count above — exactly the 13 DREAM-EXPORT-0 tests pass — and the name-greps below pin WHICH behaviours.)
+# The dependency arrow is demo -> engine: cognitive-demo CONSUMES dream-engine's public terminal packet, while
+# dream-engine's own quarantine tree (no hypothesis-layer / no integration crate) is UNCHANGED — asserted above.
+grep -q 'dream-engine' crates/cognitive-demo/Cargo.toml
+test "$(cargo tree --offline --manifest-path crates/cognitive-demo/Cargo.toml --edges normal 2>/dev/null | grep -c 'dream-engine')" -ge 1
+# The bridge feeds the EXISTING path: it records the authority READ OFF the proposed packet (never a fabricated
+# or new variant), marks the export as going through the existing gate, and preserves dream origin.
+grep -q 'authority_after_export: hypothesis.authority()' crates/cognitive-demo/src/lib.rs
+grep -q 'exported_via_existing_hypothesis_gate: true' crates/cognitive-demo/src/lib.rs
+grep -q 'dream_origin: true' crates/cognitive-demo/src/lib.rs
+grep -q 'propose(spec)' crates/cognitive-demo/src/lib.rs
+# FORBIDDEN SHAPE is structurally impossible: cognitive-demo introduces NO new authority enum and NEVER writes
+# the dream authority token — the receipt carries the EXISTING Authority::HypothesisOnly; dream_only stays in
+# dream-engine (asserted crate-wide in the DREAM-0 block) and never crosses into the integration crate.
+test "$(grep -cE 'DreamOnly' crates/cognitive-demo/src/lib.rs)" -eq 0
+test "$(grep -cE 'enum (Dream|Export)[A-Za-z]*Authority' crates/cognitive-demo/src/lib.rs)" -eq 0
+# The FROZEN hypothesis-layer Authority is UNCHANGED by the bridge: exactly one Authority enum, no DreamOnly.
+test "$(grep -c 'pub enum Authority' crates/hypothesis-layer/src/lib.rs)" -eq 1
+test "$(grep -cE 'DreamOnly' crates/hypothesis-layer/src/lib.rs)" -eq 0
+# The export bridge stays PURE in the library (no fs/clock/entropy/net/floats — already scanned above for all of
+# src/) and the receipt/bundle are Serialize-only (the no-Deserialize pin above covers the whole demo lib).
+# The eight-line DREAM-EXPORT-0 boundary is recorded verbatim in the source.
+grep -q 'Dream export preserves provenance.' crates/cognitive-demo/src/lib.rs
+grep -q 'It does not create a new authority.' crates/cognitive-demo/src/lib.rs
+grep -q 'Exported dream material remains hypothesis_only.' crates/cognitive-demo/src/lib.rs
+grep -q 'Dream origin remains auditable.' crates/cognitive-demo/src/lib.rs
+grep -q 'Probe requests do not execute.' crates/cognitive-demo/src/lib.rs
+grep -q 'Nothing becomes evidence.' crates/cognitive-demo/src/lib.rs
+grep -q 'Nothing promotes.' crates/cognitive-demo/src/lib.rs
+grep -q 'Nothing trains.' crates/cognitive-demo/src/lib.rs
+# The named DREAM-EXPORT-0 tests exist (a gutted/deleted test drops the unit count pinned above; these greps
+# additionally pin WHICH behaviours are covered — provenance, distinguishability, tamper-refusal, no-execution).
+grep -q 'fn dream_export_builds_from_verified_corpus' crates/cognitive-demo/src/lib.rs
+grep -q 'fn dream_export_receipt_preserves_dream_provenance' crates/cognitive-demo/src/lib.rs
+grep -q 'fn dream_export_receipt_records_dream_origin_true' crates/cognitive-demo/src/lib.rs
+grep -q 'fn dream_export_authority_after_export_is_hypothesis_only' crates/cognitive-demo/src/lib.rs
+grep -q 'fn dream_export_uses_existing_hypothesis_gate' crates/cognitive-demo/src/lib.rs
+grep -q 'fn dream_export_carries_no_dream_authority' crates/cognitive-demo/src/lib.rs
+grep -q 'fn dream_export_probe_requests_do_not_execute' crates/cognitive-demo/src/lib.rs
+grep -q 'fn dream_export_refuses_tampered_dream_packet' crates/cognitive-demo/src/lib.rs
+grep -q 'fn dream_export_replay_byte_identical' crates/cognitive-demo/src/lib.rs
+grep -q 'fn dream_export_tampered_bundle_refused' crates/cognitive-demo/src/lib.rs
+grep -q 'fn plain_and_dream_hypothesis_distinguishable' crates/cognitive-demo/src/lib.rs
+grep -q 'fn dream_export_report_shows_provenance' crates/cognitive-demo/src/lib.rs
+grep -q 'fn dream_export_refuses_unverifiable_corpus' crates/cognitive-demo/src/lib.rs

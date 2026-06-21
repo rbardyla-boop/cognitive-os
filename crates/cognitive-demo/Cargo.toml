@@ -25,6 +25,10 @@ name = "cognitive-demo"
 path = "src/main.rs"
 
 [dependencies]
+# DREAM-EXPORT-0 consumes the PUBLIC terminal DreamPacket from dream-engine and BRIDGES it into the
+# existing hypothesis-only proposal path. The arrow is demo -> engine, so dream-engine's own quarantine
+# tree (no hypothesis-layer / no integration crate) is unchanged — release_check asserts both directions.
+dream-engine = { path = "../dream-engine" }
 hypothesis-layer = { path = "../hypothesis-layer" }
 reading-cli = { path = "../reading-cli" }
 reading-substrate = { path = "../reading-substrate" }

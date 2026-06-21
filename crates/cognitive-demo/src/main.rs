@@ -28,6 +28,18 @@
 //!   cognitive-demo novelty-packet --input-dir DIR --corpus-trace PATH --frame PATH [--out PATH]  # hypothesis-only novelty packet
 //!   cognitive-demo novelty-report --input-dir DIR --frame PATH --packet PATH [--out PATH]        # render the packet (re-derive + refuse tamper)
 //!   cognitive-demo novelty-replay --input-dir DIR --frame PATH --packet PATH                     # confirm the packet replays byte-identically
+//!   cognitive-demo dream-export --input-dir DIR --frame PATH [--seed N] [--weirdness W] [--dream-packet PATH] [--out PATH]  # bridge a dream packet into the hypothesis-only path
+//!   cognitive-demo dream-export-report --input-dir DIR --frame PATH [--seed N] [--weirdness W] --export PATH [--out PATH]   # render the export (re-derive + refuse tamper)
+//!   cognitive-demo dream-export-replay --input-dir DIR --frame PATH [--seed N] [--weirdness W] --export PATH                # confirm the export replays byte-identically
+//!
+//! DREAM-EXPORT-0 adds the dream provenance bridge ON TOP of the existing hypothesis-only path: it re-derives the
+//! terminal `DreamPacket` (from `dream-engine`) for the SAME corpus + frame + dials, builds a `HypothesisSpec`
+//! from the dream's distortion + verified grounding, and calls the EXISTING `hypothesis_layer::propose`. The
+//! result is a real `HypothesisPacket` carrying the EXISTING `Authority::HypothesisOnly`, wrapped with a
+//! `DreamExportReceipt` that preserves dream-origin provenance OUTSIDE the frozen authority model — so a
+//! dream-exported hypothesis stays DISTINGUISHABLE and auditable, and the dream's private `dream_only` authority
+//! NEVER crosses. Export refuses a tampered `--dream-packet`; report/replay re-derive the bundle and refuse a
+//! tampered `--export`, which is why they require `--input-dir` + `--frame` (never parsing the artifact back).
 //!
 //! NOVELTY-0 adds the hypothesis-only novelty packet harness ON TOP of the verified corpus trace: given a
 //! verified corpus trace (re-derived from `--input-dir`, with `--corpus-trace` byte-verified against it) and an
@@ -100,15 +112,16 @@ use cognitive_demo::{
     corpus_scenario_matrix, corpus_scenario_pack_files, doc_bundle, doc_scenario_matrix,
     doc_scenario_pack_files, failure_pack_files, list_corpus_scenarios, list_doc_scenarios,
     list_failure_cases, list_questions, list_scenarios, resolved_path_within, run_ask,
-    run_corpus_report, run_corpus_trace, run_doc_report, run_doc_trace, run_novelty_packet,
-    run_novelty_replay, run_novelty_report, run_replay, run_report, run_trace, scenario_bundle,
-    scenario_matrix, scenario_matrix_report, scenario_pack_manifest, verify_bundle,
-    verify_corpus_bundle, verify_corpus_scenario_pack, verify_doc_bundle, verify_doc_scenario_pack,
-    verify_failure_pack, verify_scenario_matrix, verify_scenario_pack, Scenario,
-    BUNDLE_BOUNDARY_LINES, BUNDLE_FILES, CORPUS_BOUNDARY_LINES, CORPUS_BUNDLE_FILES,
-    CORPUS_SCENARIO_BOUNDARY_LINES, CORPUS_SCENARIO_PACK_FILES, DOC_BOUNDARY_LINES,
-    DOC_SCENARIO_BOUNDARY_LINES, DOC_SCENARIO_PACK_FILES, FAILURE_BOUNDARY_LINES,
-    FAILURE_PACK_FILES, MATRIX_BOUNDARY_LINES, MTRACE_BOUNDARY_LINES, PACK_MANIFEST_FILE,
+    run_corpus_report, run_corpus_trace, run_doc_report, run_doc_trace, run_dream_export,
+    run_dream_export_replay, run_dream_export_report, run_novelty_packet, run_novelty_replay,
+    run_novelty_report, run_replay, run_report, run_trace, scenario_bundle, scenario_matrix,
+    scenario_matrix_report, scenario_pack_manifest, verify_bundle, verify_corpus_bundle,
+    verify_corpus_scenario_pack, verify_doc_bundle, verify_doc_scenario_pack, verify_failure_pack,
+    verify_scenario_matrix, verify_scenario_pack, Scenario, BUNDLE_BOUNDARY_LINES, BUNDLE_FILES,
+    CORPUS_BOUNDARY_LINES, CORPUS_BUNDLE_FILES, CORPUS_SCENARIO_BOUNDARY_LINES,
+    CORPUS_SCENARIO_PACK_FILES, DOC_BOUNDARY_LINES, DOC_SCENARIO_BOUNDARY_LINES,
+    DOC_SCENARIO_PACK_FILES, FAILURE_BOUNDARY_LINES, FAILURE_PACK_FILES, MATRIX_BOUNDARY_LINES,
+    MTRACE_BOUNDARY_LINES, PACK_MANIFEST_FILE,
 };
 
 fn main() {
@@ -425,7 +438,86 @@ fn dispatch(args: &[String]) -> Result<(), String> {
             print!("{summary}");
             Ok(())
         }
+        Some("dream-export") => {
+            // Re-derive the terminal dream packet from the --input-dir corpus + --frame + dials and BRIDGE it
+            // into the EXISTING hypothesis-only proposal path, emitting an export bundle (a DreamExportReceipt +
+            // the proposed HypothesisPacket). If --dream-packet is given, it is REFUSED unless it is byte-for-byte
+            // the re-derived packet. No new authority is created; the exported material is hypothesis_only.
+            let documents = read_local_corpus(args)?;
+            let frame = read_frame(args)?;
+            let seed = flag_u64(args, "--seed", DREAM_DEFAULT_SEED)?;
+            let weirdness = flag_i64(args, "--weirdness", DREAM_DEFAULT_WEIRDNESS)?;
+            let provided = optional_plain_file(args, "--dream-packet")?;
+            let json = run_dream_export(&documents, &frame, seed, weirdness, provided.as_deref())
+                .map_err(|e| e.to_string())?;
+            emit(&json, flag_value(args, "--out"))
+        }
+        Some("dream-export-report") => {
+            // Re-derive the export bundle from the SAME corpus + frame + dials, confirm the provided --export IS
+            // that bundle (refuse a tampered bundle), then render the provenance report. The corpus + frame are
+            // the source of truth, so this command requires --input-dir + --frame alongside --export.
+            let documents = read_local_corpus(args)?;
+            let frame = read_frame(args)?;
+            let seed = flag_u64(args, "--seed", DREAM_DEFAULT_SEED)?;
+            let weirdness = flag_i64(args, "--weirdness", DREAM_DEFAULT_WEIRDNESS)?;
+            let bundle = read_plain_file(args, "--export")?;
+            let report = run_dream_export_report(&documents, &frame, seed, weirdness, &bundle)
+                .map_err(|e| e.to_string())?;
+            emit(&report, flag_value(args, "--out"))
+        }
+        Some("dream-export-replay") => {
+            // Re-derive the export bundle from the corpus + frame + dials and confirm the provided --export is
+            // byte-identical — a determinism proof that also refuses any tampered bundle. Reads nothing as
+            // authority; the export PROPOSES via the existing gate, it does not prove.
+            let documents = read_local_corpus(args)?;
+            let frame = read_frame(args)?;
+            let seed = flag_u64(args, "--seed", DREAM_DEFAULT_SEED)?;
+            let weirdness = flag_i64(args, "--weirdness", DREAM_DEFAULT_WEIRDNESS)?;
+            let bundle = read_plain_file(args, "--export")?;
+            let summary = run_dream_export_replay(&documents, &frame, seed, weirdness, &bundle)
+                .map_err(|e| e.to_string())?;
+            print!("{summary}");
+            Ok(())
+        }
         _ => Err(usage()),
+    }
+}
+
+/// The canonical dream seed/weirdness, used when `--seed`/`--weirdness` are omitted so the demo runs from just a
+/// corpus + frame. They are bounded by dream-engine (weirdness must be `0..=5`), which refuses out-of-range dials.
+const DREAM_DEFAULT_SEED: u64 = 42;
+const DREAM_DEFAULT_WEIRDNESS: i64 = 2;
+
+/// Read the unsigned-integer value of `flag` (e.g. `--seed`), or `default` if it is absent. Fails closed with a
+/// clear error on a non-numeric value rather than silently coercing it.
+fn flag_u64(args: &[String], flag: &str, default: u64) -> Result<u64, String> {
+    match flag_value(args, flag) {
+        Some(v) => v
+            .parse::<u64>()
+            .map_err(|_| format!("{flag} must be a non-negative integer, got '{v}'")),
+        None => Ok(default),
+    }
+}
+
+/// Read the signed-integer value of `flag` (e.g. `--weirdness`), or `default` if it is absent. Fails closed with
+/// a clear error on a non-numeric value; range validation (the `0..=5` weirdness dial) is dream-engine's.
+fn flag_i64(args: &[String], flag: &str, default: i64) -> Result<i64, String> {
+    match flag_value(args, flag) {
+        Some(v) => v
+            .parse::<i64>()
+            .map_err(|_| format!("{flag} must be an integer, got '{v}'")),
+        None => Ok(default),
+    }
+}
+
+/// Read the OPTIONAL file named by `flag` as a plain string, returning `None` if the flag is absent. The CONTENT
+/// is never trusted as authority — it is only compared against a re-derived canonical artifact by the library.
+fn optional_plain_file(args: &[String], flag: &str) -> Result<Option<String>, String> {
+    match flag_value(args, flag) {
+        Some(path) => std::fs::read_to_string(path)
+            .map(Some)
+            .map_err(|e| format!("cannot read {path}: {e}")),
+        None => Ok(None),
     }
 }
 
@@ -927,6 +1019,9 @@ fn usage() -> String {
      corpus-scenario-matrix --path DIR [--out PATH] | \
      novelty-packet --input-dir DIR --corpus-trace PATH --frame PATH [--out PATH] | \
      novelty-report --input-dir DIR --frame PATH --packet PATH [--out PATH] | \
-     novelty-replay --input-dir DIR --frame PATH --packet PATH>"
+     novelty-replay --input-dir DIR --frame PATH --packet PATH | \
+     dream-export --input-dir DIR --frame PATH [--seed N] [--weirdness W] [--dream-packet PATH] [--out PATH] | \
+     dream-export-report --input-dir DIR --frame PATH [--seed N] [--weirdness W] --export PATH [--out PATH] | \
+     dream-export-replay --input-dir DIR --frame PATH [--seed N] [--weirdness W] --export PATH>"
         .to_string()
 }
