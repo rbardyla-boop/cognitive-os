@@ -3,6 +3,33 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-21-J — Dream export milestone freeze (DREAM-EXPORT-3)
+
+**Decision.** Freeze the DREAM-0 → DREAM-EXPORT-2 dream-provenance arc as the named, auditable milestone
+`dream-export-v0.1`. Add `DREAM_EXPORT_MILESTONE.md` (the single freeze record: snapshot, commit lineage, frozen
+bases, demonstrated capability, the preserve-provenance-not-authority boundary, the training-gate verdict, the
+honest residuals, and the frozen-status declaration), a charter entry, and a git-free `release_check.sh`
+milestone lock. A **documentation freeze only** — no code-crate change, no behavior change, no model, no training
+(the dream-export head is byte-identical to `ac03327`). The tag `dream-export-v0.1` is created **only after** a
+clean scoped commit and a post-commit green + byte-silent gate.
+
+**Why.** The dream-export arc has reached the same maturity pattern as the prior arcs (capability → operator guard
+→ scenario matrix), so — as with INT-4 / HYP-6 / MTRACE-3 / DOCFLOW-3 / CORPUS-3 / OPS-3 — it is frozen as a named
+recovery point before any review / ranking / promotion-facing dream behavior is added. The freeze pins the four
+commit hashes (DREAM-0 `290abee`, DREAM-EXPORT-0 `d3af869`, DREAM-EXPORT-1 `076277d`, DREAM-EXPORT-2 `ac03327`),
+the frozen bases (corpus-flow-v0.1 `b8577fe`, document-flow-v0.1 `0cc7399`, and the six deeper milestone tags +
+commits), and the load-bearing invariants so the freeze cannot silently drift; the lock stays git-free and does
+NOT require the tag to exist.
+
+**Boundary recorded.** Dream export preserves provenance. It does not create a new authority. Exported dream
+material remains HypothesisOnly. Dream origin remains auditable. DreamOnly remains private to `dream-engine`. Probe
+requests do not execute. Nothing becomes evidence. Nothing promotes. Nothing trains. The frozen reading +
+hypothesis + governance crates are byte-identical to their tags across the arc (`git diff b8577fe..ac03327` over
+those crates is empty); the dream arc only ADDED the standalone `dream-engine` crate and GREW `cognitive-demo`.
+The hypothesis-layer `Authority` stays a single-variant enum; `DreamAuthority::DreamOnly` stays crate-private to
+`dream-engine`; P12 stays `training_justified=false`; P13–P15 stay closed. `release_check.sh` remains green +
+byte-silent. Canonical artifact: [`DREAM_EXPORT_MILESTONE.md`](../DREAM_EXPORT_MILESTONE.md).
+
 ## DD-2026-06-21-I — Dream export scenario matrix / provenance integrity (DREAM-EXPORT-2)
 
 **Decision.** Add a deterministic dream-export scenario matrix in `crates/cognitive-demo` (above the existing

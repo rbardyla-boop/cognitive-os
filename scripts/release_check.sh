@@ -3546,3 +3546,61 @@ if cmp -s "$_dxm_dir/matrix.json" "$_dxm_dir/tampered.json"; then rm -rf "$_dxm_
 if ./target/debug/cognitive-demo dream-export-matrix-verify --input-dir "$_dxm_rel/corpus" --frame "$_dxm_rel/frame.txt" --matrix "$_dxm_dir/tampered.json" >/dev/null 2>&1; then rm -rf "$_dxm_dir"; exit 1; fi
 if ./target/debug/cognitive-demo dream-export-matrix-report --input-dir "$_dxm_rel/corpus" --frame "$_dxm_rel/frame.txt" --matrix "$_dxm_dir/tampered.json" >/dev/null 2>&1; then rm -rf "$_dxm_dir"; exit 1; fi
 rm -rf "$_dxm_dir"
+
+# ---------------------------------------------------------------------------------------------------
+# DREAM-EXPORT-3 — dream export milestone freeze. The DREAM-0 -> DREAM-EXPORT-2 dream-provenance arc (the terminal
+# seeded distortion engine, the provenance bridge into the hypothesis-only path, the operator guard, and the
+# scenario matrix) is frozen as dream-export-v0.1. The milestone record (DREAM_EXPORT_MILESTONE.md) pins the
+# DREAM-0..DREAM-EXPORT-2 commit lineage, the frozen bases (corpus-flow-v0.1 + document-flow-v0.1 + the deeper
+# milestone tags + commits), the demonstrated capability, the preserve-provenance-not-authority boundary, the
+# private DreamOnly confinement, the single-variant hypothesis-layer Authority, the auditable dream_origin, the
+# P12 training verdict, and the honest residuals, and is locked here so the freeze cannot silently drift. The
+# pinned commit hashes are auditable against `git log`; this lock stays git-free and does NOT require the tag to
+# exist (the tag is created only after a clean tree + green gate). Documentation freeze only — no code crate
+# change, no model, no training; the milestone records training_not_justified. Doctrine: Dream export preserves
+# provenance. It does not create a new authority. Exported dream material remains HypothesisOnly. Dream origin
+# remains auditable. DreamOnly remains private to dream-engine. Probe requests do not execute. Nothing becomes
+# evidence. Nothing promotes. Nothing trains.
+# ---------------------------------------------------------------------------------------------------
+test -f DREAM_EXPORT_MILESTONE.md
+grep -q 'FROZEN' DREAM_EXPORT_MILESTONE.md
+grep -q 'dream-export-v0.1' DREAM_EXPORT_MILESTONE.md
+grep -q 'DREAM-0' DREAM_EXPORT_MILESTONE.md
+grep -q 'DREAM-EXPORT-0' DREAM_EXPORT_MILESTONE.md
+grep -q 'DREAM-EXPORT-1' DREAM_EXPORT_MILESTONE.md
+grep -q 'DREAM-EXPORT-2' DREAM_EXPORT_MILESTONE.md
+grep -q 'training_not_justified' DREAM_EXPORT_MILESTONE.md
+grep -q 'training_justified=false' DREAM_EXPORT_MILESTONE.md
+# Full DREAM-0..DREAM-EXPORT-2 commit lineage is pinned (cross-checkable against git log).
+grep -qF '290abee' DREAM_EXPORT_MILESTONE.md
+grep -qF 'd3af869' DREAM_EXPORT_MILESTONE.md
+grep -qF '076277d' DREAM_EXPORT_MILESTONE.md
+grep -qF 'ac03327' DREAM_EXPORT_MILESTONE.md
+# corpus-flow-v0.1 + document-flow-v0.1 are named as the frozen bases, and the deeper frozen milestones are
+# referenced (tag + commit).
+grep -qF 'corpus-flow-v0.1' DREAM_EXPORT_MILESTONE.md
+grep -qF 'document-flow-v0.1' DREAM_EXPORT_MILESTONE.md
+for _t in corpus-flow-v0.1 document-flow-v0.1 operator-controls-v0.1 multi-trace-validation-v0.1 integration-demo-v0.1 hypothesis-track-v0.1 reading-track-v0.1 cognitive-os-governance-v0.1; do
+  if ! grep -qF "$_t" DREAM_EXPORT_MILESTONE.md; then exit 1; fi
+done
+for _sha in b8577fe 0cc7399 34b4f47 460be0c 95b586d bb20acf f6fa55a bbd1113; do
+  if ! grep -qF "$_sha" DREAM_EXPORT_MILESTONE.md; then exit 1; fi
+done
+# The four frozen dream capabilities are referenced by name (terminal packet engine, provenance bridge receipt,
+# operator guard manual, scenario matrix).
+grep -qF 'dream-engine' DREAM_EXPORT_MILESTONE.md
+grep -qF 'DreamExportReceipt' DREAM_EXPORT_MILESTONE.md
+grep -qF 'OPERATOR_MANUAL.md' DREAM_EXPORT_MILESTONE.md
+grep -qF 'dream-export-matrix' DREAM_EXPORT_MILESTONE.md
+# The dream-export-specific invariants the rubric requires are recorded: private DreamOnly confinement, exported
+# material stays hypothesis_only, single-variant hypothesis-layer Authority, auditable dream-origin provenance.
+grep -qF 'DreamOnly remains private to dream-engine.' DREAM_EXPORT_MILESTONE.md
+grep -qF 'hypothesis_only' DREAM_EXPORT_MILESTONE.md
+grep -qF 'single-variant' DREAM_EXPORT_MILESTONE.md
+grep -qF 'dream_origin' DREAM_EXPORT_MILESTONE.md
+# The nine-line dream-export boundary is recorded verbatim (all nine lines).
+for _bl in 'Dream export preserves provenance.' 'It does not create a new authority.' 'Exported dream material remains HypothesisOnly.' 'Dream origin remains auditable.' 'DreamOnly remains private to dream-engine.' 'Probe requests do not execute.' 'Nothing becomes evidence.' 'Nothing promotes.' 'Nothing trains.'; do
+  if ! grep -qF "$_bl" DREAM_EXPORT_MILESTONE.md; then exit 1; fi
+done
+# The milestone makes NO false training claim (it never asserts training opened).
+if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' DREAM_EXPORT_MILESTONE.md; then exit 1; fi
