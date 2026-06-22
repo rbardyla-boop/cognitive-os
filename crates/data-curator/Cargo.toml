@@ -1,0 +1,28 @@
+# DATA-0 — Dataset Curation Manifest / Ingestion Gate.
+#
+# A STANDALONE admissibility gate. It classifies caller-supplied candidate data
+# into admitted / rejected / quarantined records and emits a deterministic,
+# auditable `CurationReceipt` BEFORE any ingestion, memory, horizon, or training
+# path may use it.
+#   - It has NO dependency on `hypothesis-layer` (and never touches its
+#     `Authority` type), no dependency on the training gate (`reading-train-gate`
+#     / `reading-eval`), and no dependency on `vibe-*` / `cognitive-demo` /
+#     `dream-engine`: the curation tree contains no workspace crate.
+#   - It performs NO filesystem access: the only input is an explicit
+#     `CandidateManifest`, never an implicit directory scan.
+#   - It mints no authority, creates no evidence, promotes nothing, executes
+#     nothing, ingests nothing, and trains nothing. `training_eligibility`
+#     defaults closed and has no code path that permits training.
+# Deterministic: FNV-1a hashing, BTree ordering, no clock, no entropy, no float.
+# Receipts are Serialize-but-NOT-Deserialize (re-derive via `curate`, never trust
+# receipt bytes) — the same terminal/inert discipline used by the dream track.
+[package]
+name = "data-curator"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "DATA-0 — deterministic dataset-curation gate: admit/reject/quarantine candidate data before any ingestion or training path; training eligibility stays closed."
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }

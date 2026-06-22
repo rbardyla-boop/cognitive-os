@@ -3604,3 +3604,41 @@ for _bl in 'Dream export preserves provenance.' 'It does not create a new author
 done
 # The milestone makes NO false training claim (it never asserts training opened).
 if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' DREAM_EXPORT_MILESTONE.md; then exit 1; fi
+
+# ---------------------------------------------------------------------------------------------------
+# DATA-0 — dataset curation manifest / ingestion gate. `crates/data-curator` is a STANDALONE,
+# deterministic admissibility gate: it classifies a caller-supplied CandidateManifest into admitted /
+# rejected / quarantined records and emits a CurationReceipt BEFORE any ingestion, memory, horizon, or
+# training path may use the data. It mints no authority, creates no evidence, promotes nothing, executes
+# nothing, ingests nothing, and trains nothing; training eligibility defaults closed and the crate carries
+# NO value that permits training. Doctrine: Data curation admits, rejects, or quarantines candidate data.
+# It does not create truth. It does not create memory. It does not train. It does not execute. It does not
+# promote. Training eligibility remains closed unless a later gate explicitly opens it. The cargo test
+# suite runs the admit/reject/quarantine/leakage/determinism/never-eligible/inert battery; the source
+# scans below are sabotage-detectable and independent of the tests.
+# ---------------------------------------------------------------------------------------------------
+cargo test --offline --quiet --manifest-path crates/data-curator/Cargo.toml >/dev/null 2>&1
+cargo fmt --manifest-path crates/data-curator/Cargo.toml --check >/dev/null 2>&1
+cargo clippy --offline --manifest-path crates/data-curator/Cargo.toml --all-targets -- -D warnings >/dev/null 2>&1
+# The curator is pure: its source carries no filesystem / network / process / clock / entropy / async
+# token, and never references the hypothesis-layer Authority or the training gate (sabotage-detectable).
+test "$(grep -rE 'std::fs|std::net|std::process|std::time|std::thread|thread::sleep|SystemTime|Instant|tokio|async fn|\.await|reqwest|sqlx|rusqlite|use rand|rand::|getrandom|hypothesis_layer|DreamAuthority|reading_train_gate|reading_eval' crates/data-curator/src/ | wc -l)" -eq 0
+# Dependency boundary: the normal dep tree contains NO workspace crate (no vibe-*, reading-*,
+# hypothesis-layer, cognitive-demo, dream-engine) — so it cannot reach the Authority type, the training
+# gate, or any engine/memory crate — while the crate root is present (fails closed if cargo tree cannot run).
+test "$(cargo tree --offline --manifest-path crates/data-curator/Cargo.toml --edges normal 2>/dev/null | grep -cE 'vibe-|reading-|hypothesis-layer|cognitive-demo|dream-engine')" -eq 0
+test "$(cargo tree --offline --manifest-path crates/data-curator/Cargo.toml --edges normal 2>/dev/null | grep -c 'data-curator')" -eq 1
+# Training eligibility can NEVER be true: the single source of truth is pinned to false, and no source
+# asserts an eligible / justified-true path (sabotage-detectable; the never-eligible test also runs above).
+grep -qF 'const TRAINING_PERMITTED: bool = false;' crates/data-curator/src/types.rs
+test "$(grep -rE 'TRAINING_PERMITTED: bool = true|training_justified[[:space:]]*[=:][[:space:]]*true' crates/data-curator/src/ | wc -l)" -eq 0
+# Positive structure pins: the curation entrypoint, the receipt, the default-closed eligibility, the
+# inert authority-boundary, and quarantine-not-delete for BOTH quarantine reasons are present; unsafe is
+# forbidden and the only input is a CandidateManifest (no implicit filesystem-blob ingestion).
+grep -qF 'pub fn curate(' crates/data-curator/src/curate.rs
+grep -qF 'pub struct CurationReceipt' crates/data-curator/src/types.rs
+grep -qF '#[default]' crates/data-curator/src/types.rs
+grep -qF 'BoundaryChecks::inert' crates/data-curator/src/curate.rs
+grep -qF 'QuarantineReason::PromptInjection' crates/data-curator/src/curate.rs
+grep -qF 'QuarantineReason::SplitLeakage' crates/data-curator/src/curate.rs
+grep -qF '#![forbid(unsafe_code)]' crates/data-curator/src/lib.rs

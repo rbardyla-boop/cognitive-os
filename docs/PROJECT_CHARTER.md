@@ -3,6 +3,44 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-22-K — Dataset curation / ingestion gate; the substrate-before-agent reframe (DATA-0)
+
+**Decision.** Add `crates/data-curator`, a STANDALONE, deterministic admissibility gate that classifies a
+caller-supplied `CandidateManifest` into admitted / rejected / quarantined records and emits an auditable
+`CurationReceipt` BEFORE any ingestion, memory, horizon, or training path may use the data. It rejects
+missing provenance / duplicate ids / empty content / unsupported artifact types / ungrounded durable
+claim-like data / trace data with no replay receipt / invalid splits; it QUARANTINES (never deletes)
+prompt-injection markers and train/holdout leakage; and it computes a deterministic order-independent
+`dataset_hash` over the admitted set plus an order-sensitive `source_manifest_hash` binding the exact input.
+The receipt is `Serialize` but NOT `Deserialize` (re-derive via `curate`). `training_eligibility` defaults
+`Closed` and the enum carries NO value that permits training — `is_eligible()` is unconditionally false,
+pinned by a single `TRAINING_PERMITTED = false` const. This entry also records the project reframe: the build
+is a **verified reading / memory / provenance substrate**, not merely an agent — the agent is the visible
+action loop, durable experience lives in external verified state, and the model sees a slice, not the world.
+The forward roadmap is DATA-0 → DATA-1 (curation operator guard) → DATA-2 (curation scenario matrix) →
+DATA-3 (curation freeze) → HORIZON-0 (staged interaction-horizon harness), BEFORE any training-adjacent work.
+
+**Why.** The long-horizon lesson (AgentGym-RL: capability comes from interaction structure and trustworthy
+trajectories with staged horizon expansion, not from larger prompts) only pays off if the trajectories are
+admissible. Curation is the substrate's immune system: it must precede staged horizons and any training,
+because contaminated / duplicated / leaky / ungrounded / poisoned data would just let a later horizon — or a
+trained policy — learn garbage faster. DATA-0 therefore builds the admissibility BOUNDARY first and opens
+nothing else. It is the dataset analog of the existing source-grounding (document / corpus flow) and
+hypothesis-only provenance (dream export) arcs: it admits or refuses, it does not create truth.
+
+**Boundary recorded.** Data curation admits, rejects, or quarantines candidate data. It does not create
+truth. It does not create memory. It does not train. It does not execute. It does not promote. Training
+eligibility remains closed unless a later gate explicitly opens it. The crate has NO dependency on the
+hypothesis-layer `Authority` type and NO dependency on the training gate (`reading-train-gate` / its eval);
+its normal dependency tree contains no workspace crate (release_check pins this), so it cannot reach the
+authority model, the engine, or memory. It performs NO filesystem access — the only input is an explicit
+manifest, never an implicit directory scan — mints no authority (`BoundaryChecks` are all inert), and forbids
+unsafe code. P12 stays `training_justified=false`; P13–P15 stay closed. `release_check.sh` gates the crate
+(cargo test/fmt/clippy, the no-IO/clock/entropy/Authority/training source scan, the no-workspace-dep
+dependency tree, the `TRAINING_PERMITTED=false` pin, and the admit/reject/quarantine/leakage/never-eligible
+structure pins) and remains green + byte-silent. Canonical artifact:
+[`crates/data-curator/src/lib.rs`](../crates/data-curator/src/lib.rs).
+
 ## DD-2026-06-21-J — Dream export milestone freeze (DREAM-EXPORT-3)
 
 **Decision.** Freeze the DREAM-0 → DREAM-EXPORT-2 dream-provenance arc as the named, auditable milestone
