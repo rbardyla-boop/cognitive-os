@@ -3,6 +3,35 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-22-M — Curation scenario matrix (DATA-2)
+
+**Decision.** Add `crates/data-curator/src/matrix.rs`: a FIXED set of 12 named candidate-data scenarios, each
+constructing a real `CandidateManifest` and running the REAL `curate()` over it, recording the OBSERVED
+`CurationReceipt` disposition (admitted/rejected/quarantined counts + the first reject/quarantine reason +
+training eligibility + per-scenario `dataset_hash`/`source_manifest_hash`). Scenarios: clean_document_admitted,
+missing_provenance_rejected, duplicate_id_rejected, empty_content_rejected, unsupported_artifact_rejected,
+prompt_injection_quarantined, split_leakage_quarantined, ungrounded_durable_rejected,
+trace_without_replay_rejected, valid_split_admitted, invalid_split_rejected, training_eligibility_never_opens.
+`curation_matrix()` is pure/deterministic; the cells derive `Serialize` but NOT `Deserialize` and are
+`PartialEq`, so the matrix is re-derived and compared, never trusted from bytes. lib.rs tests assert the count,
+the observed cells, the no-training invariant, and determinism; release_check pins the scenario set, the outcome
+reason labels, the count, the no-derived-Deserialize property, `opens_training = is_eligible()`, and the 7-line
+boundary.
+
+**Why.** Before freezing the curation track (DATA-3), the gate must be auditable across the full disposition
+surface — clean / each reject reason / each quarantine reason / leakage / grounding / replay / split /
+eligibility — through the REAL curator, not a hand-written table. This is the curation analog of the existing
+scenario-matrix / input-integrity-matrix arcs (CORPUS-2): observation, not assertion. The matrix runs `curate()`
+so it cannot drift from the curator's actual behavior.
+
+**Boundary recorded.** The curation scenario matrix observes curation outcomes. It does not create truth. It
+does not create memory. It does not train. It does not execute. It does not promote. Training eligibility
+remains closed in every scenario (every cell's `opens_training` is `is_eligible() == false`; admitted scenarios
+are at most `CandidateOnly`, which is not eligible). No scenario opens training (P12 stays
+`training_justified=false`; P13–P15 stay closed); the matrix mints no authority, creates no evidence, and
+executes/promotes nothing. `release_check.sh` remains green + byte-silent. Canonical artifact:
+[`crates/data-curator/src/matrix.rs`](../crates/data-curator/src/matrix.rs).
+
 ## DD-2026-06-22-L — Curation operator guard: manual + smoke integration (DATA-1)
 
 **Decision.** Document and smoke-test the DATA-0 curation operator path WITHOUT adding new curation behavior.

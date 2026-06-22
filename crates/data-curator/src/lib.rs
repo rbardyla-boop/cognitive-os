@@ -22,11 +22,13 @@
 mod curate;
 mod hash;
 mod inject;
+mod matrix;
 mod types;
 
 pub use curate::curate;
 pub use hash::content_hash;
 pub use inject::first_injection_marker;
+pub use matrix::{curation_matrix, CurationMatrix, Outcome, ScenarioCell, SCENARIO_COUNT};
 pub use types::{
     AdmittedItem, ArtifactKind, BoundaryChecks, CandidateItem, CandidateManifest,
     ContaminationChecks, CurationReceipt, GroundingRequirements, PoisoningChecks, QuarantineReason,
@@ -274,5 +276,128 @@ mod tests {
         let before = m.clone();
         let _ = curate(&m);
         assert_eq!(m, before, "the input manifest must be untouched");
+    }
+
+    // --- DATA-2: the curation scenario matrix (observes the real curator) ---
+
+    #[test]
+    fn matrix_has_the_fixed_named_scenarios() {
+        let m = curation_matrix();
+        assert_eq!(m.scenarios.len(), SCENARIO_COUNT);
+        for expected in [
+            "clean_document_admitted",
+            "missing_provenance_rejected",
+            "duplicate_id_rejected",
+            "empty_content_rejected",
+            "unsupported_artifact_rejected",
+            "prompt_injection_quarantined",
+            "split_leakage_quarantined",
+            "ungrounded_durable_rejected",
+            "trace_without_replay_rejected",
+            "valid_split_admitted",
+            "invalid_split_rejected",
+            "training_eligibility_never_opens",
+        ] {
+            assert!(
+                m.scenario(expected).is_some(),
+                "matrix missing scenario {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn matrix_cells_record_the_observed_curation_outcomes() {
+        let m = curation_matrix();
+
+        let clean = m.scenario("clean_document_admitted").expect("clean");
+        assert_eq!(
+            (clean.admitted, clean.rejected, clean.quarantined),
+            (1, 0, 0)
+        );
+        assert_eq!(clean.outcome, Outcome::Admitted);
+
+        let mp = m.scenario("missing_provenance_rejected").expect("mp");
+        assert_eq!(mp.outcome, Outcome::Rejected);
+        assert_eq!(mp.reason, "missing_provenance");
+
+        let dup = m.scenario("duplicate_id_rejected").expect("dup");
+        assert_eq!(dup.outcome, Outcome::Rejected);
+        assert_eq!(dup.reason, "duplicate_id");
+        assert_eq!((dup.admitted, dup.rejected), (1, 1));
+
+        assert_eq!(
+            m.scenario("empty_content_rejected").expect("ec").reason,
+            "empty_content"
+        );
+        assert_eq!(
+            m.scenario("unsupported_artifact_rejected")
+                .expect("ua")
+                .reason,
+            "unsupported_artifact"
+        );
+
+        let inj = m.scenario("prompt_injection_quarantined").expect("inj");
+        assert_eq!(inj.outcome, Outcome::Quarantined);
+        assert_eq!(inj.reason, "prompt_injection");
+        assert_eq!(inj.quarantined, 1);
+
+        let leak = m.scenario("split_leakage_quarantined").expect("leak");
+        assert_eq!(leak.outcome, Outcome::Quarantined);
+        assert_eq!(leak.reason, "split_leakage");
+        assert_eq!((leak.admitted, leak.quarantined), (0, 2));
+
+        assert_eq!(
+            m.scenario("ungrounded_durable_rejected")
+                .expect("ug")
+                .reason,
+            "missing_grounding"
+        );
+        assert_eq!(
+            m.scenario("trace_without_replay_rejected")
+                .expect("tr")
+                .reason,
+            "missing_replay_receipt"
+        );
+
+        let vs = m.scenario("valid_split_admitted").expect("vs");
+        assert_eq!(vs.outcome, Outcome::Admitted);
+        assert_eq!(vs.admitted, 2);
+
+        assert_eq!(
+            m.scenario("invalid_split_rejected").expect("inv").reason,
+            "invalid_split"
+        );
+    }
+
+    #[test]
+    fn matrix_opens_no_training_in_any_scenario() {
+        let m = curation_matrix();
+        assert!(m.training_never_opens);
+        for c in &m.scenarios {
+            assert!(!c.opens_training, "scenario {} opened training", c.name);
+            assert!(!c.training_eligibility.is_eligible());
+        }
+        // Even the clean-admit probe is CandidateOnly, not eligible — training stays shut.
+        let probe = m
+            .scenario("training_eligibility_never_opens")
+            .expect("probe");
+        assert_eq!(
+            probe.training_eligibility,
+            TrainingEligibility::CandidateOnly
+        );
+        assert!(!probe.opens_training);
+    }
+
+    #[test]
+    fn matrix_is_deterministic_and_re_derivable() {
+        // Re-derive and compare: the matrix is Serialize but not Deserialize, so
+        // equality is by re-running the pure function, never by trusting bytes.
+        assert_eq!(curation_matrix(), curation_matrix());
+        let a = curation_matrix();
+        let b = curation_matrix();
+        for (x, y) in a.scenarios.iter().zip(b.scenarios.iter()) {
+            assert_eq!(x.dataset_hash, y.dataset_hash);
+            assert_eq!(x.source_manifest_hash, y.source_manifest_hash);
+        }
     }
 }

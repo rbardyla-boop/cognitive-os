@@ -3691,3 +3691,57 @@ grep -qF '1 passed' scripts/operator_smoke.sh
 grep -qF 'curation outcome did not run (vacuous)' scripts/operator_smoke.sh
 # The smoke makes NO false training claim (re-asserted for the curation additions).
 if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' scripts/operator_smoke.sh; then exit 1; fi
+
+# ---------------------------------------------------------------------------------------------------
+# DATA-2 — curation scenario matrix. crates/data-curator/src/matrix.rs adds a FIXED, named set of 12
+# candidate-data scenarios; each constructs a real CandidateManifest and runs the REAL curate() over it,
+# recording the OBSERVED CurationReceipt disposition (admitted/rejected/quarantined + reason + eligibility +
+# per-scenario hashes). The matrix only OBSERVES — it creates no truth/memory/authority, executes nothing,
+# promotes nothing, and opens no training: every cell's opens_training is is_eligible() == false, and
+# training_never_opens holds. The cells derive Serialize but NOT Deserialize and are PartialEq, so the matrix
+# is re-derived and compared (the lib.rs tests run curation_matrix() twice and assert equality + per-scenario
+# hash determinism). The cargo test/clippy gate above already RUNS the matrix battery (matrix_* tests) and
+# compiles matrix.rs; the pins below stop the scenario set, the outcome cells, or the no-training invariant
+# from being silently dropped. A capability sprint that ADDS the matrix module + tests — no other crate
+# changes; the DATA-0/DATA-1 gates above are unchanged. Doctrine: The curation scenario matrix observes curation
+# outcomes. It does not create truth. It does not create memory. It does not train. It does not execute. It does
+# not promote. Training eligibility remains closed in every scenario.
+# ---------------------------------------------------------------------------------------------------
+_M2=crates/data-curator/src/matrix.rs
+# The matrix exists, runs the REAL curator (not hard-coded), and pins a fixed scenario count of 12.
+grep -qF 'pub fn curation_matrix(' "$_M2"
+grep -qF 'let receipt = curate(manifest);' "$_M2"
+grep -qF 'pub const SCENARIO_COUNT: usize = 12;' "$_M2"
+# The matrix is observed-not-trusted: Serialize but NEVER derived Deserialize (re-derived and compared).
+grep -qF 'Serialize' "$_M2"
+test "$(grep -cE 'derive\([^)]*Deserialize' "$_M2")" -eq 0
+# Every required scenario is present (the matrix cannot silently drop a cell).
+for _s2 in clean_document_admitted missing_provenance_rejected duplicate_id_rejected empty_content_rejected \
+           unsupported_artifact_rejected prompt_injection_quarantined split_leakage_quarantined \
+           ungrounded_durable_rejected trace_without_replay_rejected valid_split_admitted \
+           invalid_split_rejected training_eligibility_never_opens; do
+  if ! grep -qF "\"$_s2\"" "$_M2"; then exit 1; fi
+done
+# The observed outcome cells: every reject/quarantine reason label the classifier can emit is present.
+for _r2 in missing_provenance duplicate_id empty_content unsupported_artifact missing_grounding \
+           missing_replay_receipt invalid_split prompt_injection split_leakage; do
+  if ! grep -qF "\"$_r2\"" "$_M2"; then exit 1; fi
+done
+# No scenario opens training: opens_training is is_eligible() (pinned false by the DATA-0 gate), and the
+# matrix-level invariant is computed, not asserted true.
+grep -qF 'opens_training: receipt.training_eligibility.is_eligible()' "$_M2"
+grep -qF 'training_never_opens' "$_M2"
+# The lib.rs matrix tests assert the count, the observed cells, the no-training invariant, and determinism
+# (so the matrix coverage cannot be silently removed from the test battery the gate runs above).
+for _t2 in 'fn matrix_has_the_fixed_named_scenarios' 'fn matrix_cells_record_the_observed_curation_outcomes' \
+           'fn matrix_opens_no_training_in_any_scenario' 'fn matrix_is_deterministic_and_re_derivable'; do
+  if ! grep -qF "$_t2" crates/data-curator/src/lib.rs; then exit 1; fi
+done
+# The DATA-2 seven-line scenario-matrix boundary is recorded verbatim in matrix.rs.
+for _b2 in 'The curation scenario matrix observes curation outcomes.' 'It does not create truth.' \
+           'It does not create memory.' 'It does not train.' 'It does not execute.' 'It does not promote.' \
+           'Training eligibility remains closed in every scenario.'; do
+  if ! grep -qF "$_b2" "$_M2"; then exit 1; fi
+done
+# DATA-2 makes NO false training claim in the matrix source.
+if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' "$_M2"; then exit 1; fi
