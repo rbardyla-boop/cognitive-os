@@ -3871,3 +3871,51 @@ for _hz_bl in 'The horizon harness measures bounded interaction depth.' 'It does
 done
 # The harness makes NO false training claim in its source.
 if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' "$_HZ"; then exit 1; fi
+
+# ---------------------------------------------------------------------------------------------------
+# HORIZON-1 — horizon operator guard. The operator manual (OPERATOR_MANUAL.md §16) documents the bounded
+# horizon operator path: it documents H0..H5 with their max_turns and compositions, states the HorizonTrace is
+# re-derived and byte-compared (never trusted from off-wire bytes) and is Serialize-not-Deserialize, and states
+# that longer horizons cannot bypass curation / grounding / replay, that dream/hypothesis material cannot become
+# evidence, and that training eligibility remains closed. The operator smoke (scripts/operator_smoke.sh) runs the
+# REAL horizon harness over each level via its named cognitive-demo tests (H0..H5 + all-gates-held +
+# training-never-opens), each with --exact so a dropped outcome is caught as vacuous ("1 passed"). A
+# documentation + drift-guard sprint — NO code crate change (the HORIZON-0 harness above is unchanged; the
+# cognitive-demo unit-count pin stays 190). The smoke is already RUN by the OPS-1 lock above (a horizon drift
+# makes it fail closed and aborts the gate); the pins below stop the horizon coverage from being silently dropped
+# from the smoke or the manual. Doctrine: The horizon operator path exercises bounded interaction depth. It does
+# not train. It does not execute external actions. It does not create truth. It does not create memory. It does
+# not promote hypotheses. It does not grant new authority. Longer horizons cannot bypass earlier gates. Training
+# eligibility remains closed.
+# ---------------------------------------------------------------------------------------------------
+# The manual documents how to exercise the real harness (the cargo test command over the cognitive-demo horizon
+# module) and names the bounded horizon harness.
+grep -qF 'cargo test --offline --lib --manifest-path crates/cognitive-demo/Cargo.toml horizon::' OPERATOR_MANUAL.md
+grep -qF 'bounded horizon harness' OPERATOR_MANUAL.md
+# It documents all six levels, the per-level turn bound, the re-derive-not-trust + Serialize-not-Deserialize
+# property, the three no-bypass invariants, the no-evidence invariant, and the closed training gate.
+for _hzm in '**H0**' '**H1**' '**H2**' '**H3**' '**H4**' '**H5**' 'max_turns' 'never trusted from off-wire bytes' \
+            'Deserialize' 'cannot skip curation' 'cannot skip grounding' 'cannot skip replay' \
+            'never become evidence' 'training_justified=false'; do
+  if ! grep -qF "$_hzm" OPERATOR_MANUAL.md; then exit 1; fi
+done
+# It records the HORIZON-1 nine-line horizon-operator-path boundary verbatim.
+for _hzb in 'The horizon operator path exercises bounded interaction depth.' 'It does not train.' \
+            'It does not execute external actions.' 'It does not create truth.' 'It does not create memory.' \
+            'It does not promote hypotheses.' 'It does not grant new authority.' \
+            'Longer horizons cannot bypass earlier gates.' 'Training eligibility remains closed.'; do
+  if ! grep -qF "$_hzb" OPERATOR_MANUAL.md; then exit 1; fi
+done
+# The smoke runs the REAL harness over each required level via --exact named tests (cannot silently drop one),
+# including the all-gates-held invariant proof and the training-never-opens proof.
+grep -qF -- '--exact "horizon::tests::' scripts/operator_smoke.sh
+for _hzt in horizon_h0_starts_from_verified_read horizon_h1_curates_document_before_reading \
+            horizon_h2_curates_corpus_before_multidoc_read horizon_h3_dream_packet_requires_verified_corpus \
+            horizon_h4_dream_export_stays_hypothesis_only horizon_h5_combines_curation_and_dream_export \
+            horizon_all_gates_held_for_every_level horizon_training_never_opens_before_equals_after; do
+  if ! grep -qF "$_hzt" scripts/operator_smoke.sh; then exit 1; fi
+done
+# The named-test runs are NON-VACUOUS: each asserts exactly one test ran, and a dropped outcome fails closed.
+grep -qF 'horizon outcome did not run (vacuous)' scripts/operator_smoke.sh
+# The smoke makes NO false training claim (re-asserted for the horizon additions).
+if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' scripts/operator_smoke.sh; then exit 1; fi

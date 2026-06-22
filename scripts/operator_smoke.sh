@@ -575,4 +575,36 @@ for _cul in 'The curation operator path classifies candidate data.' 'It admits, 
   grep -qF "$_cul" "$MANUAL" || fail "manual curation boundary line drifted: $_cul"
 done
 
+# ---- HORIZON-1: bounded horizon harness — run the REAL harness over H0..H5 via named tests ----
+# The horizon harness (HORIZON-0, in cognitive-demo) is library-only (run_horizon / horizon_matrix, no CLI), so —
+# exactly like the curation gate above — the operator exercises the REAL harness through its named tests. Each
+# test builds the fixed fixtures and runs run_horizon() over a level, composing the real frozen flows (verified
+# read, curate, dream packet, dream export, matrix). --exact + the full horizon::tests:: path means EXACTLY one
+# test runs, so a dropped outcome shows "0 passed" and fails here, never "1 passed". No code crate change — this
+# documents and smoke-tests existing HORIZON-0 behavior only.
+_CDM=crates/cognitive-demo/Cargo.toml
+for _hz in horizon_h0_starts_from_verified_read horizon_h1_curates_document_before_reading \
+           horizon_h2_curates_corpus_before_multidoc_read horizon_h3_dream_packet_requires_verified_corpus \
+           horizon_h4_dream_export_stays_hypothesis_only horizon_h5_combines_curation_and_dream_export \
+           horizon_all_gates_held_for_every_level horizon_training_never_opens_before_equals_after; do
+  if _hz_out="$(cargo test --offline --lib --manifest-path "$_CDM" -- --exact "horizon::tests::$_hz" 2>&1)"; then
+    printf '%s\n' "$_hz_out" | grep -qF '1 passed' || fail "horizon outcome did not run (vacuous): $_hz"
+  else
+    fail "horizon outcome test failed: $_hz"
+  fi
+done
+# Manual drift guard: the manual documents the horizon operator path (H0..H5, bounded turns, no gate bypass,
+# re-derived not trusted, training closed) and records its boundary verbatim.
+grep -qF 'bounded horizon harness' "$MANUAL" || fail 'manual no longer documents the bounded horizon harness'
+for _hzl in H0 H1 H2 H3 H4 H5 max_turns Deserialize 'cannot skip curation' 'cannot skip grounding' \
+            'cannot skip replay' 'never become evidence' 'never trusted from off-wire bytes'; do
+  grep -qF "$_hzl" "$MANUAL" || fail "manual horizon surface drifted: $_hzl"
+done
+for _hzb in 'The horizon operator path exercises bounded interaction depth.' 'It does not train.' \
+            'It does not execute external actions.' 'It does not create truth.' 'It does not create memory.' \
+            'It does not promote hypotheses.' 'It does not grant new authority.' \
+            'Longer horizons cannot bypass earlier gates.' 'Training eligibility remains closed.'; do
+  grep -qF "$_hzb" "$MANUAL" || fail "manual horizon boundary line drifted: $_hzb"
+done
+
 echo 'operator-smoke: OK — the documented operator path runs and the manual matches the binary'

@@ -107,7 +107,7 @@ function of fixed inputs.
 
 Each layer is frozen as an annotated point in history. Recover any milestone with
 `git checkout <tag>`; verify the whole stack at any time with `./scripts/release_check.sh`
-(it must exit 0 and print nothing — see §16/§17). Each tag has a freeze record document.
+(it must exit 0 and print nothing — see §17/§18). Each tag has a freeze record document.
 
 | Tag | Commit | Freezes | Record |
 | --- | --- | --- | --- |
@@ -132,9 +132,10 @@ built binary — `trace --out`, `report`, `replay`, `questions`, `ask`, `bundle`
 `scenario-pack`/`scenario-verify`, `scenario-matrix`/`scenario-matrix-verify`,
 `failure-pack`/`failure-verify`, the document and corpus flows (`doc-*` / `corpus-*`), the
 hypothesis-only novelty flow (`novelty-packet` / `novelty-report` / `novelty-replay`), the dream export
-provenance bridge (`dream-export` / `dream-export-report` / `dream-export-replay`), and the data curation
+provenance bridge (`dream-export` / `dream-export-report` / `dream-export-replay`), the data curation
 gate (the real `curate()` over candidate manifests via `crates/data-curator`'s tests — admit / reject /
-quarantine) — inside a throwaway
+quarantine), and the bounded horizon harness (the real `run_horizon()` over `H0..H5` via
+`crates/cognitive-demo`'s `horizon::tests` — bounded turns / no gate bypass / training never opens) — inside a throwaway
 temp dir (no repo debris), and **fails closed** if any
 documented command, boundary line, or verify step has drifted from this manual. It re-derives every
 generated artifact through the binary's own verify subcommands (it never trusts the bytes) and confirms a
@@ -557,7 +558,77 @@ It does not promote.
 Training eligibility remains closed.
 ```
 
-## 16. Authority boundaries
+## 16. How to exercise the bounded horizon harness
+
+The `horizon` harness (the **HORIZON-0** staged interaction harness, in `cognitive-demo`) runs bounded,
+multi-step substrate interactions — **horizons `H0` through `H5`** — and proves that a longer horizon
+**cannot bypass a gate a shorter one already passed**. It is a *harness, not intelligence*: every turn is one
+REAL call into an already-frozen flow, and each step RECORDS what that flow returned. The operator exercises the
+real harness through the crate's test suite — the harness is library-only (`run_horizon` / `horizon_matrix`,
+with no CLI), exactly like the curation gate above.
+
+The six bounded horizons, each with a hard turn ceiling (`max_turns`) and a fixed composition:
+
+- **H0** (`max_turns` 1) — one **verified document read**.
+- **H1** (`max_turns` 2) — **curate a document candidate**, then read it.
+- **H2** (`max_turns` 2) — **curate a corpus candidate**, then a multi-document read.
+- **H3** (`max_turns` 2) — a verified **corpus read**, then a **dream packet** grounded on it.
+- **H4** (`max_turns` 3) — corpus read → dream packet → **dream export** into the hypothesis-only path.
+- **H5** (`max_turns` 3) — **curation + corpus read + dream-export matrix** in one bounded trace.
+
+Each horizon produces a `HorizonTrace` whose every step records the REAL receipt it observed: the input and
+output hashes, the authority state, the curation status (where candidate data is used), and the replay status
+(where a trace-derived artifact is re-derived). The harness OBSERVES; it never asserts. Because a horizon can
+advance a turn ONLY by calling the real gate, **longer horizons cannot skip curation, cannot skip grounding, and
+cannot skip replay** — the only way to reach turn N is to have passed the gate at turn N-1, and that gate's real
+receipt is what the step records.
+
+The boundaries hold at every depth:
+
+- **Curation is never bypassed** — H1/H2/H5 run the real DATA-0 `curate()` over a candidate manifest BEFORE the
+  read or export, and the step records the admitted/rejected/quarantined disposition; uncurated candidate data
+  is never ingested.
+- **Grounding is never bypassed** — every read step starts from a verifier-passed receipt; the dream packet
+  grounds on a verified corpus read internally and fails closed if it does not verify.
+- **Replay is never bypassed** — every step is re-derived and byte-compared; a tampered trace is refused.
+- **Dream and hypothesis material never become evidence** — the strongest authority any horizon reaches is the
+  EXISTING `hypothesis_only` of a dream export; the dream packet's own authority stays private to the engine;
+  no step promotes anything or creates evidence.
+- **Training eligibility remains closed** — the P12 verdict is read before AND after every horizon and proven
+  unmoved (`training_justified=false`); no depth opens training.
+
+`HorizonTrace` is `Serialize` but **not** `Deserialize`: a horizon record is re-derived by re-running the
+harness and byte-compared (`verify_horizon_json` / `verify_horizon_matrix_json`), never trusted from off-wire
+bytes.
+
+```sh
+# Exercise the whole bounded-horizon harness (it composes the real frozen flows — no file IO):
+cargo test --offline --lib --manifest-path crates/cognitive-demo/Cargo.toml horizon::
+# -> all horizon tests pass — H0..H5, the bounded turn counts, the allowed-module whitelist, and the six gate
+#    invariants (curation/grounding/replay never skipped, no promotion to evidence, training never opens,
+#    forbidden escalation refused), each running the real run_horizon() over the fixed fixtures.
+
+# Run a single horizon — e.g. prove H4's dream export stays hypothesis_only and promotes nothing:
+cargo test --offline --lib --manifest-path crates/cognitive-demo/Cargo.toml -- --exact horizon::tests::horizon_h4_dream_export_stays_hypothesis_only
+# -> 1 passed.
+```
+
+The whole horizon path is exercised end-to-end by `./scripts/operator_smoke.sh` (see §3), so this documentation
+cannot drift from the harness.
+
+```text
+The horizon operator path exercises bounded interaction depth.
+It does not train.
+It does not execute external actions.
+It does not create truth.
+It does not create memory.
+It does not promote hypotheses.
+It does not grant new authority.
+Longer horizons cannot bypass earlier gates.
+Training eligibility remains closed.
+```
+
+## 17. Authority boundaries
 
 These are the load-bearing invariants the whole prototype preserves. Each is enforced mechanically by
 `./scripts/release_check.sh` from the artifacts' own bytes.
@@ -579,7 +650,7 @@ These are the load-bearing invariants the whole prototype preserves. Each is enf
    through the frozen hypothesis layer — it can never ground a claim, mutate memory, execute a probe,
    promote evidence, or self-authorize.
 
-## 17. Training status
+## 18. Training status
 
 Weight training is **closed**. The P12 training verdict is `training_not_justified` — the
 `TrainingDecision.training_justified` bit is `training_justified=false` — and every layer reads that
@@ -588,7 +659,7 @@ mode, promotion gate) stay closed under every freeze. Training stays forbidden u
 stable, recurring model failure that survives fixes to task spec, schema, prompt, examples, tooling,
 context, and verifier design. This manual makes no claim that training has opened.
 
-## 18. Next possible work
+## 19. Next possible work
 
 This manual is a comprehension and reproducibility checkpoint, not a new capability. Possible future work
 (none started, none authorized here):

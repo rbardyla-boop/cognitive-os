@@ -3,6 +3,34 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-22-P — Horizon operator guard: manual + smoke integration (HORIZON-1)
+
+**Decision.** Document and smoke-test the HORIZON-0 operator path. `OPERATOR_MANUAL.md` gains §16 ("How to
+exercise the bounded horizon harness") documenting H0..H5 with their `max_turns` and compositions, that
+`HorizonTrace` is re-derived + byte-compared (never trusted from off-wire bytes) and is Serialize-not-Deserialize,
+and that longer horizons cannot bypass curation / grounding / replay, that dream/hypothesis material cannot become
+evidence, and that training eligibility stays closed; the old §16/§17/§18 (Authority boundaries / Training status /
+Next possible work) renumber to §17/§18/§19, and the §3 self-check + the §3 cross-ref are updated. `scripts/operator_smoke.sh`
+gains a horizon section that runs the REAL harness over each level via its named `cognitive-demo` `horizon::tests`
+(H0..H5 + all-gates-held + training-never-opens), each `--exact` with a `1 passed` non-vacuous assertion.
+`scripts/release_check.sh` gains a HORIZON-1 lock pinning the manual surface and the smoke surface. A
+documentation + drift-guard sprint — NO code-crate change (the HORIZON-0 harness is byte-identical; the
+cognitive-demo unit-count pin stays 190); the gate already RUNS `operator_smoke.sh`, so a horizon drift fails
+closed.
+
+**Why.** HORIZON-0 shipped the harness as a library (no CLI). For an operator to exercise bounded horizons without
+opening training/execution/memory/promotion/authority, the path must be documented and the documentation must be
+machine-checked against the real harness — so the smoke drives the REAL `run_horizon()` through its named tests
+(the same library-only pattern as the DATA-1 curation guard), and the gate pins both surfaces so neither can
+silently drift.
+
+**Boundary recorded.** The horizon operator path exercises bounded interaction depth. It does not train. It does
+not execute external actions. It does not create truth. It does not create memory. It does not promote
+hypotheses. It does not grant new authority. Longer horizons cannot bypass earlier gates. Training eligibility
+remains closed. P12 stays `training_justified=false`; P13–P15 stay closed; `release_check.sh` remains green +
+byte-silent. Canonical artifacts: [`OPERATOR_MANUAL.md`](../OPERATOR_MANUAL.md) §16,
+[`scripts/operator_smoke.sh`](../scripts/operator_smoke.sh).
+
 ## DD-2026-06-22-O — Staged interaction harness (HORIZON-0)
 
 **Decision.** Add `crates/cognitive-demo/src/horizon.rs`: a deterministic staged-interaction harness that composes
