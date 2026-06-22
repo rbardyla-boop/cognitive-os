@@ -3,6 +3,30 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-22-N — Curation track milestone freeze (DATA-3)
+
+**Decision.** Freeze the DATA-0 → DATA-2 dataset-curation arc as a named, auditable milestone, `data-curation-v0.1`,
+before HORIZON-0 opens. Add `DATA_CURATION_MILESTONE.md` (the single freeze record: snapshot, the DATA-0 `2a3e6aa`
+/ DATA-1 `a0bfd04` / DATA-2 `c84233a` commit lineage, the prior frozen `dream-export-v0.1` @ `5238fe8` substrate
+base and the deeper frozen tags, the demonstrated capability, the classification-not-evidence boundary, the
+structurally-closed training eligibility, the verification discipline, the P12 verdict, the honest residuals, and
+the frozen-status declaration) and append a git-free DATA-3 milestone lock to `scripts/release_check.sh` that pins
+the freeze so it cannot silently drift. Documentation-only — NO code-crate change; the DATA-0/1/2 gates above are
+unchanged. The tag `data-curation-v0.1` is created only after a clean scoped commit and a post-commit green gate.
+
+**Why.** DATA-0 (ingestion gate), DATA-1 (operator guard), and DATA-2 (scenario matrix) together make the curation
+layer auditable across its full disposition surface through the REAL `curate()`. Freezing them as a named tag — the
+curation analog of `dream-export-v0.1` / `corpus-flow-v0.1` / the prior milestone freezes — gives HORIZON-0 a fixed,
+recoverable substrate to build the staged interaction harness on, and a single lock that fails closed if the freeze
+record drifts.
+
+**Boundary recorded.** Data curation classifies candidate data. It admits, rejects, or quarantines. It does not
+create truth. It does not create memory. It does not train. It does not execute. It does not promote. Training
+eligibility remains closed (`TrainingEligibility` has only `Closed` and `CandidateOnly`, both `is_eligible() ==
+false`; `const TRAINING_PERMITTED = false`; no `Eligible`/`TrainingEligible` variant exists; quarantine holds, it
+does not delete). P12 stays `training_justified=false`; P13–P15 stay closed; `release_check.sh` remains green +
+byte-silent. Canonical artifact: [`DATA_CURATION_MILESTONE.md`](../DATA_CURATION_MILESTONE.md).
+
 ## DD-2026-06-22-M — Curation scenario matrix (DATA-2)
 
 **Decision.** Add `crates/data-curator/src/matrix.rs`: a FIXED set of 12 named candidate-data scenarios, each

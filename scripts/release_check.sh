@@ -3745,3 +3745,70 @@ for _b2 in 'The curation scenario matrix observes curation outcomes.' 'It does n
 done
 # DATA-2 makes NO false training claim in the matrix source.
 if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' "$_M2"; then exit 1; fi
+
+# ---------------------------------------------------------------------------------------------------
+# DATA-3 — data curation milestone freeze. The DATA-0 -> DATA-2 dataset-curation arc (the standalone
+# ingestion gate, the operator guard, and the scenario matrix) is frozen as data-curation-v0.1. The
+# milestone record (DATA_CURATION_MILESTONE.md) pins the DATA-0..DATA-2 commit lineage, the prior frozen
+# substrate base (dream-export-v0.1) and the deeper frozen milestone tags + commits, the demonstrated
+# capability, the classification-not-evidence boundary, the quarantine-not-deletion invariant, the
+# structurally-closed training eligibility (Closed/CandidateOnly only, no Eligible/TrainingEligible variant,
+# TRAINING_PERMITTED=false), the P12 verdict, and the honest residuals, and is locked here so the freeze
+# cannot silently drift. The pinned commit hashes are auditable against `git log`; this lock stays git-free
+# and does NOT require the tag to exist (the tag is created only after a clean tree + green gate).
+# Documentation freeze only — no code crate change, no model, no training; the milestone records
+# training_not_justified. Doctrine: Data curation classifies candidate data. It admits, rejects, or
+# quarantines. It does not create truth. It does not create memory. It does not train. It does not execute.
+# It does not promote. Training eligibility remains closed.
+# ---------------------------------------------------------------------------------------------------
+test -f DATA_CURATION_MILESTONE.md
+grep -q 'FROZEN' DATA_CURATION_MILESTONE.md
+grep -qF 'data-curation-v0.1' DATA_CURATION_MILESTONE.md
+grep -qF 'DATA-0' DATA_CURATION_MILESTONE.md
+grep -qF 'DATA-1' DATA_CURATION_MILESTONE.md
+grep -qF 'DATA-2' DATA_CURATION_MILESTONE.md
+grep -qF 'training_not_justified' DATA_CURATION_MILESTONE.md
+grep -qF 'training_justified=false' DATA_CURATION_MILESTONE.md
+# Full DATA-0..DATA-2 commit lineage is pinned (cross-checkable against git log).
+grep -qF '2a3e6aa' DATA_CURATION_MILESTONE.md
+grep -qF 'a0bfd04' DATA_CURATION_MILESTONE.md
+grep -qF 'c84233a' DATA_CURATION_MILESTONE.md
+# dream-export-v0.1 is named as the prior frozen substrate milestone (tag + commit), and the deeper frozen
+# milestones are referenced (tag + commit).
+grep -qF 'dream-export-v0.1' DATA_CURATION_MILESTONE.md
+for _t in dream-export-v0.1 corpus-flow-v0.1 document-flow-v0.1 operator-controls-v0.1 multi-trace-validation-v0.1 integration-demo-v0.1 hypothesis-track-v0.1 reading-track-v0.1 cognitive-os-governance-v0.1; do
+  if ! grep -qF "$_t" DATA_CURATION_MILESTONE.md; then exit 1; fi
+done
+for _sha in 5238fe8 b8577fe 0cc7399 34b4f47 460be0c 95b586d bb20acf f6fa55a bbd1113; do
+  if ! grep -qF "$_sha" DATA_CURATION_MILESTONE.md; then exit 1; fi
+done
+# The three frozen curation capabilities are referenced by name (the ingestion gate, the operator guard
+# manual, the scenario matrix).
+grep -qF 'data-curator' DATA_CURATION_MILESTONE.md
+grep -qF 'CurationReceipt' DATA_CURATION_MILESTONE.md
+grep -qF 'OPERATOR_MANUAL.md' DATA_CURATION_MILESTONE.md
+grep -qF 'curation_matrix' DATA_CURATION_MILESTONE.md
+# All 12 DATA-2 scenario names are listed in the freeze record.
+for _s3 in clean_document_admitted missing_provenance_rejected duplicate_id_rejected empty_content_rejected \
+           unsupported_artifact_rejected prompt_injection_quarantined split_leakage_quarantined \
+           ungrounded_durable_rejected trace_without_replay_rejected valid_split_admitted \
+           invalid_split_rejected training_eligibility_never_opens; do
+  if ! grep -qF "$_s3" DATA_CURATION_MILESTONE.md; then exit 1; fi
+done
+# The curation-specific invariants the rubric requires are recorded: classification-not-evidence;
+# quarantine holds (not deletion); training eligibility cannot open (Closed/CandidateOnly only,
+# is_eligible() == false, TRAINING_PERMITTED pinned false, no Eligible/TrainingEligible variant).
+grep -qF 'classification, not evidence' DATA_CURATION_MILESTONE.md
+grep -qF 'quarantined, not deleted' DATA_CURATION_MILESTONE.md
+grep -qF 'it does not delete' DATA_CURATION_MILESTONE.md
+grep -qF 'Closed' DATA_CURATION_MILESTONE.md
+grep -qF 'CandidateOnly' DATA_CURATION_MILESTONE.md
+grep -qF 'is_eligible() == false' DATA_CURATION_MILESTONE.md
+grep -qF 'TRAINING_PERMITTED' DATA_CURATION_MILESTONE.md
+grep -qF 'or `TrainingEligible` variant' DATA_CURATION_MILESTONE.md
+# The eight-line curation boundary is recorded verbatim (all eight lines).
+for _bl in 'Data curation classifies candidate data.' 'It admits, rejects, or quarantines.' 'It does not create truth.' 'It does not create memory.' 'It does not train.' 'It does not execute.' 'It does not promote.' 'Training eligibility remains closed.'; do
+  if ! grep -qF "$_bl" DATA_CURATION_MILESTONE.md; then exit 1; fi
+done
+# The milestone makes NO false training claim (it never asserts training opened).
+if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' DATA_CURATION_MILESTONE.md; then exit 1; fi
