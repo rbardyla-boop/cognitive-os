@@ -3,6 +3,33 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-22-L — Curation operator guard: manual + smoke integration (DATA-1)
+
+**Decision.** Document and smoke-test the DATA-0 curation operator path WITHOUT adding new curation behavior.
+`OPERATOR_MANUAL.md` gains a "How to exercise the data curation gate" section (§15) that states the curator
+ADMITS / REJECTS / QUARANTINES candidate data, that a prompt-injection marker is quarantined (not deleted) and
+train/holdout leakage is quarantined, that duplicate ids and missing provenance are rejected, and that training
+eligibility remains structurally closed; `scripts/operator_smoke.sh` gains a curation section that runs the REAL
+`curate()` over candidate manifests via its named tests (clean → admitted, missing-provenance → rejected,
+duplicate → rejected, prompt-injection → quarantined, train/holdout leakage → quarantined, eligibility →
+never-eligible), each with `--exact` so a dropped outcome is caught as vacuous; and `scripts/release_check.sh`
+gains a DATA-1 lock that pins the manual + smoke surface. The smoke is already RUN by the OPS-1 lock, so a
+curation drift fails the gate closed. NO code crate change — the DATA-0 curator source is byte-identical.
+
+**Why.** Same cadence as every prior operator guard (DOCFLOW-1 / OPS-1 / CORPUS-1 / NOVELTY-1 / DREAM-EXPORT-1):
+a capability is only durable if an operator can run it and a drift guard proves the documentation has not
+drifted from the code. DATA-0 shipped a LIBRARY-only crate with no CLI, so the smoke drives the real curator
+through its cargo test suite — the curator consumes an in-memory `CandidateManifest` by boundary design (it does
+no filesystem IO), so there is no file path to feed or traverse, and the named tests are the operator-runnable
+proof of each admit / reject / quarantine outcome.
+
+**Boundary recorded.** The curation operator path classifies candidate data. It admits, rejects, or quarantines.
+It does not create truth. It does not create memory. It does not train. It does not execute. It does not
+promote. Training eligibility remains closed. This sprint changes no crate behavior, opens no training (P12
+stays `training_justified=false`; P13–P15 stay closed), and `release_check.sh` remains green + byte-silent.
+Canonical artifacts: [`OPERATOR_MANUAL.md`](../OPERATOR_MANUAL.md) §15,
+[`scripts/operator_smoke.sh`](../scripts/operator_smoke.sh).
+
 ## DD-2026-06-22-K — Dataset curation / ingestion gate; the substrate-before-agent reframe (DATA-0)
 
 **Decision.** Add `crates/data-curator`, a STANDALONE, deterministic admissibility gate that classifies a

@@ -107,7 +107,7 @@ function of fixed inputs.
 
 Each layer is frozen as an annotated point in history. Recover any milestone with
 `git checkout <tag>`; verify the whole stack at any time with `./scripts/release_check.sh`
-(it must exit 0 and print nothing — see §15/§16). Each tag has a freeze record document.
+(it must exit 0 and print nothing — see §16/§17). Each tag has a freeze record document.
 
 | Tag | Commit | Freezes | Record |
 | --- | --- | --- | --- |
@@ -131,8 +131,10 @@ git checkout reading-track-v0.1
 built binary — `trace --out`, `report`, `replay`, `questions`, `ask`, `bundle`/`bundle-verify`,
 `scenario-pack`/`scenario-verify`, `scenario-matrix`/`scenario-matrix-verify`,
 `failure-pack`/`failure-verify`, the document and corpus flows (`doc-*` / `corpus-*`), the
-hypothesis-only novelty flow (`novelty-packet` / `novelty-report` / `novelty-replay`), and the dream export
-provenance bridge (`dream-export` / `dream-export-report` / `dream-export-replay`) — inside a throwaway
+hypothesis-only novelty flow (`novelty-packet` / `novelty-report` / `novelty-replay`), the dream export
+provenance bridge (`dream-export` / `dream-export-report` / `dream-export-replay`), and the data curation
+gate (the real `curate()` over candidate manifests via `crates/data-curator`'s tests — admit / reject /
+quarantine) — inside a throwaway
 temp dir (no repo debris), and **fails closed** if any
 documented command, boundary line, or verify step has drifted from this manual. It re-derives every
 generated artifact through the binary's own verify subcommands (it never trusts the bytes) and confirms a
@@ -501,7 +503,61 @@ Nothing promotes.
 Nothing trains.
 ```
 
-## 15. Authority boundaries
+## 15. How to exercise the data curation gate
+
+The `data-curator` crate (frozen as the **DATA-0** ingestion gate) is the substrate's *immune system*: a
+deterministic admissibility gate that classifies caller-supplied **candidate data** before anything may ingest
+it. It **admits, rejects, or quarantines** each candidate item and emits an auditable `CurationReceipt` — and it
+does this **without creating truth, memory, evidence, execution, promotion, or training eligibility**. The
+load-bearing property is what it refuses to do. The curator reads only an explicit in-memory `CandidateManifest`
+— **never the filesystem** — so there is no file to feed it and no path to traverse; the operator exercises the
+real `curate()` through the crate's test suite, which constructs candidate manifests and runs the gate over each.
+
+What the gate does, per item:
+
+- It **rejects** an item with **missing provenance**, a **duplicate id**, empty content, an unsupported artifact
+  type, durable claim-like data without a source-span grounding (a `document_span` / `corpus_span` /
+  `dream_packet`), trace-derived data without a replay receipt, or an invalid split.
+- It **quarantines** — *quarantined, not deleted*, and never admitted — an item carrying a **prompt-injection
+  marker**, and any item caught in **train/holdout leakage** (the same content in both the train and holdout
+  splits). A quarantined item is retained in the receipt for audit; it is removed from the admitted set, not
+  altered or deleted.
+- It **admits** only clean, grounded, single-split items — and even an admitted item is `candidate_only`, never
+  training-eligible.
+
+Training eligibility is **structurally closed**: `TrainingEligibility` defaults `Closed`, carries no
+training-permitting value, and `is_eligible()` is pinned to a single `const TRAINING_PERMITTED: bool = false`, so
+**no code path can return training-eligible=true**. Opening training is the job of a later gate that does not
+exist yet.
+
+```sh
+# Exercise the real curator over candidate manifests (it consumes an in-memory CandidateManifest — no file IO):
+cargo test --offline --manifest-path crates/data-curator/Cargo.toml
+# -> all curation tests pass — the admit / reject / quarantine / leakage / determinism / never-eligible / inert
+#    battery, each constructing a candidate manifest and running the real curate() over it.
+
+# Run a single curation outcome — e.g. prove a prompt-injection marker is QUARANTINED, never admitted or deleted:
+cargo test --offline --manifest-path crates/data-curator/Cargo.toml -- --exact tests::prompt_injection_is_quarantined_not_deleted_or_admitted
+# -> 1 passed.
+```
+
+The curator is pure and deterministic (FNV-1a hashing, BTree ordering, no clock, no entropy, no float); its
+`CurationReceipt` is `Serialize` but **not** `Deserialize`, so a receipt is re-derived by re-running `curate()`,
+never trusted from off-wire bytes. The whole curation path is exercised end-to-end by
+`./scripts/operator_smoke.sh` (see §3), so this documentation cannot drift from the crate.
+
+```text
+The curation operator path classifies candidate data.
+It admits, rejects, or quarantines.
+It does not create truth.
+It does not create memory.
+It does not train.
+It does not execute.
+It does not promote.
+Training eligibility remains closed.
+```
+
+## 16. Authority boundaries
 
 These are the load-bearing invariants the whole prototype preserves. Each is enforced mechanically by
 `./scripts/release_check.sh` from the artifacts' own bytes.
@@ -523,7 +579,7 @@ These are the load-bearing invariants the whole prototype preserves. Each is enf
    through the frozen hypothesis layer — it can never ground a claim, mutate memory, execute a probe,
    promote evidence, or self-authorize.
 
-## 16. Training status
+## 17. Training status
 
 Weight training is **closed**. The P12 training verdict is `training_not_justified` — the
 `TrainingDecision.training_justified` bit is `training_justified=false` — and every layer reads that
@@ -532,7 +588,7 @@ mode, promotion gate) stay closed under every freeze. Training stays forbidden u
 stable, recurring model failure that survives fixes to task spec, schema, prompt, examples, tooling,
 context, and verifier design. This manual makes no claim that training has opened.
 
-## 17. Next possible work
+## 18. Next possible work
 
 This manual is a comprehension and reproducibility checkpoint, not a new capability. Possible future work
 (none started, none authorized here):

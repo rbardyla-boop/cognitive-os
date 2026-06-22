@@ -3642,3 +3642,52 @@ grep -qF 'BoundaryChecks::inert' crates/data-curator/src/curate.rs
 grep -qF 'QuarantineReason::PromptInjection' crates/data-curator/src/curate.rs
 grep -qF 'QuarantineReason::SplitLeakage' crates/data-curator/src/curate.rs
 grep -qF '#![forbid(unsafe_code)]' crates/data-curator/src/lib.rs
+
+# ---------------------------------------------------------------------------------------------------
+# DATA-1 — data curation operator guard. The operator manual (OPERATOR_MANUAL.md §15) documents the
+# data-curation operator path: it states the curator ADMITS / REJECTS / QUARANTINES candidate data, that a
+# prompt-injection marker is QUARANTINED (not deleted) and train/holdout leakage is quarantined, that
+# duplicate ids and missing provenance are REJECTED, and that training eligibility remains structurally closed
+# (no code path returns training-eligible=true). The operator smoke (scripts/operator_smoke.sh) runs the REAL
+# curate() over candidate manifests via its named tests (clean->admitted, missing-provenance->rejected,
+# duplicate->rejected, prompt-injection->quarantined, train/holdout-leakage->quarantined,
+# eligibility->never-eligible), each with --exact so a dropped outcome is caught as vacuous. A documentation +
+# drift-guard sprint — NO code crate change (the DATA-0 gate above is unchanged; data-curator src is
+# byte-identical). The smoke is already RUN by the OPS-1 lock above (a curation drift makes it fail closed and
+# aborts the gate); the pins below stop the curation coverage from being silently dropped from the smoke or the
+# manual. Doctrine: The curation operator path classifies candidate data. It admits, rejects, or quarantines. It
+# does not create truth. It does not create memory. It does not train. It does not execute. It does not promote.
+# Training eligibility remains closed.
+# ---------------------------------------------------------------------------------------------------
+# The manual documents how to exercise the real curator (the cargo test command over data-curator).
+grep -qF 'cargo test --offline --manifest-path crates/data-curator/Cargo.toml' OPERATOR_MANUAL.md
+# It states the admit/reject/quarantine doctrine, quarantine-not-delete, dup/missing-provenance rejection,
+# train/holdout leakage quarantine, and that eligibility can never be true.
+for _dcd in 'admits, rejects, or quarantines' 'quarantined, not deleted' 'missing provenance' 'duplicate id' \
+            'train/holdout leakage' 'no code path can return training-eligible'; do
+  if ! grep -qF "$_dcd" OPERATOR_MANUAL.md; then exit 1; fi
+done
+# It records the DATA-1 eight-line curation-operator-path boundary verbatim.
+for _dcb in 'The curation operator path classifies candidate data.' 'It admits, rejects, or quarantines.' \
+            'It does not create truth.' 'It does not create memory.' 'It does not train.' \
+            'It does not execute.' 'It does not promote.' 'Training eligibility remains closed.'; do
+  if ! grep -qF "$_dcb" OPERATOR_MANUAL.md; then exit 1; fi
+done
+# The smoke creates the curation temp dir + manifest illustration under target/ and removes it on exit (the
+# OPS-1 lock above already pins the trap-line prefix, which now also carries "$curatework").
+grep -qF 'target/.curate_smoke' scripts/operator_smoke.sh
+grep -qF 'candidate_manifest.txt' scripts/operator_smoke.sh
+grep -qF '"$curatework"' scripts/operator_smoke.sh
+# The smoke runs the REAL curator over EACH required outcome via --exact named tests (cannot silently drop one).
+grep -qF -- '--exact "tests::' scripts/operator_smoke.sh
+for _dct in clean_document_span_is_admitted_but_only_candidate missing_provenance_is_rejected \
+            duplicate_id_is_rejected_and_recorded_as_contamination \
+            prompt_injection_is_quarantined_not_deleted_or_admitted \
+            train_holdout_leakage_is_detected_and_quarantined training_eligibility_is_never_eligible; do
+  if ! grep -qF "$_dct" scripts/operator_smoke.sh; then exit 1; fi
+done
+# The named-test runs are NON-VACUOUS: each asserts exactly one test ran, and a dropped outcome fails closed.
+grep -qF '1 passed' scripts/operator_smoke.sh
+grep -qF 'curation outcome did not run (vacuous)' scripts/operator_smoke.sh
+# The smoke makes NO false training claim (re-asserted for the curation additions).
+if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' scripts/operator_smoke.sh; then exit 1; fi

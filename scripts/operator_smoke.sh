@@ -72,7 +72,10 @@ noveltyrel="target/$(basename "$noveltywork")"
 # dir, so the operator-dream sample lives under target/ (gitignored, inside cwd) and uses a RELATIVE path.
 dreamwork="$(mktemp -d "$PWD/target/.dream_smoke.XXXXXX")"
 dreamrel="target/$(basename "$dreamwork")"
-trap 'rm -rf "$work" "$docwork" "$corpuswork" "$noveltywork" "$dreamwork"' EXIT
+# DATA-1: the curation smoke runs the real curator over in-memory candidate manifests via its tests; the temp
+# dir holds only an operator-readable illustration of those manifests (the curator itself does no filesystem IO).
+curatework="$(mktemp -d "$PWD/target/.curate_smoke.XXXXXX")"
+trap 'rm -rf "$work" "$docwork" "$corpuswork" "$noveltywork" "$dreamwork" "$curatework"' EXIT
 
 # ---- 1. canonical trace — ALWAYS --out (exact replayable bytes), NEVER a shell redirect ----
 $BIN trace --out "$work/trace.json"
@@ -518,5 +521,58 @@ fi
 if $BIN dream-export-replay --input-dir "$dreamrel/corpus" --frame "$dreamrel/frame.txt" --export "$dreamwork/origin_false.json" >/dev/null 2>&1; then
   fail 'dream-export-replay accepted dream_origin=false'
 fi
+
+# ---- DATA-1: data curation operator path — run the REAL curator over candidate manifests ----
+# data-curator (DATA-0) is a LIBRARY crate with NO file ingestion: the curator consumes an in-memory
+# CandidateManifest by boundary design (it does no filesystem IO), so the operator exercises it through its
+# cargo test suite, which constructs candidate manifests and runs the real curate() over each. We write an
+# operator-readable illustration of those manifests to a temp dir, then run each required outcome as a named
+# test (--exact, so EXACTLY one test runs — a dropped/typo'd outcome shows "0 passed" and fails here, never
+# "1 passed"). No code crate change — this documents and smoke-tests existing DATA-0 behavior only.
+#
+# DATA-1 boundary (recorded verbatim):
+#   The curation operator path classifies candidate data.
+#   It admits, rejects, or quarantines.
+#   It does not create truth.
+#   It does not create memory.
+#   It does not train.
+#   It does not execute.
+#   It does not promote.
+#   Training eligibility remains closed.
+cat > "$curatework/candidate_manifest.txt" <<'CANDIDATES'
+# candidate manifest (illustration; the real curator consumes the in-memory CandidateManifest the tests build)
+# id              kind            provenance   grounding    split     -> expected disposition
+# clean           document_span   src://doc    span:0..10   train     -> ADMITTED (candidate_only)
+# no_provenance   document_span   (none)       span:0..10   train     -> REJECTED (missing provenance)
+# dup, dup        document_span   src://doc    span:0..10   train     -> REJECTED (duplicate id)
+# injection       document_span   src://doc    span:0..10   train     -> QUARANTINED (prompt-injection marker)
+# leak (train)    document_span   src://doc    span:0..10   train     -> QUARANTINED (train/holdout leakage)
+# leak (holdout)  document_span   src://doc    span:0..10   holdout   -> QUARANTINED (train/holdout leakage)
+# training_eligibility is ALWAYS Closed; is_eligible() can never return true.
+CANDIDATES
+_DCM=crates/data-curator/Cargo.toml
+# Run the REAL curator over each required outcome. Each named test builds a candidate manifest and runs curate();
+# --exact + the full tests:: path means EXACTLY one test runs, so a dropped outcome shows "0 passed" and fails here.
+for _ct in clean_document_span_is_admitted_but_only_candidate \
+           missing_provenance_is_rejected \
+           duplicate_id_is_rejected_and_recorded_as_contamination \
+           prompt_injection_is_quarantined_not_deleted_or_admitted \
+           train_holdout_leakage_is_detected_and_quarantined \
+           training_eligibility_is_never_eligible; do
+  if _ct_out="$(cargo test --offline --manifest-path "$_DCM" -- --exact "tests::$_ct" 2>&1)"; then
+    printf '%s\n' "$_ct_out" | grep -qF '1 passed' || fail "curation outcome did not run (vacuous): $_ct"
+  else
+    fail "curation outcome test failed: $_ct"
+  fi
+done
+# Manual drift guard: the manual documents the data-curation operator path and records its doctrine + boundary.
+grep -qF 'admits, rejects, or quarantines' "$MANUAL" || fail 'manual no longer states curation admits/rejects/quarantines'
+grep -qF 'quarantined, not deleted' "$MANUAL" || fail 'manual no longer states prompt-injection is quarantined, not deleted'
+grep -qF 'no code path can return training-eligible' "$MANUAL" || fail 'manual no longer states eligibility can never be true'
+for _cul in 'The curation operator path classifies candidate data.' 'It admits, rejects, or quarantines.' \
+            'It does not create truth.' 'It does not create memory.' 'It does not train.' \
+            'It does not execute.' 'It does not promote.' 'Training eligibility remains closed.'; do
+  grep -qF "$_cul" "$MANUAL" || fail "manual curation boundary line drifted: $_cul"
+done
 
 echo 'operator-smoke: OK — the documented operator path runs and the manual matches the binary'
