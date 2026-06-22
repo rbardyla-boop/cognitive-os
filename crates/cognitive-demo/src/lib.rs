@@ -38,6 +38,17 @@ use reading_substrate::SpanId;
 use reading_train_gate::decide;
 use serde::Serialize;
 
+/// HORIZON-0 — the staged interaction harness. Composes the existing verified-read,
+/// DATA-0 curation, dream-packet, and dream-export flows into bounded horizons
+/// `H0..H5` and proves longer horizons cannot bypass earlier gates. See
+/// [`horizon`] for the boundary and invariants.
+mod horizon;
+pub use horizon::{
+    horizon_matrix, horizon_matrix_json, run_horizon, run_horizon_json, verify_horizon_json,
+    verify_horizon_matrix_json, HorizonError, HorizonLevel, HorizonStep, HorizonTrace, Module,
+    HORIZON_BOUNDARY_LINES,
+};
+
 /// What can go wrong building the end-to-end trace. Every failure is explicit; nothing is
 /// silently coerced or fabricated. The first three wrap a frozen-crate error; the last two
 /// are INT-0's own provenance invariants (a trace that did not start from a verified receipt,

@@ -1323,11 +1323,11 @@ grep -q 'fn trace_does_not_change_training_gate' crates/cognitive-demo/src/lib.r
 grep -q 'fn trace_does_not_change_verifier_receipt' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_records_every_stage_id_and_links_the_chain' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_grants_no_new_authority' crates/cognitive-demo/src/lib.rs
-# Unit-test REALITY pin: exactly the 167 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
+# Unit-test REALITY pin: exactly the 190 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
 # MTRACE-1 (12) + MTRACE-2 (12) + DOCFLOW-0 (10) + DOCFLOW-2 (10) + CORPUS-0 (12) + CORPUS-2 (12) + NOVELTY-0 (15) +
-# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
+# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
 _int0_unit="$(cargo test --offline --lib --manifest-path crates/cognitive-demo/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 167
+test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 190
 test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
 # Determinism / no side effects: the trace is a pure, in-memory function — no clock, entropy, or network
 # anywhere in src/, and no floats anywhere in the crate. (`std::process::exit` in the CLI shell is a clean
@@ -3812,3 +3812,62 @@ for _bl in 'Data curation classifies candidate data.' 'It admits, rejects, or qu
 done
 # The milestone makes NO false training claim (it never asserts training opened).
 if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' DATA_CURATION_MILESTONE.md; then exit 1; fi
+
+# ---------------------------------------------------------------------------------------------------
+# HORIZON-0 — staged interaction harness. crates/cognitive-demo/src/horizon.rs composes the EXISTING
+# verified-read, DATA-0 curation, dream-packet, and dream-export flows into bounded horizons H0..H5 and
+# records a HorizonTrace per level. It is a HARNESS, not intelligence: every turn is a REAL call into a
+# frozen flow and each step RECORDS that flow's receipt (input/output hashes, authority state, curation
+# status where candidate data is used, replay status where a trace-derived artifact is re-derived). The
+# invariants are COMPUTED from the real receipts: longer horizons cannot skip curation / grounding /
+# replay, cannot promote hypothesis/dream material to evidence, and cannot open training — the train gate
+# is decided before AND after every horizon and proven unmoved. The HorizonTrace is Serialize but NOT
+# Deserialize (re-derived and byte-compared, never trusted from bytes). The unit-count pin above already
+# RUNS the 23 HORIZON-0 tests and the recursive purity/float/process scans already cover horizon.rs; the
+# pins below stop the harness from silently faking a flow, dropping an invariant, or exposing the trace's
+# fields. Doctrine: The horizon harness measures bounded interaction depth. It does not train. It does not
+# execute external actions. It does not create truth. It does not create memory. It does not promote
+# hypotheses. It does not grant new authority. Longer horizons cannot bypass earlier gates. Training
+# eligibility remains closed.
+# ---------------------------------------------------------------------------------------------------
+_HZ=crates/cognitive-demo/src/horizon.rs
+test -f "$_HZ"
+# The module is wired into the crate and its public entrypoints exist.
+grep -qF 'mod horizon;' crates/cognitive-demo/src/lib.rs
+grep -qF 'pub use horizon::' crates/cognitive-demo/src/lib.rs
+grep -qF 'pub fn run_horizon(' "$_HZ"
+grep -qF 'pub fn horizon_matrix(' "$_HZ"
+grep -qF 'pub fn verify_horizon_json(' "$_HZ"
+grep -qF 'pub fn verify_horizon_matrix_json(' "$_HZ"
+# The harness DRIVES the real frozen flows — it cannot fabricate a horizon from a hand-written table.
+# (A faked flow would drop one of these real calls; the source scan is independent of the cargo tests.)
+grep -qF 'curate(' "$_HZ"
+grep -qF 'dream_engine::dream_packet(' "$_HZ"
+grep -qF 'produce_run(' "$_HZ"
+grep -qF 'verify_file(' "$_HZ"
+grep -qF 'run_dream_export(' "$_HZ"
+grep -qF 'dream_export_matrix(' "$_HZ"
+# Training is OBSERVED before AND after every horizon (decided on empty inputs, proven unmoved).
+grep -qF 'decide(&[], &[])' "$_HZ"
+# The six gate invariants are recorded as fields computed from the real receipts.
+for _hz_inv in curation_never_skipped grounding_never_skipped replay_never_skipped no_promotion_to_evidence training_never_opens forbidden_escalation_refused; do
+  if ! grep -qF "$_hz_inv" "$_HZ"; then exit 1; fi
+done
+# The six levels H0..H5 are all defined.
+for _hz_lvl in 'HorizonLevel::H0' 'HorizonLevel::H1' 'HorizonLevel::H2' 'HorizonLevel::H3' 'HorizonLevel::H4' 'HorizonLevel::H5'; do
+  if ! grep -qF "$_hz_lvl" "$_HZ"; then exit 1; fi
+done
+# The HorizonTrace is re-derived, never trusted: Serialize but NOT Deserialize, and its fields are PRIVATE
+# (the record is inert — read through accessors, never reconstructed off the wire with public fields).
+test "$(grep -cE 'derive\([^)]*Deserialize' "$_HZ")" -eq 0
+test "$(awk '/pub struct HorizonTrace \{/,/^\}/' "$_HZ" | grep -cE '^[[:space:]]+pub ')" -eq 0
+test "$(awk '/pub struct HorizonStep \{/,/^\}/' "$_HZ" | grep -cE '^[[:space:]]+pub ')" -eq 0
+# data-curator is a dependency of cognitive-demo (the one-way demo -> curator arrow H1/H2/H5 need); the
+# curator's own isolation is asserted separately above (its tree has no workspace edge), so this is safe.
+grep -qF 'data-curator' crates/cognitive-demo/Cargo.toml
+# The nine-line HORIZON-0 boundary is recorded verbatim (all nine lines, in the const + the module banner).
+for _hz_bl in 'The horizon harness measures bounded interaction depth.' 'It does not train.' 'It does not execute external actions.' 'It does not create truth.' 'It does not create memory.' 'It does not promote hypotheses.' 'It does not grant new authority.' 'Longer horizons cannot bypass earlier gates.' 'Training eligibility remains closed.'; do
+  if ! grep -qF "$_hz_bl" "$_HZ"; then exit 1; fi
+done
+# The harness makes NO false training claim in its source.
+if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' "$_HZ"; then exit 1; fi

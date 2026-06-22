@@ -3,6 +3,36 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-22-O — Staged interaction harness (HORIZON-0)
+
+**Decision.** Add `crates/cognitive-demo/src/horizon.rs`: a deterministic staged-interaction harness that composes
+the EXISTING verified-read, DATA-0 curation, dream-packet, and dream-export flows into six bounded horizons
+`H0..H5` and records a `HorizonTrace` per level. Each `HorizonLevel` fixes `max_turns`, `allowed_modules`, and
+`forbidden_escalations`; each `HorizonStep` records the REAL receipt it observed (input/output FNV hashes,
+authority state, curation status where candidate data is used, replay status where a trace-derived artifact is
+re-derived). `H0` = one verified document read; `H1` = curate a document candidate before the read; `H2` = curate a
+corpus candidate before a multi-document read; `H3` = dream packet from the verified corpus; `H4` = dream export
+into the existing HypothesisOnly path; `H5` = curation + corpus read + dream-export matrix in one bounded trace.
+`run_horizon` / `horizon_matrix` are pure; `HorizonTrace` derives `Serialize` but NOT `Deserialize` (re-derived and
+byte-compared via `verify_horizon_json` / `verify_horizon_matrix_json`, never trusted from bytes) and its fields are
+private. The harness gains cognitive-demo a one-way dependency on `data-curator` (demo → curator; the curator's own
+isolation is unchanged). 23 lib unit tests; release_check bumps the cognitive-demo unit-count pin 167 → 190 and adds
+HORIZON-0 structure / real-call / boundary pins.
+
+**Why.** Before any training-adjacent work, the substrate must prove it can run longer interaction chains WITHOUT
+losing grounding, replay, curation, provenance, or the authority/training boundaries. HORIZON-0 is that pre-training
+harness — not RL, not intelligence. Every invariant is OBSERVED from the real gate's receipt, never asserted: a
+horizon can only advance a turn by calling the real flow, so a deeper horizon physically cannot skip an earlier
+gate. The train-gate verdict is decided before AND after each horizon and proven unmoved; a forbidden escalation
+(an injection candidate, a tampered artifact, an unsupported read) is attempted and recorded as REFUSED.
+
+**Boundary recorded.** The horizon harness measures bounded interaction depth. It does not train. It does not
+execute external actions. It does not create truth. It does not create memory. It does not promote hypotheses. It
+does not grant new authority. Longer horizons cannot bypass earlier gates. Training eligibility remains closed (P12
+stays `training_justified=false`; P13–P15 stay closed; the harness opens no training and grants no new authority —
+the strongest authority any horizon reaches is the existing hypothesis-only export). `release_check.sh` remains
+green + byte-silent. Canonical artifact: [`crates/cognitive-demo/src/horizon.rs`](../crates/cognitive-demo/src/horizon.rs).
+
 ## DD-2026-06-22-N — Curation track milestone freeze (DATA-3)
 
 **Decision.** Freeze the DATA-0 → DATA-2 dataset-curation arc as a named, auditable milestone, `data-curation-v0.1`,

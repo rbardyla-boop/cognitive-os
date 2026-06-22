@@ -33,5 +33,11 @@ hypothesis-layer = { path = "../hypothesis-layer" }
 reading-cli = { path = "../reading-cli" }
 reading-substrate = { path = "../reading-substrate" }
 reading-train-gate = { path = "../reading-train-gate" }
+# HORIZON-0 composes the EXISTING DATA-0 curation gate into staged horizons (H1/H2/H5 curate candidate data
+# BEFORE a read or export). The arrow is demo -> curator only: data-curator depends on serde ALONE and reaches
+# NO workspace crate, so it cannot acquire the Authority type, the training gate, or any engine/memory crate —
+# its own isolation (release_check asserts data-curator's tree has no vibe-/reading-/hypothesis-layer/
+# cognitive-demo/dream-engine edge) is unchanged by this one-way dependency.
+data-curator = { path = "../data-curator" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
