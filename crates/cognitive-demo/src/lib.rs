@@ -167,6 +167,34 @@ pub use training_attempt::{
     TRAIN_ATTEMPT_REFUSAL_COUNT, TRAIN_ATTEMPT_REFUSAL_NAMES, TRAIN_ATTEMPT_SCENARIO_COUNT,
 };
 
+/// MODEL-EVAL-1 — the deterministic candidate-model ACCEPTANCE BATTERY. It CONSUMES a TRAIN-0
+/// `TrainingCandidateArtifact` (produced by the real `run_training_attempt` harness, evaluated here —
+/// never created) and measures whether the candidate is clean enough to enter a later promotion
+/// REVIEW. It re-verifies the candidate is genuinely `CandidateOnly` and still `requires_s8_evaluation`,
+/// compares it against a pinned baseline across seven regression-guarded dimensions (reading,
+/// grounding, curation, replay, horizon-boundary, refusal, hallucination) plus the target recurring
+/// clean failures, and runs holdout / contamination / memorization / adversarial / long-horizon /
+/// dry-run-production-smoke checks. It emits one of three verdicts — `candidate_rejected`,
+/// `candidate_needs_more_evidence`, `candidate_ready_for_promotion_review` — and NONE is named
+/// `accepted`: acceptance is a later promotion gate's job, not S8's. Any critical regression or failed
+/// check rejects; a clean-but-unimproved candidate needs more evidence; only a clean improvement is
+/// ready for REVIEW. `candidate_ready_for_promotion_review` accepts/promotes/deploys nothing, replaces
+/// no baseline, creates no evidence/memory/authority, and opens no production — every forbidden flag is
+/// sourced from `READY_FOR_REVIEW_AUTHORIZES_PROMOTION = false`, and P12 stays
+/// `training_justified = false`. Reports are `Serialize` but never `Deserialize`. See [`candidate_eval`]
+/// for the boundary.
+mod candidate_eval;
+pub use candidate_eval::{
+    candidate_eval_matrix, candidate_eval_matrix_json, evaluate_candidate, evaluate_candidate_json,
+    verify_candidate_eval_matrix_json, verify_candidate_eval_report_json, BaselineModelRef,
+    CandidateEvalBattery, CandidateEvalBoundary, CandidateEvalComparison, CandidateEvalError,
+    CandidateEvalInput, CandidateEvalMatrix, CandidateEvalRejection, CandidateEvalReport,
+    CandidateEvalScenarioCell, CandidateEvalVerdict, CandidateResidualReport, EvalDimension,
+    HoldoutReport, PromotionRecommendation, RegressionReport, SafetyBoundaryReport,
+    CANDIDATE_EVAL_BOUNDARY_LINES, CANDIDATE_EVAL_REJECTION_COUNT, CANDIDATE_EVAL_REJECTION_NAMES,
+    CANDIDATE_EVAL_SCENARIO_COUNT, CANDIDATE_EVAL_VERDICT_COUNT, CANDIDATE_EVAL_VERDICT_NAMES,
+};
+
 /// What can go wrong building the end-to-end trace. Every failure is explicit; nothing is
 /// silently coerced or fabricated. The first three wrap a frozen-crate error; the last two
 /// are INT-0's own provenance invariants (a trace that did not start from a verified receipt,

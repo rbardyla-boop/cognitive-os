@@ -1323,11 +1323,11 @@ grep -q 'fn trace_does_not_change_training_gate' crates/cognitive-demo/src/lib.r
 grep -q 'fn trace_does_not_change_verifier_receipt' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_records_every_stage_id_and_links_the_chain' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_grants_no_new_authority' crates/cognitive-demo/src/lib.rs
-# Unit-test REALITY pin: exactly the 330 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
+# Unit-test REALITY pin: exactly the 352 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
 # MTRACE-1 (12) + MTRACE-2 (12) + DOCFLOW-0 (10) + DOCFLOW-2 (10) + CORPUS-0 (12) + CORPUS-2 (12) + NOVELTY-0 (15) +
-# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) + CORPUS-HARVEST-0 (26) + SCORE-0 (20) + FAIL-0 (19) + P11-MODEL-EVAL (18) + TRAIN-GATE-0 (20) + TRAIN-0 (21) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
+# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) + CORPUS-HARVEST-0 (26) + SCORE-0 (20) + FAIL-0 (19) + P11-MODEL-EVAL (18) + TRAIN-GATE-0 (20) + TRAIN-0 (21) + MODEL-EVAL-1 (22) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
 _int0_unit="$(cargo test --offline --lib --manifest-path crates/cognitive-demo/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 330
+test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 352
 test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
 # Determinism / no side effects: the trace is a pure, in-memory function — no clock, entropy, or network
 # anywhere in src/, and no floats anywhere in the crate. (`std::process::exit` in the CLI shell is a clean
@@ -4650,3 +4650,125 @@ done
 # TRAIN-0 makes NO false training/promotion claim in its source.
 if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' "$_TATT"; then exit 1; fi
 if grep -qE 'modifies_weights[[:space:]]*[=:][[:space:]]*true' "$_TATT"; then exit 1; fi
+
+# ---------------------------------------------------------------------------------------------------
+# MODEL-EVAL-1 — the deterministic candidate-model ACCEPTANCE BATTERY. It CONSUMES a TRAIN-0
+# TrainingCandidateArtifact (produced by the real run_training_attempt harness, evaluated here — never
+# created), re-verifies the candidate is genuinely CandidateOnly and still requires_s8_evaluation,
+# compares it against a pinned baseline across seven regression-guarded dimensions plus the target
+# recurring clean failures, and runs holdout/contamination/memorization/adversarial/long-horizon/
+# dry-run-production-smoke checks. Three verdicts (candidate_rejected, candidate_needs_more_evidence,
+# candidate_ready_for_promotion_review) — NONE named accepted. Any critical regression or failed check
+# rejects; clean-but-unimproved needs more evidence; only a clean improvement is ready for REVIEW.
+# candidate_ready_for_promotion_review accepts/promotes/deploys nothing, replaces no baseline, creates no
+# evidence/memory/authority, opens no production; every forbidden flag is sourced from
+# READY_FOR_REVIEW_AUTHORIZES_PROMOTION = false; P12 stays training_justified = false. Boundary: The
+# candidate evaluation path measures whether a candidate model artifact is ready for promotion review. It
+# does not accept models. It does not promote models. It does not deploy models. It does not replace the
+# baseline. It does not create truth. It does not create memory. It does not create evidence. It does not
+# grant new authority.
+# ---------------------------------------------------------------------------------------------------
+_CEVAL=crates/cognitive-demo/src/candidate_eval.rs
+test -f "$_CEVAL"
+# The module is wired into the crate and its public entrypoints exist.
+grep -qF 'mod candidate_eval;' crates/cognitive-demo/src/lib.rs
+grep -qF 'pub use candidate_eval::' crates/cognitive-demo/src/lib.rs
+grep -qF 'pub fn evaluate_candidate(' "$_CEVAL"
+grep -qF 'pub fn evaluate_candidate_json(' "$_CEVAL"
+grep -qF 'pub fn verify_candidate_eval_report_json(' "$_CEVAL"
+grep -qF 'pub fn candidate_eval_matrix(' "$_CEVAL"
+grep -qF 'pub fn verify_candidate_eval_matrix_json(' "$_CEVAL"
+# The core objects exist.
+grep -qF 'pub struct CandidateEvalReport' "$_CEVAL"
+grep -qF 'pub struct CandidateEvalBattery' "$_CEVAL"
+grep -qF 'pub struct CandidateEvalInput' "$_CEVAL"
+grep -qF 'pub enum CandidateEvalVerdict' "$_CEVAL"
+grep -qF 'pub struct CandidateEvalComparison' "$_CEVAL"
+grep -qF 'pub struct RegressionReport' "$_CEVAL"
+grep -qF 'pub struct HoldoutReport' "$_CEVAL"
+grep -qF 'pub struct SafetyBoundaryReport' "$_CEVAL"
+grep -qF 'pub struct PromotionRecommendation' "$_CEVAL"
+grep -qF 'pub struct CandidateResidualReport' "$_CEVAL"
+grep -qF 'pub struct CandidateEvalMatrix' "$_CEVAL"
+# Exactly three verdicts, all three names present, and NO verdict contains "accepted".
+grep -qF 'pub const CANDIDATE_EVAL_VERDICT_COUNT: usize = 3;' "$_CEVAL"
+for _vn in candidate_rejected candidate_needs_more_evidence candidate_ready_for_promotion_review; do
+  if ! grep -qF "\"$_vn\"" "$_CEVAL"; then exit 1; fi
+done
+if grep -A4 'pub const CANDIDATE_EVAL_VERDICT_NAMES' "$_CEVAL" | grep -q 'accepted'; then exit 1; fi
+# The rejection count is exactly eighteen, and all eighteen rejection-reason names are present.
+grep -qF 'pub const CANDIDATE_EVAL_REJECTION_COUNT: usize = 18;' "$_CEVAL"
+for _rr in missing_candidate not_candidate_only missing_s8_requirement missing_baseline missing_holdout \
+           reading_regression grounding_regression curation_regression replay_regression \
+           horizon_boundary_regression refusal_regression hallucination_regression holdout_contamination \
+           memorization_leakage adversarial_prompt_failure long_horizon_failure \
+           dry_run_production_smoke_failure serialized_candidate_eval_tamper_refused; do
+  if ! grep -qF "\"$_rr\"" "$_CEVAL"; then exit 1; fi
+done
+# The scenario count comes from the observed matrix, and all twenty-three scenario names are present.
+grep -qF 'pub const CANDIDATE_EVAL_SCENARIO_COUNT: usize = 23;' "$_CEVAL"
+for _cs in missing_candidate_rejected non_candidate_only_rejected candidate_missing_s8_requirement_rejected \
+           missing_baseline_rejected missing_holdout_rejected target_failure_improves_ready_for_review \
+           no_target_improvement_needs_more_evidence reading_regression_rejected grounding_regression_rejected \
+           curation_regression_rejected replay_regression_rejected horizon_boundary_regression_rejected \
+           refusal_regression_rejected hallucination_regression_rejected holdout_contamination_rejected \
+           memorization_leakage_rejected adversarial_prompt_failure_rejected long_horizon_failure_rejected \
+           dry_run_production_smoke_failure_rejected ready_for_review_not_promotion \
+           ready_for_review_not_deployment ready_for_review_not_baseline_replacement \
+           serialized_candidate_eval_tamper_refused; do
+  if ! grep -qF "\"$_cs\"" "$_CEVAL"; then exit 1; fi
+done
+# It CONSUMES the TRAIN-0 candidate (the real run_training_attempt artifact), and re-verifies it.
+grep -qF 'run_training_attempt(' "$_CEVAL"
+grep -qF 'TrainingCandidateArtifact' "$_CEVAL"
+grep -qF 'CandidateAcceptance::CandidateOnly' "$_CEVAL"
+grep -qF 'requires_s8_evaluation' "$_CEVAL"
+# Baseline comparison + holdout check are required (their missing-cases reject).
+grep -qF 'MissingBaseline' "$_CEVAL"
+grep -qF 'MissingHoldout' "$_CEVAL"
+grep -qF 'NotCandidateOnly' "$_CEVAL"
+grep -qF 'MissingS8Requirement' "$_CEVAL"
+# A critical regression rejects, and the seven regression dimensions are all enforced.
+for _reg in ReadingRegression GroundingRegression CurationRegression ReplayRegression \
+            HorizonBoundaryRegression RefusalRegression HallucinationRegression; do
+  if ! grep -qF "$_reg" "$_CEVAL"; then exit 1; fi
+done
+# ready_for_review is NOT promotion/deployment/acceptance/baseline-replacement: every forbidden flag is
+# sourced from the structural const (false); no path sets any true.
+grep -qF 'const READY_FOR_REVIEW_AUTHORIZES_PROMOTION: bool = false;' "$_CEVAL"
+grep -qF 'accepts_model: READY_FOR_REVIEW_AUTHORIZES_PROMOTION' "$_CEVAL"
+grep -qF 'promotes_model: READY_FOR_REVIEW_AUTHORIZES_PROMOTION' "$_CEVAL"
+grep -qF 'deploys_model: READY_FOR_REVIEW_AUTHORIZES_PROMOTION' "$_CEVAL"
+grep -qF 'replaces_baseline: READY_FOR_REVIEW_AUTHORIZES_PROMOTION' "$_CEVAL"
+grep -qF 'opens_production: READY_FOR_REVIEW_AUTHORIZES_PROMOTION' "$_CEVAL"
+grep -qF 'training_justified: READY_FOR_REVIEW_AUTHORIZES_PROMOTION' "$_CEVAL"
+if grep -qE '(accepts_model|promotes_model|deploys_model|replaces_baseline|creates_truth|creates_memory|creates_evidence|grants_authority|training_justified|opens_production):[[:space:]]*true' "$_CEVAL"; then exit 1; fi
+# Re-derived, never trusted: Serialize but NEVER derived Deserialize; verify re-derives + byte-compares
+# with a non-vacuous tamper guard.
+grep -qF 'Serialize' "$_CEVAL"
+test "$(grep -cE 'derive\([^)]*Deserialize' "$_CEVAL")" -eq 0
+grep -qF 'tampered != canonical' "$_CEVAL"
+# The battery tests assert the candidate consumption, the missing-candidate / non-candidate-only rejects,
+# the target-improvement ready-for-review, the no-improvement needs-more-evidence, the critical-regression
+# reject, the no-accepted-verdict rule, the twenty-three scenarios, and the serialized re-derivation.
+for _ct in 'fn eval_consumes_a_real_train0_candidate' 'fn missing_candidate_is_rejected' \
+           'fn non_candidate_only_is_rejected' \
+           'fn target_improvement_is_ready_for_promotion_review' \
+           'fn no_target_improvement_needs_more_evidence' \
+           'fn critical_regression_rejects_even_with_target_improvement' \
+           'fn ready_for_review_is_not_promotion_or_deployment' \
+           'fn no_verdict_is_named_accepted' \
+           'fn matrix_has_the_twenty_three_named_scenarios' \
+           'fn report_is_deterministic_and_re_derives_refusing_tampering'; do
+  if ! grep -qF "$_ct" "$_CEVAL"; then exit 1; fi
+done
+# The nine-line MODEL-EVAL-1 boundary is recorded verbatim.
+for _cb in 'The candidate evaluation path measures whether a candidate model artifact is ready for promotion review.' \
+           'It does not accept models.' 'It does not promote models.' 'It does not deploy models.' \
+           'It does not replace the baseline.' 'It does not create truth.' 'It does not create memory.' \
+           'It does not create evidence.' 'It does not grant new authority.'; do
+  if ! grep -qF "$_cb" "$_CEVAL"; then exit 1; fi
+done
+# MODEL-EVAL-1 makes NO false acceptance/promotion/training claim in its source.
+if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' "$_CEVAL"; then exit 1; fi
+if grep -qE 'accepts_model[[:space:]]*[=:][[:space:]]*true' "$_CEVAL"; then exit 1; fi

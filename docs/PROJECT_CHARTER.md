@@ -3,6 +3,63 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-26-Y — Candidate-model acceptance battery (MODEL-EVAL-1)
+
+**Decision.** Add `crates/cognitive-demo/src/candidate_eval.rs`: the deterministic candidate-model ACCEPTANCE
+BATTERY. It answers exactly ONE question — *is a TRAIN-0 candidate clean enough to enter a later promotion
+REVIEW?* — never "is the candidate now the model?". It CONSUMES a TRAIN-0 `TrainingCandidateArtifact` produced by
+the REAL `run_training_attempt` harness (the SCORE-0 → FAIL-0 → MODEL-EVAL → TRAIN-GATE → TRAIN-ATTEMPT →
+CANDIDATE-EVAL chain — the candidate is EVALUATED here, never CREATED; because `TrainingCandidateArtifact` is
+`Serialize`-but-never-`Deserialize`, it cannot be forged from bytes). Defense in depth: it re-verifies the
+candidate is genuinely `CandidateOnly` (`is_candidate_only` checks the acceptance tag AND every forbidden flag —
+a candidate that claims `promoted`/`deployed`/etc. is rejected as `NotCandidateOnly`) and that it still
+`requires_s8_evaluation`. It compares the candidate against a pinned `BaselineModelRef` across seven
+regression-guarded `EvalDimension`s (reading, grounding, curation, replay, horizon-boundary, refusal,
+hallucination — `improved()`/`regressed()` DERIVED from integer scores + direction, never trusted flags) plus the
+`target_recurring_failure` improvement target, and runs holdout / contamination / memorization / adversarial /
+long-horizon / dry-run-production-smoke checks (`HoldoutReport` + `SafetyBoundaryReport`). Verdict precedence
+(`evaluate_candidate`): ANY structural gap, failed check, or critical regression → `CandidateRejected` (18
+`CandidateEvalRejection` reasons); clean but no target improvement → `CandidateNeedsMoreEvidence`; clean
+improvement with no critical regression and every check passing → `CandidateReadyForPromotionReview`. **Exactly
+three verdicts, and NONE is named `accepted`** — acceptance is a later promotion gate's job, not S8's (a unit test
++ a release_check grep both forbid `accepted` in any verdict slug). Crucially, `candidate_ready_for_promotion_review`
+is permission to enter a REVIEW only: the report's and `PromotionRecommendation`'s `accepts_model` / `promotes_model`
+/ `deploys_model` / `replaces_baseline` / `creates_evidence` / `creates_memory` / `grants_authority` /
+`training_justified` / `opens_production` are ALL sourced from `const READY_FOR_REVIEW_AUTHORIZES_PROMOTION = false`,
+and the deeper P12 gate (`reading_train_gate::decide`) stays `training_justified = false`. A fixed 23-scenario
+`CandidateEvalMatrix` runs the real battery over missing-candidate / non-candidate-only / missing-s8 / missing-
+baseline / missing-holdout / target-improves-ready / no-improvement-needs-evidence / each-of-seven-regressions /
+contamination / leakage / adversarial / long-horizon / smoke / ready-is-not-promotion/deployment/baseline-
+replacement / tamper cases and records the OBSERVED verdict (`promotion_never_opens` is the conjunction). All records
+derive `Serialize` but NOT `Deserialize` (re-derived + byte-compared via `verify_candidate_eval_report_json` /
+`verify_candidate_eval_matrix_json`, non-vacuous `tampered != canonical` guard). 22 lib unit tests; release_check
+bumps the cognitive-demo unit-count pin 330 → 352 and pins the verdict count (3) + names + the no-`accepted` rule,
+the rejection count (18) + names, the scenario count (23) + names, the `run_training_attempt` / `TrainingCandidateArtifact`
+/ `CandidateAcceptance::CandidateOnly` / `requires_s8_evaluation` consumption, the baseline+holdout requirements, the
+seven regression enforcements, the `READY_FOR_REVIEW_AUTHORIZES_PROMOTION = false` const + flag sourcing, the no-`: true`
+forbidden-action guard, the Serialize-not-Deserialize / re-derive path, the test names, and the 9-line boundary. A
+capability sprint — library-only (no CLI), no Cargo change, no frozen-crate edit; it evaluates candidate artifacts,
+never creates them.
+
+**Why.** TRAIN-0 produces a candidate; something must decide, deterministically and adversarially, whether that
+candidate is even allowed to be *looked at* for promotion — without that decision itself becoming acceptance. The
+danger is collapsing "the candidate looks good" into "the candidate is the model": an eval that accepts, promotes,
+deploys, or silently swaps the baseline. MODEL-EVAL-1 refuses that collapse structurally. It measures readiness for a
+REVIEW and nothing more: it re-derives every comparison from pinned hashes and integer scores, it rejects on any
+critical regression even when the target improved, it fails closed on a missing baseline / holdout / candidate, and
+its single affirmative output (`ready_for_review`) is provably inert on every promotion/deployment/acceptance/baseline
+axis. The naming rule — no verdict named `accepted` — is the linguistic enforcement of the same boundary: S8 cannot
+even *say* "accepted". This keeps the honest ordering intact: a candidate may earn a review, but acceptance,
+promotion, and deployment remain later, separately-governed gates.
+
+**Boundary recorded.** The candidate evaluation path measures whether a candidate model artifact is ready for
+promotion review. It does not accept models. It does not promote models. It does not deploy models. It does not
+replace the baseline. It does not create truth. It does not create memory. It does not create evidence. It does not
+grant new authority (every report/recommendation forbidden-action flag is false; `promotion_never_opens` holds across
+the matrix; the real P12 `reading_train_gate::decide(&[],&[]).training_justified` stays false). P12 stays
+`training_justified=false`; P13–P15 stay closed; `release_check.sh` remains green + byte-silent. Canonical artifact:
+[`crates/cognitive-demo/src/candidate_eval.rs`](../crates/cognitive-demo/src/candidate_eval.rs).
+
 ## DD-2026-06-26-X — Gated, deterministic local training-attempt harness (TRAIN-0)
 
 **Decision.** Add `crates/cognitive-demo/src/training_attempt.rs`: the first gated training-ATTEMPT harness. It is
