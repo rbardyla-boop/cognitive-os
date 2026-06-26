@@ -44,9 +44,10 @@ use serde::Serialize;
 /// [`horizon`] for the boundary and invariants.
 mod horizon;
 pub use horizon::{
-    horizon_matrix, horizon_matrix_json, run_horizon, run_horizon_json, verify_horizon_json,
-    verify_horizon_matrix_json, HorizonError, HorizonLevel, HorizonStep, HorizonTrace, Module,
-    HORIZON_BOUNDARY_LINES,
+    horizon_failure_matrix, horizon_failure_matrix_json, horizon_matrix, horizon_matrix_json,
+    run_horizon, run_horizon_json, verify_horizon_json, verify_horizon_matrix_json, FailureCell,
+    HorizonError, HorizonLevel, HorizonStep, HorizonTrace, Module, RefusalMechanism,
+    FAILURE_SCENARIO_COUNT, HORIZON_BOUNDARY_LINES, HORIZON_FAILURE_BOUNDARY_LINES,
 };
 
 /// What can go wrong building the end-to-end trace. Every failure is explicit; nothing is

@@ -3,6 +3,38 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-22-Q — Horizon boundary failure matrix (HORIZON-2)
+
+**Decision.** Extend `crates/cognitive-demo/src/horizon.rs` with a FIXED set of 10 named failure scenarios
+(`horizon_failure_matrix()`): each constructs a BAD horizon input and runs the REAL machinery over it, recording
+the OBSERVED refusal. Scenarios: `uncurated_candidate_refused`, `missing_grounding_refused`,
+`missing_replay_refused`, `dream_to_evidence_refused`, `hypothesis_to_evidence_refused`, `training_open_refused`,
+`authority_escalation_refused`, `max_turns_overflow_refused`, `unknown_horizon_level_refused`,
+`serialized_trace_replay_refused`. The refusal mechanism per cell is REAL, not asserted: the curation cells run
+the DATA-0 `curate()` and observe the bad item land in rejected/quarantined (never admitted); the
+evidence/authority/training cells re-derive a real `run_horizon_json` trace, apply a single textual mutation
+(guarded `mutated != canonical` so a no-op cannot pass), and observe `verify_horizon_json` refuse it; the
+overflow cell uses the real `max_turns` ceiling (`within_turn_bound`); the unknown-level cell uses
+`HorizonLevel::from_slug` returning `None`; the serialized-trace cell tampers a real trace and observes the
+re-derive verifier refuse it. Each cell also records `training_still_closed` (the P12 verdict decided after the
+attempt). `FailureCell`/`RefusalMechanism` derive `Serialize` but NOT `Deserialize`. Adds `from_slug` +
+`within_turn_bound` to `HorizonLevel`; 16 lib unit tests; release_check bumps the cognitive-demo unit-count pin
+190 → 206 and pins the scenario count, names, mechanisms, real-exercise calls, and the 9-line boundary.
+
+**Why.** HORIZON-0 proved valid bounded compositions hold the gates; HORIZON-1 documented and smoked the operator
+path. Before freezing the horizon track, the gate must be auditable on the NEGATIVE side too: that a bad horizon
+trace fails closed across every protected boundary — curation, grounding, replay, authority, promotion, training,
+turn-bound, level-lookup, and serialized-trace trust. The matrix runs the REAL verifier/curator so it cannot
+drift from actual refusal behavior, and a serialized `HorizonTrace` is never accepted as authority (only
+re-derived and byte-compared).
+
+**Boundary recorded.** The horizon failure matrix mutates bounded traces. It observes refusals. It does not
+create truth. It does not create memory. It does not train. It does not execute external actions. It does not
+promote hypotheses. It does not grant new authority. Training eligibility remains closed (every cell records
+`training_still_closed`; the real `decide(&[],&[])` stays `training_justified=false`; P12 unmoved, P13–P15
+closed). `release_check.sh` remains green + byte-silent. Canonical artifact:
+[`crates/cognitive-demo/src/horizon.rs`](../crates/cognitive-demo/src/horizon.rs).
+
 ## DD-2026-06-22-P — Horizon operator guard: manual + smoke integration (HORIZON-1)
 
 **Decision.** Document and smoke-test the HORIZON-0 operator path. `OPERATOR_MANUAL.md` gains §16 ("How to

@@ -1323,11 +1323,11 @@ grep -q 'fn trace_does_not_change_training_gate' crates/cognitive-demo/src/lib.r
 grep -q 'fn trace_does_not_change_verifier_receipt' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_records_every_stage_id_and_links_the_chain' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_grants_no_new_authority' crates/cognitive-demo/src/lib.rs
-# Unit-test REALITY pin: exactly the 190 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
+# Unit-test REALITY pin: exactly the 206 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
 # MTRACE-1 (12) + MTRACE-2 (12) + DOCFLOW-0 (10) + DOCFLOW-2 (10) + CORPUS-0 (12) + CORPUS-2 (12) + NOVELTY-0 (15) +
-# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
+# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
 _int0_unit="$(cargo test --offline --lib --manifest-path crates/cognitive-demo/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 190
+test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 206
 test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
 # Determinism / no side effects: the trace is a pure, in-memory function — no clock, entropy, or network
 # anywhere in src/, and no floats anywhere in the crate. (`std::process::exit` in the CLI shell is a clean
@@ -3919,3 +3919,52 @@ done
 grep -qF 'horizon outcome did not run (vacuous)' scripts/operator_smoke.sh
 # The smoke makes NO false training claim (re-asserted for the horizon additions).
 if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' scripts/operator_smoke.sh; then exit 1; fi
+
+# ---------------------------------------------------------------------------------------------------
+# HORIZON-2 — the bounded-horizon failure matrix. crates/cognitive-demo/src/horizon.rs adds a FIXED, named set
+# of 10 failure scenarios. Each constructs a BAD horizon input — an uncurated / ungrounded / replay-less
+# candidate, a real horizon trace MUTATED to forge evidence / authority / training, an over-budget step count,
+# an unknown level, or a tampered serialized trace — and runs the REAL machinery (the DATA-0 curate, the
+# re-derive verify_horizon_json, the max_turns ceiling, from_slug) over it, RECORDING that the bad input was
+# REFUSED. It only OBSERVES refusals: it exercises the real verifier (NOT a hard-coded table — a no-op mutation
+# cannot pass because the cell requires `mutated != canonical`), never trusts a serialized HorizonTrace as
+# authority, and keeps the P12 verdict closed in every cell. The cargo unit-count pin above already RUNS the 16
+# HORIZON-2 tests; the source pins below stop a failure cell from being silently dropped or made vacuous.
+# Doctrine: The horizon failure matrix mutates bounded traces. It observes refusals. It does not create truth. It
+# does not create memory. It does not train. It does not execute external actions. It does not promote
+# hypotheses. It does not grant new authority. Training eligibility remains closed.
+# ---------------------------------------------------------------------------------------------------
+_HZ2=crates/cognitive-demo/src/horizon.rs
+grep -qF 'pub fn horizon_failure_matrix(' "$_HZ2"
+grep -qF 'pub const FAILURE_SCENARIO_COUNT: usize = 10;' "$_HZ2"
+# The matrix EXERCISES the real machinery — it is NOT a hard-coded table: the re-derive verifier, the real
+# curator, a non-vacuous mutation guard, the unknown-level lookup, and the turn-bound check are all called.
+grep -qF 'verify_horizon_json(' "$_HZ2"
+grep -qF 'curate(' "$_HZ2"
+grep -qF 'mutated != canonical' "$_HZ2"
+grep -qF 'HorizonLevel::from_slug(' "$_HZ2"
+grep -qF 'within_turn_bound(' "$_HZ2"
+# The ten failure scenario names are all present (a dropped cell fails closed here).
+for _hz2 in uncurated_candidate_refused missing_grounding_refused missing_replay_refused \
+            dream_to_evidence_refused hypothesis_to_evidence_refused training_open_refused \
+            authority_escalation_refused max_turns_overflow_refused unknown_horizon_level_refused \
+            serialized_trace_replay_refused; do
+  if ! grep -qF "$_hz2" "$_HZ2"; then exit 1; fi
+done
+# The refusal + training-closed cells and the five refusal mechanisms are recorded.
+grep -qF 'pub refused: bool' "$_HZ2"
+grep -qF 'pub training_still_closed: bool' "$_HZ2"
+for _hz2m in 'RefusalMechanism::CurationRejected' 'RefusalMechanism::CurationQuarantined' \
+             'RefusalMechanism::VerifyMismatch' 'RefusalMechanism::TurnBoundExceeded' \
+             'RefusalMechanism::UnknownLevel'; do
+  if ! grep -qF "$_hz2m" "$_HZ2"; then exit 1; fi
+done
+# The nine-line HORIZON-2 failure-matrix boundary is recorded verbatim.
+for _hz2b in 'The horizon failure matrix mutates bounded traces.' 'It observes refusals.' \
+             'It does not create truth.' 'It does not create memory.' 'It does not train.' \
+             'It does not execute external actions.' 'It does not promote hypotheses.' \
+             'It does not grant new authority.' 'Training eligibility remains closed.'; do
+  if ! grep -qF "$_hz2b" "$_HZ2"; then exit 1; fi
+done
+# HORIZON-2 makes NO false training claim in the matrix source.
+if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' "$_HZ2"; then exit 1; fi
