@@ -102,6 +102,22 @@ pub use failure_detector::{
     FAIL_BOUNDARY_LINES, RECURRENCE_THRESHOLD,
 };
 
+/// P11-MODEL-EVAL — the honest fork. Consumes FAIL-0 `ModelNeedCandidate`s plus baseline /
+/// prompt / retrieval / horizon / substrate comparison observations and emits a deterministic
+/// `ModelNeedVerdict` (no_training_needed / improve_substrate_first / collect_more_data /
+/// training_candidate_only) WITHOUT opening training, touching weights, or promoting a model.
+/// `training_candidate_only` is a candidacy flag for a later explicit gate, never authorization.
+/// See [`model_eval`] for the boundary.
+mod model_eval;
+pub use model_eval::{
+    evaluate_model_need, evaluate_model_need_json, model_eval_matrix, model_eval_matrix_json,
+    verify_model_eval_matrix_json, verify_model_eval_report_json, EvalComparison, EvalCondition,
+    EvalRun, ModelEvalBattery, ModelEvalBoundary, ModelEvalError, ModelEvalMatrix,
+    ModelEvalScenarioCell, ModelNeedEvalReport, ModelNeedEvidence, ModelNeedVerdict,
+    ResidualFailure, TrainingCandidateSignal, MODEL_EVAL_BOUNDARY_LINES, MODEL_EVAL_SCENARIO_COUNT,
+    MODEL_NEED_MIN_RESIDUALS, VERDICT_COUNT, VERDICT_NAMES,
+};
+
 /// What can go wrong building the end-to-end trace. Every failure is explicit; nothing is
 /// silently coerced or fabricated. The first three wrap a frozen-crate error; the last two
 /// are INT-0's own provenance invariants (a trace that did not start from a verified receipt,

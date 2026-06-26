@@ -1323,11 +1323,11 @@ grep -q 'fn trace_does_not_change_training_gate' crates/cognitive-demo/src/lib.r
 grep -q 'fn trace_does_not_change_verifier_receipt' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_records_every_stage_id_and_links_the_chain' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_grants_no_new_authority' crates/cognitive-demo/src/lib.rs
-# Unit-test REALITY pin: exactly the 271 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
+# Unit-test REALITY pin: exactly the 289 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
 # MTRACE-1 (12) + MTRACE-2 (12) + DOCFLOW-0 (10) + DOCFLOW-2 (10) + CORPUS-0 (12) + CORPUS-2 (12) + NOVELTY-0 (15) +
-# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) + CORPUS-HARVEST-0 (26) + SCORE-0 (20) + FAIL-0 (19) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
+# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) + CORPUS-HARVEST-0 (26) + SCORE-0 (20) + FAIL-0 (19) + P11-MODEL-EVAL (18) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
 _int0_unit="$(cargo test --offline --lib --manifest-path crates/cognitive-demo/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 271
+test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 289
 test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
 # Determinism / no side effects: the trace is a pure, in-memory function — no clock, entropy, or network
 # anywhere in src/, and no floats anywhere in the crate. (`std::process::exit` in the CLI shell is a clean
@@ -4297,3 +4297,102 @@ for _fbl in 'The failure detector observes recurring clean failures.' 'It does n
 done
 # FAIL-0 makes NO false training claim in its source.
 if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' "$_FAIL"; then exit 1; fi
+
+# ---------------------------------------------------------------------------------------------------
+# P11-MODEL-EVAL — the honest fork. It CONSUMES FAIL-0 ModelNeedCandidate records (built by the REAL
+# detect_failures() over REAL SCORE-0 failures — the SCORE-0 -> FAIL-0 -> MODEL-EVAL chain) plus
+# baseline/prompt/retrieval/horizon/substrate comparison observations, and emits a deterministic
+# ModelNeedVerdict (no_training_needed / improve_substrate_first / collect_more_data /
+# training_candidate_only) WITHOUT opening training, touching weights, or promoting a model. A failure
+# REMOVED by a non-weight fix is no model need; a SUBSTRATE-levered failure -> improve_substrate_first; a
+# RESIDUAL clean failure that survives ALL cleanup AND a trustworthy holdout is the only thing that can
+# yield training_candidate_only — and even that needs >= MODEL_NEED_MIN_RESIDUALS (a single residual falls
+# to collect_more_data), and a contaminated holdout or memorization leakage forces collect_more_data (never
+# passes). training_candidate_only is NOT authorization: the report's + signal's training_justified /
+# opens_training / authorizes_training are all sourced from the const TRAINING_CANDIDATE_IS_AUTHORIZATION =
+# false. Reports are Serialize but NOT Deserialize (re-derived + byte-compared with a non-vacuous tamper
+# guard). The cargo unit-count pin above already RUNS the 18 P11-MODEL-EVAL tests; the source pins below stop
+# the pipeline from hard-coding verdicts, dropping the FAIL-0 consumption, passing contaminated/leaked
+# evidence, or opening training. A capability sprint that ADDS the eval module + tests — no other crate
+# changes. Doctrine: The model-need evaluation compares residual clean failures. It does not create truth. It
+# does not create memory. It does not create evidence. It does not train. It does not execute external
+# actions. It does not promote models. It does not grant new authority. TrainingCandidateOnly is not training
+# authorization.
+# ---------------------------------------------------------------------------------------------------
+_MEVAL=crates/cognitive-demo/src/model_eval.rs
+test -f "$_MEVAL"
+# The module is wired into the crate and its public entrypoints exist.
+grep -qF 'mod model_eval;' crates/cognitive-demo/src/lib.rs
+grep -qF 'pub use model_eval::' crates/cognitive-demo/src/lib.rs
+grep -qF 'pub fn evaluate_model_need(' "$_MEVAL"
+grep -qF 'pub fn verify_model_eval_report_json(' "$_MEVAL"
+grep -qF 'pub fn model_eval_matrix(' "$_MEVAL"
+grep -qF 'pub fn verify_model_eval_matrix_json(' "$_MEVAL"
+# The ten MODEL-EVAL core objects exist.
+grep -qF 'pub struct ModelNeedEvalReport' "$_MEVAL"
+grep -qF 'pub enum ModelNeedVerdict' "$_MEVAL"
+grep -qF 'pub struct ModelEvalBattery' "$_MEVAL"
+grep -qF 'pub struct EvalRun' "$_MEVAL"
+grep -qF 'pub enum EvalCondition' "$_MEVAL"
+grep -qF 'pub struct EvalComparison' "$_MEVAL"
+grep -qF 'pub struct ResidualFailure' "$_MEVAL"
+grep -qF 'pub struct ModelNeedEvidence' "$_MEVAL"
+grep -qF 'pub struct TrainingCandidateSignal' "$_MEVAL"
+grep -qF 'pub struct ModelEvalMatrix' "$_MEVAL"
+# The verdict count is exactly four, and all four verdict names are present.
+grep -qF 'pub const VERDICT_COUNT: usize = 4;' "$_MEVAL"
+for _vn in no_training_needed improve_substrate_first collect_more_data training_candidate_only; do
+  if ! grep -qF "$_vn" "$_MEVAL"; then exit 1; fi
+done
+# The scenario count comes from the observed matrix, and all fifteen scenario names are present.
+grep -qF 'pub const MODEL_EVAL_SCENARIO_COUNT: usize = 15;' "$_MEVAL"
+for _es in no_candidates_no_training_needed substrate_failures_improve_substrate_first \
+           insufficient_evidence_collect_more_data unstable_candidate_collect_more_data \
+           residual_clean_failure_training_candidate_only prompt_fix_removes_model_need \
+           retrieval_fix_removes_model_need horizon_fix_removes_model_need \
+           substrate_fix_removes_model_need holdout_clean_recorded holdout_contamination_detected \
+           memorization_leakage_detected single_candidate_not_enough \
+           serialized_eval_report_tamper_refused training_candidate_only_not_authorization; do
+  if ! grep -qF "\"$_es\"" "$_MEVAL"; then exit 1; fi
+done
+# It CONSUMES real FAIL-0 ModelNeedCandidates (built via the real detect_failures over SCORE-0 failures).
+grep -qF 'ModelNeedCandidate' "$_MEVAL"
+grep -qF 'detect_failures(' "$_MEVAL"
+grep -qF 'verifier_score_matrix()' "$_MEVAL"
+# The residual policy is explicit (a single candidate is not enough by itself).
+grep -qF 'pub const MODEL_NEED_MIN_RESIDUALS: usize = 2;' "$_MEVAL"
+# Holdout-contamination and memorization-leakage detection exist (and force collect_more_data).
+grep -qF 'holdout_contaminated' "$_MEVAL"
+grep -qF 'memorization_leaked' "$_MEVAL"
+# training_candidate_only is NOT authorization: every training flag is sourced from the structural const
+# (false); no path sets any true.
+grep -qF 'const TRAINING_CANDIDATE_IS_AUTHORIZATION: bool = false;' "$_MEVAL"
+grep -qF 'training_justified: TRAINING_CANDIDATE_IS_AUTHORIZATION' "$_MEVAL"
+grep -qF 'authorizes_training' "$_MEVAL"
+grep -qF 'opens_training' "$_MEVAL"
+if grep -qE '(opened_training|created_truth|created_memory|created_evidence|granted_authority|promoted_model|executed_external|authorizes_training|opens_training|training_justified):[[:space:]]*true' "$_MEVAL"; then exit 1; fi
+# Re-derived, never trusted: Serialize but NEVER derived Deserialize; verify re-derives + byte-compares with
+# a non-vacuous tamper guard (a no-op mutation cannot pass).
+grep -qF 'Serialize' "$_MEVAL"
+test "$(grep -cE 'derive\([^)]*Deserialize' "$_MEVAL")" -eq 0
+grep -qF 'tampered != canonical' "$_MEVAL"
+# The eval tests assert the verdicts, the chain to real FAIL-0 candidates, the contamination/leakage refusal,
+# the single-not-enough rule, training closure, and the serialized re-derivation.
+for _et in 'fn candidates_come_from_the_real_fail0_detector' \
+           'fn two_residual_clean_failures_yield_training_candidate_only_not_authorization' \
+           'fn single_residual_is_not_enough' 'fn contaminated_holdout_never_passes' \
+           'fn memorization_leakage_never_passes' \
+           'fn evaluation_never_opens_training_even_for_training_candidate_only' \
+           'fn matrix_has_the_fifteen_named_scenarios' \
+           'fn report_is_deterministic_and_re_derives_refusing_tampering'; do
+  if ! grep -qF "$_et" "$_MEVAL"; then exit 1; fi
+done
+# The nine-line MODEL-EVAL boundary is recorded verbatim.
+for _eb in 'The model-need evaluation compares residual clean failures.' 'It does not create truth.' \
+           'It does not create memory.' 'It does not create evidence.' 'It does not train.' \
+           'It does not execute external actions.' 'It does not promote models.' \
+           'It does not grant new authority.' 'TrainingCandidateOnly is not training authorization.'; do
+  if ! grep -qF "$_eb" "$_MEVAL"; then exit 1; fi
+done
+# P11-MODEL-EVAL makes NO false training claim in its source.
+if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' "$_MEVAL"; then exit 1; fi

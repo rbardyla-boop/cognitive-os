@@ -3,6 +3,53 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-26-V — Model-need evaluation, the honest fork (P11-MODEL-EVAL)
+
+**Decision.** Add `crates/cognitive-demo/src/model_eval.rs`: the model-need evaluation — the honest fork. It
+CONSUMES FAIL-0 `ModelNeedCandidate` records (built by the REAL `detect_failures()` over REAL SCORE-0 failure
+observations — the full SCORE-0 → FAIL-0 → MODEL-EVAL chain, no fabricated candidates) plus a battery of
+comparison observations (`EvalComparison` under `EvalCondition`s — baseline / prompt / retrieval / horizon /
+substrate improved) and the holdout / memorization / stability signals, and emits a deterministic
+`ModelNeedVerdict` — one of four: `no_training_needed`, `improve_substrate_first`, `collect_more_data`,
+`training_candidate_only`. The verdict is a fixed precedence: no runs → `no_training_needed`; any contaminated
+holdout or memorization leakage → `collect_more_data` (never passes); ≥ `MODEL_NEED_MIN_RESIDUALS` (= 2)
+trustworthy residual clean failures → `training_candidate_only`; a single residual → `collect_more_data` (one
+candidate is not enough); substrate-levered failures dominate → `improve_substrate_first`; an untrustworthy run
+with no residual → `collect_more_data`; otherwise (all resolved by prompt/retrieval/horizon fixes, or none) →
+`no_training_needed`. A `ResidualFailure` is a clean model failure that persists across the baseline AND every
+non-weight fix AND a clean present holdout. `ModelNeedEvidence` records every derived count; a
+`TrainingCandidateSignal` is emitted ONLY on `training_candidate_only`. Crucially, `training_candidate_only` is
+NOT training authorization: the report's and signal's `training_justified` / `opens_training` /
+`authorizes_training` are all sourced from the const `TRAINING_CANDIDATE_IS_AUTHORIZATION = false`. A fixed
+15-scenario `ModelEvalMatrix` runs the real evaluator over no-candidates / substrate / insufficient / unstable /
+residual / each-fix-removes / holdout-clean / contamination / leakage / single / tamper / not-authorization
+cases and records the OBSERVED verdict. All records derive `Serialize` but NOT `Deserialize` (re-derived +
+byte-compared via `verify_model_eval_report_json` / `verify_model_eval_matrix_json`, with a non-vacuous
+`tampered != canonical` guard). 18 lib unit tests; release_check bumps the cognitive-demo unit-count pin 271 →
+289 and pins the verdict count (4) + names, the scenario count (15) + names, the FAIL-0 `detect_failures()` /
+`ModelNeedCandidate` consumption, the residual policy, the holdout-contamination + memorization-leakage
+detection, the `TRAINING_CANDIDATE_IS_AUTHORIZATION = false` const, the no-`: true` boundary/training guard, the
+Serialize-not-Deserialize / re-derive path, the test names, and the 9-line boundary. A capability sprint —
+library-only (no CLI), no Cargo change, no frozen-crate edit.
+
+**Why.** This is the fork the whole roadmap has been building toward: with a verified substrate (SCORE-0
+scores, FAIL-0 candidates), decide HONESTLY whether the next action is to train — or, far more likely, to
+improve the substrate, collect more data, or do nothing. The danger is treating "a model need exists" as "train
+now". MODEL-EVAL refuses that: it weighs each candidate against non-weight fixes (a failure a prompt/retrieval/
+horizon/substrate improvement removes is not a model gap), demands a trustworthy holdout (contamination or
+memorization leakage forces `collect_more_data`), requires more than one residual, and even its strongest
+verdict — `training_candidate_only` — is explicitly a candidacy flag for a LATER explicit gate, not
+authorization. Training stays closed regardless of the verdict. The honest, conservative default holds: most
+batteries resolve to no-training / improve-substrate / collect-more-data.
+
+**Boundary recorded.** The model-need evaluation compares residual clean failures. It does not create truth. It
+does not create memory. It does not create evidence. It does not train. It does not execute external actions.
+It does not promote models. It does not grant new authority. TrainingCandidateOnly is not training
+authorization (every report/signal training flag is false; `training_never_opens` holds across the matrix; the
+real P12 `reading_train_gate::decide(&[],&[]).training_justified` stays false). P12 stays
+`training_justified=false`; P13–P15 stay closed; `release_check.sh` remains green + byte-silent. Canonical
+artifact: [`crates/cognitive-demo/src/model_eval.rs`](../crates/cognitive-demo/src/model_eval.rs).
+
 ## DD-2026-06-26-U — Recurring-clean-failure detector, candidate not authorization (FAIL-0)
 
 **Decision.** Add `crates/cognitive-demo/src/failure_detector.rs`: the recurring-clean-failure detector. It
