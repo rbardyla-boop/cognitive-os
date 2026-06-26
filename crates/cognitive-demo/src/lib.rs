@@ -50,6 +50,20 @@ pub use horizon::{
     FAILURE_SCENARIO_COUNT, HORIZON_BOUNDARY_LINES, HORIZON_FAILURE_BOUNDARY_LINES,
 };
 
+/// CORPUS-HARVEST-0 — the first model-readiness corpus-harvest pipeline. Collects
+/// already-verified substrate artifacts into deterministic harvest receipts, routing
+/// every candidate through the DATA-0 `data_curator::curate()` gate first. No training,
+/// no memory write, no new authority. See [`corpus_harvest`] for the boundary.
+mod corpus_harvest;
+pub use corpus_harvest::{
+    corpus_harvest_matrix, corpus_harvest_matrix_json, harvest_corpus, harvest_corpus_json,
+    verify_harvest_json, CorpusHarvestManifest, CorpusHarvestMatrix, CuratedCorpusReceipt,
+    HarvestBoundaryChecks, HarvestDisposition, HarvestError, HarvestItem, HarvestOutcome,
+    HarvestScenarioCell, HarvestSource, QuarantineReport, QuarantinedHarvestItem,
+    RejectedHarvestItem, RejectedItemsReport, SourceCurationSummary, SplitIntegrityReport,
+    HARVEST_BOUNDARY_LINES, HARVEST_SCENARIO_COUNT,
+};
+
 /// What can go wrong building the end-to-end trace. Every failure is explicit; nothing is
 /// silently coerced or fabricated. The first three wrap a frozen-crate error; the last two
 /// are INT-0's own provenance invariants (a trace that did not start from a verified receipt,

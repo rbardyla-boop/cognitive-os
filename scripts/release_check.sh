@@ -1323,11 +1323,11 @@ grep -q 'fn trace_does_not_change_training_gate' crates/cognitive-demo/src/lib.r
 grep -q 'fn trace_does_not_change_verifier_receipt' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_records_every_stage_id_and_links_the_chain' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_grants_no_new_authority' crates/cognitive-demo/src/lib.rs
-# Unit-test REALITY pin: exactly the 206 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
+# Unit-test REALITY pin: exactly the 232 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
 # MTRACE-1 (12) + MTRACE-2 (12) + DOCFLOW-0 (10) + DOCFLOW-2 (10) + CORPUS-0 (12) + CORPUS-2 (12) + NOVELTY-0 (15) +
-# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
+# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) + CORPUS-HARVEST-0 (26) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
 _int0_unit="$(cargo test --offline --lib --manifest-path crates/cognitive-demo/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 206
+test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 232
 test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
 # Determinism / no side effects: the trace is a pure, in-memory function — no clock, entropy, or network
 # anywhere in src/, and no floats anywhere in the crate. (`std::process::exit` in the CLI shell is a clean
@@ -4034,3 +4034,78 @@ for _bl in 'The horizon track stages bounded interaction depth.' 'It composes ve
 done
 # The milestone makes NO false training claim (it never asserts training opened).
 if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' HORIZON_TRACK_MILESTONE.md; then exit 1; fi
+
+# ---------------------------------------------------------------------------------------------------
+# CORPUS-HARVEST-0 — the first model-readiness corpus-harvest pipeline. crates/cognitive-demo/src/corpus_harvest.rs
+# collects already-verified substrate artifacts into a deterministic CuratedCorpusReceipt, but owns NO admission
+# logic: every candidate is routed through the REAL DATA-0 gate (data_curator::curate) BEFORE it can become
+# harvest material — admitted items become HarvestItems, rejected items are preserved in RejectedItemsReport,
+# quarantined items are preserved in QuarantineReport (quarantine HOLDS, never deletes). It reads only
+# caller-supplied CandidateManifest values (no filesystem, no memory ingest), is Serialize but NOT Deserialize
+# (re-derived and byte-compared via verify_harvest_json with a non-vacuous tamper guard), and adds no
+# training-permitting state — eligibility is the curator's own Closed/CandidateOnly (is_eligible() == false), so
+# no harvest item is training eligible and opens_training is false in every scenario. The cargo unit-count pin
+# above already RUNS the 26 CORPUS-HARVEST-0 tests; the source pins below stop the pipeline from faking curation,
+# dropping a report, opening training, or trusting a serialized harvest. A capability sprint that ADDS the harvest
+# module + tests — no other crate changes; the DATA-0 gate is unchanged. Doctrine: The corpus harvest path
+# collects curated candidate data. It does not create truth. It does not create memory. It does not create
+# evidence. It does not train. It does not execute external actions. It does not promote hypotheses. It does not
+# grant new authority. Training eligibility remains closed.
+# ---------------------------------------------------------------------------------------------------
+_CH=crates/cognitive-demo/src/corpus_harvest.rs
+test -f "$_CH"
+# The module is wired into the crate and its public entrypoints exist.
+grep -qF 'mod corpus_harvest;' crates/cognitive-demo/src/lib.rs
+grep -qF 'pub use corpus_harvest::' crates/cognitive-demo/src/lib.rs
+grep -qF 'pub fn harvest_corpus(' "$_CH"
+grep -qF 'pub fn corpus_harvest_matrix(' "$_CH"
+grep -qF 'pub const HARVEST_SCENARIO_COUNT: usize = 14;' "$_CH"
+# It DELEGATES to the REAL curator — it does not decide admissibility itself (a faked pipeline drops this call).
+grep -qF 'use data_curator::' "$_CH"
+grep -qF 'let receipt = curate(&src.manifest);' "$_CH"
+# The harvest preserves admitted / rejected / quarantined items (never silently dropped) in their own records.
+grep -qF 'pub struct HarvestItem' "$_CH"
+grep -qF 'pub struct RejectedItemsReport' "$_CH"
+grep -qF 'pub struct QuarantineReport' "$_CH"
+grep -qF 'pub struct SplitIntegrityReport' "$_CH"
+grep -qF 'pub struct CorpusHarvestManifest' "$_CH"
+grep -qF 'pub struct CuratedCorpusReceipt' "$_CH"
+grep -qF 'pub struct CorpusHarvestMatrix' "$_CH"
+# Re-derived, never trusted: Serialize but NEVER derived Deserialize; verify re-derives + byte-compares with a
+# non-vacuous tamper guard (a no-op mutation cannot pass).
+grep -qF 'Serialize' "$_CH"
+test "$(grep -cE 'derive\([^)]*Deserialize' "$_CH")" -eq 0
+grep -qF 'pub fn verify_harvest_json(' "$_CH"
+grep -qF 'tampered != canonical' "$_CH"
+# All fourteen harvest scenario names are present (a dropped cell fails closed here).
+for _ch2 in clean_document_harvested clean_corpus_harvested missing_provenance_rejected \
+            duplicate_id_rejected empty_content_rejected unsupported_artifact_rejected \
+            prompt_injection_quarantined split_leakage_quarantined \
+            durable_claim_without_grounding_rejected trace_without_replay_rejected \
+            valid_split_recorded invalid_split_rejected candidate_only_not_training_eligible \
+            serialized_harvest_replay_refused; do
+  if ! grep -qF "\"$_ch2\"" "$_CH"; then exit 1; fi
+done
+# Training eligibility cannot open: the harvest reuses the curator's TrainingEligibility (it defines NO eligibility
+# enum of its own — no Eligible/TrainingEligible variant is introduced), opens_training is is_eligible() (pinned
+# false by the DATA-0 gate above), and the matrix-level training_never_opens invariant is computed.
+test "$(grep -cE 'enum TrainingEligibility' "$_CH")" -eq 0
+grep -qF 'let opens_training = training_eligibility.is_eligible();' "$_CH"
+grep -qF 'training_never_opens' "$_CH"
+# The harvest tests assert delegation, report preservation, no-training, and the serialized refusal (so the
+# coverage cannot be silently removed from the test battery the unit-count pin runs above).
+for _cht in 'fn harvest_delegates_to_curator_and_admits_clean_document' \
+            'fn harvest_does_not_silently_drop_rejected_or_quarantined' \
+            'fn no_harvest_item_is_training_eligible' 'fn matrix_serialized_replay_is_refused' \
+            'fn matrix_opens_no_training_in_any_scenario'; do
+  if ! grep -qF "$_cht" "$_CH"; then exit 1; fi
+done
+# The nine-line CORPUS-HARVEST-0 boundary is recorded verbatim.
+for _chb in 'The corpus harvest path collects curated candidate data.' 'It does not create truth.' \
+            'It does not create memory.' 'It does not create evidence.' 'It does not train.' \
+            'It does not execute external actions.' 'It does not promote hypotheses.' \
+            'It does not grant new authority.' 'Training eligibility remains closed.'; do
+  if ! grep -qF "$_chb" "$_CH"; then exit 1; fi
+done
+# CORPUS-HARVEST-0 makes NO false training claim in its source.
+if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' "$_CH"; then exit 1; fi

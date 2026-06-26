@@ -3,6 +3,39 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-26-S — Curated corpus harvest, model-readiness pipeline (CORPUS-HARVEST-0)
+
+**Decision.** Add `crates/cognitive-demo/src/corpus_harvest.rs`: the first model-readiness corpus-harvest
+pipeline. It collects already-verified substrate artifacts into a deterministic `CuratedCorpusReceipt`, but owns
+NO admission logic — every candidate is routed through the REAL DATA-0 gate (`data_curator::curate()`) BEFORE it
+can become harvest material. Admitted candidates become `HarvestItem`s (recorded with source id, provenance,
+content hash, disposition, and the curation-receipt hash that admitted them); rejected candidates are preserved
+in `RejectedItemsReport`; quarantined candidates (prompt-injection, train/holdout leakage) are preserved in
+`QuarantineReport` — quarantine HOLDS, never deletes. A `SplitIntegrityReport` records the admitted
+train/holdout split and the leakage finding; a fixed 14-scenario `CorpusHarvestMatrix` runs the real pipeline
+over clean / reject / quarantine / split / eligibility / serialized-replay cases and records the OBSERVED
+outcome. All harvest records derive `Serialize` but NOT `Deserialize` (re-derived + byte-compared via
+`verify_harvest_json`, with a non-vacuous `tampered != canonical` guard). The harvest reuses the curator's
+`TrainingEligibility` (`Closed`/`CandidateOnly`, `is_eligible() == false`) and adds no training-permitting
+state: `opens_training` is `is_eligible()` in every cell and `training_never_opens` holds. 26 lib unit tests;
+release_check bumps the cognitive-demo unit-count pin 206 → 232 and pins the scenario count, names, the real
+`curate()` delegation, the reports, the no-training invariant, the Serialize-not-Deserialize / re-derive path,
+and the 9-line boundary. A capability sprint — library-only (no CLI), no Cargo change, no frozen-crate edit.
+
+**Why.** The horizon track (frozen at `horizon-track-v0.1`) proved the substrate holds its gates over bounded
+chains. The next step toward a model-need decision is a corpus — but a corpus that could become training/eval
+material MUST pass the same admission discipline as any other ingestion, or it would smuggle ungrounded /
+poisoned / leaked data past the gate. CORPUS-HARVEST-0 therefore builds the harvest as a thin, auditable layer
+over the existing DATA-0 curator: it proves the pipeline and the receipts, it does not generalize, and it cannot
+open training. No raw file enters memory; nothing becomes evidence; eligibility stays closed.
+
+**Boundary recorded.** The corpus harvest path collects curated candidate data. It does not create truth. It
+does not create memory. It does not create evidence. It does not train. It does not execute external actions. It
+does not promote hypotheses. It does not grant new authority. Training eligibility remains closed (every harvest
+item's `opens_training` is false; the curator's `TrainingEligibility` carries no eligible value). P12 stays
+`training_justified=false`; P13–P15 stay closed; `release_check.sh` remains green + byte-silent. Canonical
+artifact: [`crates/cognitive-demo/src/corpus_harvest.rs`](../crates/cognitive-demo/src/corpus_harvest.rs).
+
 ## DD-2026-06-26-R — Horizon track milestone freeze (HORIZON-3)
 
 **Decision.** Freeze the HORIZON-0 → HORIZON-2 staged-interaction arc as `horizon-track-v0.1`. Add
