@@ -3,6 +3,46 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-26-T — Verifier-as-scorer, observations not authority (SCORE-0)
+
+**Decision.** Add `crates/cognitive-demo/src/score.rs`: turn the substrate's EXISTING verifier outcomes into
+deterministic `ScoreReceipt`s — but a score is an OBSERVATION, never authority. Seven score classes
+(`grounding_score`, `replay_score`, `curation_score`, `horizon_boundary_score`, `refusal_score`,
+`answer_support_score`, `trace_integrity_score`) each read off a REAL verifier run: the DATA-0 curator
+(`data_curator::curate`), the corpus-harvest re-derive (`verify_harvest_json`), the HORIZON gates
+(`run_horizon` / `horizon_failure_matrix`), and the INT-0 trace verifier (`verify_trace_json` / `doc_trace` /
+`CognitiveTrace`). The scorer decides no verdict itself; it labels what a verifier already returned. A
+`ScoreCell` records the observed `ScoreState` (`Pass` / `Fail` / `Refused` / `Observed`), a `ScoreReason` label,
+a detail string, the source receipt/hash where available, and the always-`false` `opens_training`; a failing
+score emits a `FailureObservation` — recorded for audit, NEVER a training example (`training_example` is the
+structural const `FAILURES_ARE_TRAINING_EXAMPLES = false`). A fixed 16-scenario `VerifierScoreMatrix` runs the
+real verifiers over pass / fail / refusal / observed cases (including false-positive and false-negative
+answer-support guards and a serialized score-receipt tamper), records the OBSERVED state, and computes
+`training_never_opens`. All score records derive `Serialize` but NOT `Deserialize` (re-derived + byte-compared
+via `verify_score_matrix_json` / `verify_score_receipt_json`, with a non-vacuous `tampered != canonical` guard).
+The `ScoringBoundary` carries the inert invariants in data — no score creates truth/memory/evidence, promotes,
+grants authority, executes, opens training, or converts `candidate_only`→training-eligible,
+`hypothesis_only`→evidence, or `dream_only`→export-authority. 20 lib unit tests; release_check bumps the
+cognitive-demo unit-count pin 232 → 252 and pins the class count (7) + names, the scenario count (16) + names,
+the real verifier/curator/horizon/harvest call sites, the Serialize-not-Deserialize / re-derive path, the
+failure-is-not-a-training-example structural const, the no-`: true` boundary guard, the test names, and the
+9-line boundary. A capability sprint — library-only (no CLI), no Cargo change, no frozen-crate edit.
+
+**Why.** A model-need decision (the later P11 eval) will require scoring the substrate's behavior — how well it
+grounds, replays, curates, holds horizons, refuses, supports answers, and keeps trace integrity. The danger is
+that a score quietly becomes authority: a high score promoting a hypothesis to evidence, opening training, or
+laundering a candidate into a training example. SCORE-0 builds the scoring layer the inverse way — scores are
+observations of real verifier outcomes and nothing more. It composes the existing verifiers (it re-implements
+none), proves the scoring semantics and the failure observations, and structurally cannot open training or
+promote anything. Failures are stored as `FailureObservation`s for audit, not as training data.
+
+**Boundary recorded.** The scoring path observes verifier outcomes. It does not create truth. It does not create
+memory. It does not create evidence. It does not train. It does not execute external actions. It does not
+promote hypotheses. It does not grant new authority. Scores cannot open training eligibility (every receipt's
+`opens_training` is false; `training_never_opens` holds across the matrix; `FailureObservation`s are never
+training examples). P12 stays `training_justified=false`; P13–P15 stay closed; `release_check.sh` remains green
++ byte-silent. Canonical artifact: [`crates/cognitive-demo/src/score.rs`](../crates/cognitive-demo/src/score.rs).
+
 ## DD-2026-06-26-S — Curated corpus harvest, model-readiness pipeline (CORPUS-HARVEST-0)
 
 **Decision.** Add `crates/cognitive-demo/src/corpus_harvest.rs`: the first model-readiness corpus-harvest

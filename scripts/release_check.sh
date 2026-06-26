@@ -1323,11 +1323,11 @@ grep -q 'fn trace_does_not_change_training_gate' crates/cognitive-demo/src/lib.r
 grep -q 'fn trace_does_not_change_verifier_receipt' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_records_every_stage_id_and_links_the_chain' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_grants_no_new_authority' crates/cognitive-demo/src/lib.rs
-# Unit-test REALITY pin: exactly the 232 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
+# Unit-test REALITY pin: exactly the 252 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
 # MTRACE-1 (12) + MTRACE-2 (12) + DOCFLOW-0 (10) + DOCFLOW-2 (10) + CORPUS-0 (12) + CORPUS-2 (12) + NOVELTY-0 (15) +
-# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) + CORPUS-HARVEST-0 (26) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
+# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) + CORPUS-HARVEST-0 (26) + SCORE-0 (20) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
 _int0_unit="$(cargo test --offline --lib --manifest-path crates/cognitive-demo/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 232
+test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 252
 test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
 # Determinism / no side effects: the trace is a pure, in-memory function — no clock, entropy, or network
 # anywhere in src/, and no floats anywhere in the crate. (`std::process::exit` in the CLI shell is a clean
@@ -4109,3 +4109,98 @@ for _chb in 'The corpus harvest path collects curated candidate data.' 'It does 
 done
 # CORPUS-HARVEST-0 makes NO false training claim in its source.
 if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' "$_CH"; then exit 1; fi
+
+# ---------------------------------------------------------------------------------------------------
+# SCORE-0 — the verifier-as-scorer. It turns the EXISTING verifier outcomes (DATA-0 curation, corpus-harvest
+# replay, HORIZON gates, INT-0 trace verification) into deterministic ScoreReceipts — but a score is an
+# OBSERVATION, never authority. Every score is read off a REAL verifier run (the scorer decides no verdict
+# itself); no score can promote evidence, create memory, grant authority, or open training; a failure is
+# recorded as a FailureObservation, NEVER a training example (training_example is the structural const
+# FAILURES_ARE_TRAINING_EXAMPLES = false). The matrix + receipts are Serialize but NOT Deserialize (re-derived
+# and byte-compared via verify_score_matrix_json / verify_score_receipt_json with a non-vacuous tamper guard).
+# The cargo unit-count pin above already RUNS the 20 SCORE-0 tests; the source pins below stop the pipeline from
+# hard-coding scores, dropping the real verifier calls, opening training, or trusting a serialized score. A
+# capability sprint that ADDS the score module + tests — no other crate changes; the frozen gates are unchanged.
+# Doctrine: The scoring path observes verifier outcomes. It does not create truth. It does not create memory. It
+# does not create evidence. It does not train. It does not execute external actions. It does not promote
+# hypotheses. It does not grant new authority. Scores cannot open training eligibility.
+# ---------------------------------------------------------------------------------------------------
+_SCORE=crates/cognitive-demo/src/score.rs
+test -f "$_SCORE"
+# The module is wired into the crate and its public entrypoints exist.
+grep -qF 'mod score;' crates/cognitive-demo/src/lib.rs
+grep -qF 'pub use score::' crates/cognitive-demo/src/lib.rs
+grep -qF 'pub fn verifier_score_matrix(' "$_SCORE"
+grep -qF 'pub fn verify_score_matrix_json(' "$_SCORE"
+grep -qF 'pub fn verify_score_receipt_json(' "$_SCORE"
+# The seven core score objects exist.
+grep -qF 'pub struct ScoreReceipt' "$_SCORE"
+grep -qF 'pub struct ScoreCell' "$_SCORE"
+grep -qF 'pub enum ScoreClass' "$_SCORE"
+grep -qF 'pub enum ScoreReason' "$_SCORE"
+grep -qF 'pub struct VerifierScoreMatrix' "$_SCORE"
+grep -qF 'pub struct FailureObservation' "$_SCORE"
+grep -qF 'pub struct ScoringBoundary' "$_SCORE"
+# The score class count is exactly seven, and all seven class names are present.
+grep -qF 'pub const SCORE_CLASS_COUNT: usize = 7;' "$_SCORE"
+for _scls in grounding_score replay_score curation_score horizon_boundary_score \
+             refusal_score answer_support_score trace_integrity_score; do
+  if ! grep -qF "$_scls" "$_SCORE"; then exit 1; fi
+done
+# The scenario count comes from the observed matrix, and all sixteen scenario names are present
+# (a dropped cell fails closed here). training_never_opens is the matrix-level conjunction.
+grep -qF 'pub const SCORE_SCENARIO_COUNT: usize = 16;' "$_SCORE"
+for _ssc in grounded_answer_scores_pass ungrounded_answer_scores_fail valid_replay_scores_pass \
+            tampered_replay_scores_fail curated_candidate_scores_pass \
+            quarantined_candidate_scores_observed rejected_candidate_scores_fail \
+            horizon_valid_trace_scores_pass horizon_boundary_failure_scores_fail \
+            refusal_correct_scores_pass refusal_missing_scores_fail answer_support_pass \
+            answer_support_fail trace_integrity_pass trace_integrity_tamper_fail \
+            score_receipt_tamper_refused; do
+  if ! grep -qF "\"$_ssc\"" "$_SCORE"; then exit 1; fi
+done
+grep -qF 'training_never_opens' "$_SCORE"
+# The scores are read off REAL verifier/curator/horizon/harvest runs — the scorer decides no verdict itself.
+# Dropping any of these calls (faking a hard-coded score) fails closed here.
+grep -qF 'curate(' "$_SCORE"
+grep -qF 'verify_harvest_json(' "$_SCORE"
+grep -qF 'verify_trace_json(' "$_SCORE"
+grep -qF 'run_horizon(' "$_SCORE"
+grep -qF 'doc_trace(' "$_SCORE"
+grep -qF 'horizon_failure_matrix(' "$_SCORE"
+# Re-derived, never trusted: Serialize but NEVER derived Deserialize; verify re-derives + byte-compares with a
+# non-vacuous tamper guard (a no-op mutation cannot pass).
+grep -qF 'Serialize' "$_SCORE"
+test "$(grep -cE 'derive\([^)]*Deserialize' "$_SCORE")" -eq 0
+grep -qF 'tampered != canonical' "$_SCORE"
+# A failure is OBSERVED for audit, NEVER a training example: the training_example flag is the structural const
+# FAILURES_ARE_TRAINING_EXAMPLES = false, and is_training_example reads that flag (no path constructs it true).
+grep -qF 'const FAILURES_ARE_TRAINING_EXAMPLES: bool = false;' "$_SCORE"
+grep -qF 'training_example: FAILURES_ARE_TRAINING_EXAMPLES' "$_SCORE"
+grep -qF 'pub fn is_training_example' "$_SCORE"
+# A score cannot open training or launder one authority class into a stronger one: opens_training is false, and
+# NO boundary/eligibility invariant is ever set true (a converted_* / opened_training / created_* set true fails).
+grep -qF 'opens_training: false' "$_SCORE"
+grep -qF 'converted_candidate_to_training_eligible' "$_SCORE"
+grep -qF 'converted_hypothesis_to_evidence' "$_SCORE"
+grep -qF 'converted_dream_to_export_authority' "$_SCORE"
+if grep -qE '(opened_training|created_truth|created_memory|created_evidence|granted_authority|promoted_hypothesis|converted_[a-z_]+|opens_training):[[:space:]]*true' "$_SCORE"; then exit 1; fi
+# The score tests assert the seven classes, the observed states, the never-training failures, the false-positive
+# / false-negative answer-support guards, and the serialized refusal (so the coverage cannot be silently removed
+# from the battery the unit-count pin runs above).
+for _sct in 'fn there_are_exactly_seven_score_classes_with_stable_names' \
+            'fn matrix_records_the_observed_states' 'fn matrix_failures_are_never_training_examples' \
+            'fn answer_support_pass_for_matching_hash_fail_for_different_hash' \
+            'fn matrix_has_the_sixteen_named_scenarios' 'fn matrix_json_re_derives_and_refuses_tampering' \
+            'fn matrix_opens_no_training_and_boundary_is_inert'; do
+  if ! grep -qF "$_sct" "$_SCORE"; then exit 1; fi
+done
+# The nine-line SCORE-0 boundary is recorded verbatim.
+for _scb in 'The scoring path observes verifier outcomes.' 'It does not create truth.' \
+            'It does not create memory.' 'It does not create evidence.' 'It does not train.' \
+            'It does not execute external actions.' 'It does not promote hypotheses.' \
+            'It does not grant new authority.' 'Scores cannot open training eligibility.'; do
+  if ! grep -qF "$_scb" "$_SCORE"; then exit 1; fi
+done
+# SCORE-0 makes NO false training claim in its source.
+if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' "$_SCORE"; then exit 1; fi

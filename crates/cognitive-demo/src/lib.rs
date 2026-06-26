@@ -64,6 +64,22 @@ pub use corpus_harvest::{
     HARVEST_BOUNDARY_LINES, HARVEST_SCENARIO_COUNT,
 };
 
+/// SCORE-0 — the verifier-as-scorer. Turns the EXISTING verifier outcomes (curation,
+/// harvest replay, horizon gates, trace verification) into deterministic score receipts —
+/// but a score is an OBSERVATION, never authority. No score promotes evidence, creates
+/// memory, grants authority, or opens training; failures are recorded as
+/// `FailureObservation`s, never training examples. See [`score`] for the boundary.
+mod score;
+pub use score::{
+    canonical_score_receipt, score_answer_support, score_curation, score_grounding,
+    score_horizon_boundary, score_receipt_json, score_refusal, score_replay, score_trace_integrity,
+    verifier_score_matrix, verifier_score_matrix_json, verify_score_matrix_json,
+    verify_score_receipt_json, FailureObservation, GroundingInput, HorizonScoreInput, ScoreCell,
+    ScoreClass, ScoreError, ScoreReason, ScoreReceipt, ScoreState, ScoringBoundary,
+    VerifierScoreMatrix, SCORE_BOUNDARY_LINES, SCORE_CLASS_COUNT, SCORE_CLASS_NAMES,
+    SCORE_SCENARIO_COUNT,
+};
+
 /// What can go wrong building the end-to-end trace. Every failure is explicit; nothing is
 /// silently coerced or fabricated. The first three wrap a frozen-crate error; the last two
 /// are INT-0's own provenance invariants (a trace that did not start from a verified receipt,
