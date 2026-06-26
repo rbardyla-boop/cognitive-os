@@ -3,6 +3,56 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-26-W — Explicit, closed-by-default training-authorization gate (TRAIN-GATE-0)
+
+**Decision.** Add `crates/cognitive-demo/src/training_gate.rs`: the explicit gate that stands between a proven
+model need and any weight change. It answers exactly ONE question — *are the prerequisites complete enough to
+allow a FUTURE training attempt?* — never "what should we train?" or "is the trained model acceptable?". It
+CONSUMES the REAL P11-MODEL-EVAL verdict: `evaluate_training_gate` runs `evaluate_model_need()` itself over the
+supplied `ModelEvalBattery` (the SCORE-0 → FAIL-0 → MODEL-EVAL → TRAIN-GATE chain, so the verdict is derived,
+never hand-set). It emits `TrainingGateDecision::TrainingAttemptAllowed` ONLY when the verdict is EXACTLY
+`training_candidate_only` AND every requirement holds together: recurring-failure evidence (≥
+`MIN_RECURRING_FAILURES` = 2 residuals), an explicit `OperatorAuthorizationReceipt`, a `DatasetReadinessReceipt`,
+a present + uncontaminated `HoldoutReadinessReceipt`, a clean `ContaminationReportReceipt` (no memorization
+leakage), a `RollbackPlanReceipt`, a `ProductionSafetyPlanReceipt`, and an affirmative `AuthorityDriftCheck`. It
+is CLOSED BY DEFAULT: a `training_candidate_only` verdict ALONE is insufficient, operator authorization ALONE is
+insufficient, an absent contamination report is NOT proven clean, and an unchecked drift state is NOT clean — any
+gap denies the attempt with the full set of `TrainingGateRefusal` reasons (12 total). Crucially,
+`TrainingAttemptAllowed` is ONLY permission to ATTEMPT a later run: the report's `trains` / `modifies_weights` /
+`promotes_model` / `deploys_model` / `training_justified` / `opens_training` are all sourced from the const
+`ALLOWED_ATTEMPT_AUTHORIZES_TRAINING = false`, and the deeper P12 gate (`reading_train_gate::decide`) stays
+`training_justified = false` regardless of the decision. A fixed 19-scenario `TrainingGateMatrix` runs the real
+gate over closed-by-default / missing-verdict / each-non-candidate-verdict / each-missing-requirement /
+contaminated / leaked / drift / all-met-allowed / allow-is-not-execution / allow-is-not-promotion / tamper /
+justified-stays-false cases and records the OBSERVED decision. All records derive `Serialize` but NOT
+`Deserialize` (re-derived + byte-compared via `verify_training_gate_report_json` /
+`verify_training_gate_matrix_json`, with a non-vacuous `tampered != canonical` guard). 20 lib unit tests;
+release_check bumps the cognitive-demo unit-count pin 289 → 309 and pins the decision count (2) + names, the
+refusal count (12) + names, the scenario count (19) + names, the P11 `evaluate_model_need()` consumption, the
+`training_candidate_only`-required rule, every requirement enforcement, the `ALLOWED_ATTEMPT_AUTHORIZES_TRAINING
+= false` const + flag sourcing, the no-`: true` forbidden-action guard, the Serialize-not-Deserialize / re-derive
+path, the test names, and the 9-line boundary. A capability sprint — library-only (no CLI), no Cargo change, no
+frozen-crate edit.
+
+**Why.** This is the gate the roadmap requires before training is even conceivable. P11 can produce
+`training_candidate_only`, but that is a candidacy flag, not a key. TRAIN-GATE-0 is the lock: it demands that the
+proven model need be accompanied by an explicit operator authorization, a curated dataset, a clean and present
+holdout, a contamination/memorization-clean report, recurring-failure evidence, a rollback plan, a production
+safety plan, and a clean authority-drift check — ALL of them, or the attempt is denied. The danger is treating a
+candidate verdict, or a lone operator sign-off, as sufficient to touch weights. The gate refuses that
+structurally: it is closed by default, every prerequisite is independently load-bearing, and even a full
+`TrainingAttemptAllowed` is only permission to ATTEMPT a later run — it trains nothing, modifies no weights,
+promotes/deploys nothing, and leaves P12 closed. This keeps the honest ordering intact: substrate first, and a
+weight change only behind a complete, auditable, operator-authorized gate.
+
+**Boundary recorded.** The training gate evaluates whether a training attempt may be authorized. It does not
+train. It does not modify weights. It does not create truth. It does not create memory. It does not create
+evidence. It does not promote models. It does not deploy models. TrainingAttemptAllowed is not model promotion
+(every report forbidden-action flag is false; `training_never_opens` holds across the matrix; the real P12
+`reading_train_gate::decide(&[],&[]).training_justified` stays false). P12 stays `training_justified=false`;
+P13–P15 stay closed; `release_check.sh` remains green + byte-silent. Canonical artifact:
+[`crates/cognitive-demo/src/training_gate.rs`](../crates/cognitive-demo/src/training_gate.rs).
+
 ## DD-2026-06-26-V — Model-need evaluation, the honest fork (P11-MODEL-EVAL)
 
 **Decision.** Add `crates/cognitive-demo/src/model_eval.rs`: the model-need evaluation — the honest fork. It

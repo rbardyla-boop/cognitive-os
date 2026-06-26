@@ -118,6 +118,28 @@ pub use model_eval::{
     MODEL_NEED_MIN_RESIDUALS, VERDICT_COUNT, VERDICT_NAMES,
 };
 
+/// TRAIN-GATE-0 — the explicit, closed-by-default gate before any weight change. It CONSUMES the
+/// real P11-MODEL-EVAL verdict (running `evaluate_model_need` itself over the supplied battery) and
+/// emits `TrainingAttemptAllowed` ONLY when the verdict is `training_candidate_only` AND every
+/// requirement holds: operator authorization, curated dataset, clean holdout, clean contamination,
+/// recurring-failure evidence, rollback plan, production safety plan, and an affirmative
+/// authority-drift check. `TrainingAttemptAllowed` is only permission to ATTEMPT a later run — it
+/// trains nothing, modifies no weights, promotes/deploys nothing, and leaves P12
+/// `training_justified = false`. Reports are `Serialize` but never `Deserialize`. See
+/// [`training_gate`] for the boundary.
+mod training_gate;
+pub use training_gate::{
+    evaluate_training_gate, evaluate_training_gate_json, training_gate_matrix,
+    training_gate_matrix_json, verify_training_gate_matrix_json, verify_training_gate_report_json,
+    AuthorityDriftCheck, ContaminationReportReceipt, DatasetReadinessReceipt,
+    HoldoutReadinessReceipt, OperatorAuthorizationReceipt, ProductionSafetyPlanReceipt,
+    RollbackPlanReceipt, TrainingGateBoundary, TrainingGateDecision, TrainingGateError,
+    TrainingGateInput, TrainingGateMatrix, TrainingGateRefusal, TrainingGateReport,
+    TrainingGateRequirement, TrainingGateScenarioCell, MIN_RECURRING_FAILURES,
+    TRAINING_GATE_BOUNDARY_LINES, TRAIN_GATE_DECISION_COUNT, TRAIN_GATE_DECISION_NAMES,
+    TRAIN_GATE_REFUSAL_COUNT, TRAIN_GATE_REFUSAL_NAMES, TRAIN_GATE_SCENARIO_COUNT,
+};
+
 /// What can go wrong building the end-to-end trace. Every failure is explicit; nothing is
 /// silently coerced or fabricated. The first three wrap a frozen-crate error; the last two
 /// are INT-0's own provenance invariants (a trace that did not start from a verified receipt,

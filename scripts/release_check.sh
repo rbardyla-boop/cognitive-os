@@ -1323,11 +1323,11 @@ grep -q 'fn trace_does_not_change_training_gate' crates/cognitive-demo/src/lib.r
 grep -q 'fn trace_does_not_change_verifier_receipt' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_records_every_stage_id_and_links_the_chain' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_grants_no_new_authority' crates/cognitive-demo/src/lib.rs
-# Unit-test REALITY pin: exactly the 289 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
+# Unit-test REALITY pin: exactly the 309 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
 # MTRACE-1 (12) + MTRACE-2 (12) + DOCFLOW-0 (10) + DOCFLOW-2 (10) + CORPUS-0 (12) + CORPUS-2 (12) + NOVELTY-0 (15) +
-# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) + CORPUS-HARVEST-0 (26) + SCORE-0 (20) + FAIL-0 (19) + P11-MODEL-EVAL (18) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
+# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) + CORPUS-HARVEST-0 (26) + SCORE-0 (20) + FAIL-0 (19) + P11-MODEL-EVAL (18) + TRAIN-GATE-0 (20) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
 _int0_unit="$(cargo test --offline --lib --manifest-path crates/cognitive-demo/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 289
+test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 309
 test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
 # Determinism / no side effects: the trace is a pure, in-memory function — no clock, entropy, or network
 # anywhere in src/, and no floats anywhere in the crate. (`std::process::exit` in the CLI shell is a clean
@@ -4396,3 +4396,131 @@ for _eb in 'The model-need evaluation compares residual clean failures.' 'It doe
 done
 # P11-MODEL-EVAL makes NO false training claim in its source.
 if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' "$_MEVAL"; then exit 1; fi
+
+# ---------------------------------------------------------------------------------------------------
+# TRAIN-GATE-0 — the explicit, CLOSED-BY-DEFAULT gate before any weight change. It answers exactly ONE
+# question: are the prerequisites complete enough to allow a FUTURE training attempt? It CONSUMES the
+# REAL P11-MODEL-EVAL verdict (running evaluate_model_need() itself over the supplied battery — the
+# SCORE-0 -> FAIL-0 -> MODEL-EVAL -> TRAIN-GATE chain) and emits training_attempt_allowed ONLY when the
+# verdict is EXACTLY training_candidate_only AND every requirement holds together: recurring-failure
+# evidence (>= MIN_RECURRING_FAILURES), an explicit operator authorization receipt, curated dataset
+# receipts, a present+uncontaminated holdout, a clean contamination/memorization report, a rollback
+# plan, a production safety plan, and an affirmative authority-drift check. A training_candidate_only
+# verdict ALONE is insufficient; operator authorization ALONE is insufficient; an absent contamination
+# report is NOT proven clean; an unchecked drift state is NOT clean. training_attempt_allowed is ONLY
+# permission to ATTEMPT a later run: the report's trains / modifies_weights / promotes_model /
+# deploys_model / training_justified / opens_training are ALL sourced from the const
+# ALLOWED_ATTEMPT_AUTHORIZES_TRAINING = false, so no path sets any true, and the deeper P12 gate stays
+# training_justified = false regardless of the decision. Reports are Serialize but NOT Deserialize
+# (re-derived + byte-compared with a non-vacuous tamper guard). The cargo unit-count pin above already
+# RUNS the 20 TRAIN-GATE-0 tests; the source pins below stop the pipeline from hard-coding the verdict,
+# dropping the P11 consumption, weakening a requirement, or opening training. A capability sprint that
+# ADDS the gate module + tests — no other crate changes. Doctrine: The training gate evaluates whether a
+# training attempt may be authorized. It does not train. It does not modify weights. It does not create
+# truth. It does not create memory. It does not create evidence. It does not promote models. It does not
+# deploy models. TrainingAttemptAllowed is not model promotion.
+# ---------------------------------------------------------------------------------------------------
+_TGATE=crates/cognitive-demo/src/training_gate.rs
+test -f "$_TGATE"
+# The module is wired into the crate and its public entrypoints exist.
+grep -qF 'mod training_gate;' crates/cognitive-demo/src/lib.rs
+grep -qF 'pub use training_gate::' crates/cognitive-demo/src/lib.rs
+grep -qF 'pub fn evaluate_training_gate(' "$_TGATE"
+grep -qF 'pub fn evaluate_training_gate_json(' "$_TGATE"
+grep -qF 'pub fn verify_training_gate_report_json(' "$_TGATE"
+grep -qF 'pub fn training_gate_matrix(' "$_TGATE"
+grep -qF 'pub fn verify_training_gate_matrix_json(' "$_TGATE"
+# The core objects exist.
+grep -qF 'pub struct TrainingGateReport' "$_TGATE"
+grep -qF 'pub enum TrainingGateDecision' "$_TGATE"
+grep -qF 'pub struct TrainingGateInput' "$_TGATE"
+grep -qF 'pub enum TrainingGateRequirement' "$_TGATE"
+grep -qF 'pub enum TrainingGateRefusal' "$_TGATE"
+grep -qF 'pub struct TrainingGateMatrix' "$_TGATE"
+grep -qF 'pub struct OperatorAuthorizationReceipt' "$_TGATE"
+grep -qF 'pub struct RollbackPlanReceipt' "$_TGATE"
+grep -qF 'pub struct DatasetReadinessReceipt' "$_TGATE"
+grep -qF 'pub struct HoldoutReadinessReceipt' "$_TGATE"
+grep -qF 'pub struct ContaminationReportReceipt' "$_TGATE"
+grep -qF 'pub struct ProductionSafetyPlanReceipt' "$_TGATE"
+# Both decision states exist (the allowed/denied variants) and the count is exactly two.
+grep -qF 'TrainingAttemptAllowed' "$_TGATE"
+grep -qF 'TrainingAttemptDenied' "$_TGATE"
+grep -qF 'pub const TRAIN_GATE_DECISION_COUNT: usize = 2;' "$_TGATE"
+for _dn in training_attempt_denied training_attempt_allowed; do
+  if ! grep -qF "\"$_dn\"" "$_TGATE"; then exit 1; fi
+done
+# The refusal count is exactly twelve, and all twelve refusal-reason names are present.
+grep -qF 'pub const TRAIN_GATE_REFUSAL_COUNT: usize = 12;' "$_TGATE"
+for _rr in missing_model_need_verdict verdict_not_training_candidate missing_operator_authorization \
+           missing_curated_dataset_receipts missing_clean_holdout holdout_contaminated \
+           memorization_leakage_detected missing_recurring_failure_evidence missing_rollback_plan \
+           missing_production_safety_plan authority_drift_detected \
+           training_gate_serialized_tamper_refused; do
+  if ! grep -qF "\"$_rr\"" "$_TGATE"; then exit 1; fi
+done
+# The scenario count comes from the observed matrix, and all nineteen scenario names are present.
+grep -qF 'pub const TRAIN_GATE_SCENARIO_COUNT: usize = 19;' "$_TGATE"
+for _gs in closed_by_default_denied missing_model_need_verdict_denied no_training_needed_denied \
+           improve_substrate_first_denied collect_more_data_denied \
+           training_candidate_without_operator_auth_denied training_candidate_without_dataset_denied \
+           training_candidate_without_holdout_denied holdout_contaminated_denied \
+           memorization_leakage_denied missing_recurring_failure_evidence_denied \
+           missing_rollback_plan_denied missing_production_safety_plan_denied authority_drift_denied \
+           all_requirements_met_training_attempt_allowed allowed_is_not_training_execution \
+           allowed_is_not_model_promotion serialized_gate_report_tamper_refused \
+           training_justified_remains_false; do
+  if ! grep -qF "\"$_gs\"" "$_TGATE"; then exit 1; fi
+done
+# It CONSUMES the real P11-MODEL-EVAL verdict (runs evaluate_model_need over a real battery).
+grep -qF 'evaluate_model_need(' "$_TGATE"
+grep -qF 'ModelNeedVerdict' "$_TGATE"
+grep -qF 'ModelEvalBattery' "$_TGATE"
+# The verdict must be EXACTLY training_candidate_only, and a single candidate is not enough.
+grep -qF 'ModelNeedVerdict::TrainingCandidateOnly' "$_TGATE"
+grep -qF 'pub const MIN_RECURRING_FAILURES: usize = 2;' "$_TGATE"
+# Every requirement is enforced (the receipts + the drift check are load-bearing).
+grep -qF 'MissingOperatorAuthorization' "$_TGATE"
+grep -qF 'MissingCuratedDatasetReceipts' "$_TGATE"
+grep -qF 'MissingCleanHoldout' "$_TGATE"
+grep -qF 'HoldoutContaminated' "$_TGATE"
+grep -qF 'MemorizationLeakageDetected' "$_TGATE"
+grep -qF 'MissingRollbackPlan' "$_TGATE"
+grep -qF 'MissingProductionSafetyPlan' "$_TGATE"
+grep -qF 'AuthorityDriftDetected' "$_TGATE"
+grep -qF 'is_clean()' "$_TGATE"
+# training_attempt_allowed is NOT authorization/execution/promotion/deployment: every forbidden flag is
+# sourced from the structural const (false); no path sets any true.
+grep -qF 'const ALLOWED_ATTEMPT_AUTHORIZES_TRAINING: bool = false;' "$_TGATE"
+grep -qF 'trains: ALLOWED_ATTEMPT_AUTHORIZES_TRAINING' "$_TGATE"
+grep -qF 'training_justified: ALLOWED_ATTEMPT_AUTHORIZES_TRAINING' "$_TGATE"
+grep -qF 'promotes_model: ALLOWED_ATTEMPT_AUTHORIZES_TRAINING' "$_TGATE"
+grep -qF 'deploys_model: ALLOWED_ATTEMPT_AUTHORIZES_TRAINING' "$_TGATE"
+grep -qF 'opens_training: ALLOWED_ATTEMPT_AUTHORIZES_TRAINING' "$_TGATE"
+if grep -qE '(opened_training|created_truth|created_memory|created_evidence|granted_authority|promoted_model|promotes_model|deploys_model|modifies_weights|executed_external|trains|opens_training|training_justified):[[:space:]]*true' "$_TGATE"; then exit 1; fi
+# Re-derived, never trusted: Serialize but NEVER derived Deserialize; verify re-derives + byte-compares
+# with a non-vacuous tamper guard (a no-op mutation cannot pass).
+grep -qF 'Serialize' "$_TGATE"
+test "$(grep -cE 'derive\([^)]*Deserialize' "$_TGATE")" -eq 0
+grep -qF 'tampered != canonical' "$_TGATE"
+# The gate tests assert the P11 consumption, closed-by-default, candidate-alone-insufficient, the
+# all-requirements allow, allow-is-not-authorization, the contamination/leakage refusal, the nineteen
+# scenarios, and the serialized re-derivation.
+for _gt in 'fn gate_consumes_the_real_p11_verdict' 'fn closed_by_default_denies_with_no_inputs' \
+           'fn training_candidate_alone_is_insufficient' \
+           'fn all_requirements_met_allows_a_training_attempt' \
+           'fn allowed_attempt_is_not_training_authorization' \
+           'fn contaminated_holdout_and_leakage_are_denied' \
+           'fn matrix_has_the_nineteen_named_scenarios' \
+           'fn report_is_deterministic_and_re_derives_refusing_tampering'; do
+  if ! grep -qF "$_gt" "$_TGATE"; then exit 1; fi
+done
+# The nine-line TRAIN-GATE boundary is recorded verbatim.
+for _gb in 'The training gate evaluates whether a training attempt may be authorized.' \
+           'It does not train.' 'It does not modify weights.' 'It does not create truth.' \
+           'It does not create memory.' 'It does not create evidence.' 'It does not promote models.' \
+           'It does not deploy models.' 'TrainingAttemptAllowed is not model promotion.'; do
+  if ! grep -qF "$_gb" "$_TGATE"; then exit 1; fi
+done
+# TRAIN-GATE-0 makes NO false training claim in its source.
+if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' "$_TGATE"; then exit 1; fi
