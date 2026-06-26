@@ -3,6 +3,33 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-26-R — Horizon track milestone freeze (HORIZON-3)
+
+**Decision.** Freeze the HORIZON-0 → HORIZON-2 staged-interaction arc as `horizon-track-v0.1`. Add
+`HORIZON_TRACK_MILESTONE.md` (a 9-section freeze record) pinning the HORIZON-0 `db8a776` / HORIZON-1 `b20b2e4` /
+HORIZON-2 `d86799e` commit lineage, the prior frozen substrate base `data-curation-v0.1` @ `b47665b` and the
+deeper frozen tags/commits (`dream-export-v0.1` @ `5238fe8` … `cognitive-os-governance-v0.1` @ `bbd1113`), the
+six bounded horizons `H0..H5` (with `max_turns` and module compositions), the ten HORIZON-2 failure scenarios,
+the cannot-bypass boundary (curation / grounding / replay / authority / training closure), the
+structurally-closed training eligibility, the `training_not_justified` (P12 `training_justified=false`) verdict,
+and the honest residuals. `scripts/release_check.sh` gains a git-free HORIZON-3 milestone lock appended at EOF.
+A documentation freeze only — NO code-crate edit (the HORIZON-0..2 harness/manual/matrix are byte-identical; the
+cognitive-demo unit-count pin stays 206). The tag is cut only after a clean scoped commit + post-commit green
+gate; the lock does not require the tag to exist.
+
+**Why.** HORIZON-0 shipped the bounded-horizon harness, HORIZON-1 documented and smoked the operator path, and
+HORIZON-2 proved the negative side (a bad horizon fails closed across every protected boundary). Before
+model-readiness work (corpus harvest, the verifier-as-scorer, the recurring-failure detector, and the P11
+model-need eval) begins, the horizon track is frozen as a named, recoverable substrate milestone so later work
+builds on a pinned base. The freeze adds no behavior; it pins the arc against silent drift.
+
+**Boundary recorded.** The horizon track stages bounded interaction depth. It composes verified reading,
+curation, replay, dream, and hypothesis flows. It does not create truth. It does not create memory. It does not
+train. It does not execute external actions. It does not promote hypotheses. It does not grant new authority.
+Longer horizons cannot bypass curation, grounding, replay, authority, or training closure. P12 stays
+`training_justified=false`; P13–P15 stay closed; `release_check.sh` remains green + byte-silent. Canonical
+artifact: [`HORIZON_TRACK_MILESTONE.md`](../HORIZON_TRACK_MILESTONE.md).
+
 ## DD-2026-06-22-Q — Horizon boundary failure matrix (HORIZON-2)
 
 **Decision.** Extend `crates/cognitive-demo/src/horizon.rs` with a FIXED set of 10 named failure scenarios

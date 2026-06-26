@@ -3968,3 +3968,69 @@ for _hz2b in 'The horizon failure matrix mutates bounded traces.' 'It observes r
 done
 # HORIZON-2 makes NO false training claim in the matrix source.
 if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' "$_HZ2"; then exit 1; fi
+
+# ---------------------------------------------------------------------------------------------------
+# HORIZON-3 — horizon track milestone freeze. The HORIZON-0 -> HORIZON-2 staged-interaction arc (the
+# bounded-horizon harness, the operator guard, and the failure matrix) is frozen as horizon-track-v0.1. The
+# milestone record (HORIZON_TRACK_MILESTONE.md) pins the HORIZON-0..HORIZON-2 commit lineage, the prior frozen
+# substrate base (data-curation-v0.1) and the deeper frozen milestone tags + commits, the six H0..H5 bounded
+# horizons, the ten HORIZON-2 failure scenarios, the cannot-bypass boundary (curation / grounding / replay /
+# authority / training closure), the structurally-closed training eligibility, the P12 verdict, and the honest
+# residuals, and is locked here so the freeze cannot silently drift. The pinned commit hashes are auditable
+# against `git log`; this lock stays git-free and does NOT require the tag to exist (the tag is created only
+# after a clean tree + green gate). Documentation freeze only — no code crate change, no model, no training; the
+# milestone records training_not_justified. Doctrine: The horizon track stages bounded interaction depth. It
+# does not create truth. It does not create memory. It does not train. It does not execute external actions. It
+# does not promote hypotheses. It does not grant new authority. Longer horizons cannot bypass curation,
+# grounding, replay, authority, or training closure.
+# ---------------------------------------------------------------------------------------------------
+test -f HORIZON_TRACK_MILESTONE.md
+grep -q 'FROZEN' HORIZON_TRACK_MILESTONE.md
+grep -qF 'horizon-track-v0.1' HORIZON_TRACK_MILESTONE.md
+grep -qF 'HORIZON-0' HORIZON_TRACK_MILESTONE.md
+grep -qF 'HORIZON-1' HORIZON_TRACK_MILESTONE.md
+grep -qF 'HORIZON-2' HORIZON_TRACK_MILESTONE.md
+grep -qF 'training_not_justified' HORIZON_TRACK_MILESTONE.md
+grep -qF 'training_justified=false' HORIZON_TRACK_MILESTONE.md
+# Full HORIZON-0..HORIZON-2 commit lineage is pinned (cross-checkable against git log).
+grep -qF 'db8a776' HORIZON_TRACK_MILESTONE.md
+grep -qF 'b20b2e4' HORIZON_TRACK_MILESTONE.md
+grep -qF 'd86799e' HORIZON_TRACK_MILESTONE.md
+# data-curation-v0.1 is named as the prior frozen substrate milestone (tag + commit), and the deeper frozen
+# milestones are referenced (tag + commit).
+grep -qF 'data-curation-v0.1' HORIZON_TRACK_MILESTONE.md
+for _t in data-curation-v0.1 dream-export-v0.1 corpus-flow-v0.1 document-flow-v0.1 operator-controls-v0.1 multi-trace-validation-v0.1 integration-demo-v0.1 hypothesis-track-v0.1 reading-track-v0.1 cognitive-os-governance-v0.1; do
+  if ! grep -qF "$_t" HORIZON_TRACK_MILESTONE.md; then exit 1; fi
+done
+for _sha in b47665b 5238fe8 b8577fe 0cc7399 34b4f47 460be0c 95b586d bb20acf f6fa55a bbd1113; do
+  if ! grep -qF "$_sha" HORIZON_TRACK_MILESTONE.md; then exit 1; fi
+done
+# The three frozen horizon capabilities are referenced by name (the harness, the operator guard manual, the
+# failure matrix).
+grep -qF 'horizon.rs' HORIZON_TRACK_MILESTONE.md
+grep -qF 'run_horizon' HORIZON_TRACK_MILESTONE.md
+grep -qF 'OPERATOR_MANUAL.md' HORIZON_TRACK_MILESTONE.md
+grep -qF 'horizon_failure_matrix' HORIZON_TRACK_MILESTONE.md
+# All six H0..H5 bounded horizons are listed.
+for _hl in H0 H1 H2 H3 H4 H5; do
+  if ! grep -qF "$_hl" HORIZON_TRACK_MILESTONE.md; then exit 1; fi
+done
+# All ten HORIZON-2 failure scenario names are listed in the freeze record.
+for _fs in uncurated_candidate_refused missing_grounding_refused missing_replay_refused \
+           dream_to_evidence_refused hypothesis_to_evidence_refused training_open_refused \
+           authority_escalation_refused max_turns_overflow_refused unknown_horizon_level_refused \
+           serialized_trace_replay_refused; do
+  if ! grep -qF "$_fs" HORIZON_TRACK_MILESTONE.md; then exit 1; fi
+done
+# The cannot-bypass boundary the rubric requires is recorded verbatim, and training eligibility stays closed.
+grep -qF 'cannot bypass curation, grounding, replay, authority, or training closure' HORIZON_TRACK_MILESTONE.md
+grep -qF 'Training eligibility remains closed.' HORIZON_TRACK_MILESTONE.md
+# The HORIZON-0 code-true harness boundary is cross-referenced verbatim (the surface the freeze preserves).
+grep -qF 'The horizon harness measures bounded interaction depth.' HORIZON_TRACK_MILESTONE.md
+grep -qF 'Longer horizons cannot bypass earlier gates.' HORIZON_TRACK_MILESTONE.md
+# The nine-line HORIZON-3 freeze boundary is recorded verbatim (all nine lines).
+for _bl in 'The horizon track stages bounded interaction depth.' 'It composes verified reading, curation, replay, dream, and hypothesis flows.' 'It does not create truth.' 'It does not create memory.' 'It does not train.' 'It does not execute external actions.' 'It does not promote hypotheses.' 'It does not grant new authority.' 'Longer horizons cannot bypass curation, grounding, replay, authority, or training closure.'; do
+  if ! grep -qF "$_bl" HORIZON_TRACK_MILESTONE.md; then exit 1; fi
+done
+# The milestone makes NO false training claim (it never asserts training opened).
+if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' HORIZON_TRACK_MILESTONE.md; then exit 1; fi
