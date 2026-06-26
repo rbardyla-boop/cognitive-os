@@ -80,6 +80,28 @@ pub use score::{
     SCORE_SCENARIO_COUNT,
 };
 
+/// FAIL-0 — the recurring-clean-failure detector. Consumes SCORE-0 `FailureObservation`s and
+/// answers ONLY "did the same clean failure recur enough to be a `ModelNeedCandidate`?" — never
+/// "should we train?". It separates clean model failures from substrate failures and the eight
+/// exclusion causes, requires an explicit recurrence threshold, and emits candidates that are
+/// structurally NOT training authorization (no score/threshold opens training). See
+/// [`failure_detector`] for the boundary.
+mod failure_detector;
+// NOTE: `FailureCase` and `FAILURE_SCENARIO_COUNT` are intentionally re-exported under FAIL-0-prefixed
+// aliases — both bare names are already taken at the crate root (the INT-0 `FailureCase` enum and the
+// horizon `FAILURE_SCENARIO_COUNT`). The canonical names remain `pub` in `failure_detector` (and pinned
+// by the gate); the aliases keep them reachable so they are not dead code.
+pub use failure_detector::{
+    canonical_failure_report, detect_failures, detect_failures_json, failure_detector_matrix,
+    failure_detector_matrix_json, failure_report_json, verify_failure_detector_matrix_json,
+    verify_failure_report_json, CleanFailureStatus, FailureCase as ModelFailureCase, FailureCause,
+    FailureClass, FailureContext, FailureDetectorBoundary, FailureDetectorError,
+    FailureDetectorMatrix, FailureDetectorReport, FailureExclusion, FailureRecurrencePolicy,
+    FailureScenarioCell, FailureSignal, ModelNeedCandidate, FAILURE_CLASS_COUNT,
+    FAILURE_CLASS_NAMES, FAILURE_SCENARIO_COUNT as FAILURE_DETECTOR_SCENARIO_COUNT,
+    FAIL_BOUNDARY_LINES, RECURRENCE_THRESHOLD,
+};
+
 /// What can go wrong building the end-to-end trace. Every failure is explicit; nothing is
 /// silently coerced or fabricated. The first three wrap a frozen-crate error; the last two
 /// are INT-0's own provenance invariants (a trace that did not start from a verified receipt,

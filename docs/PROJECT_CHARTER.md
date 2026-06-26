@@ -3,6 +3,51 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-26-U — Recurring-clean-failure detector, candidate not authorization (FAIL-0)
+
+**Decision.** Add `crates/cognitive-demo/src/failure_detector.rs`: the recurring-clean-failure detector. It
+CONSUMES SCORE-0 `FailureObservation` values — it cannot fabricate one (SCORE-0's constructor is private), so
+every input signal's evidence is a real verifier failure pulled from `verifier_score_matrix().failures` — and
+answers ONE narrow question: did the system observe the SAME clean failure enough times to become a
+`ModelNeedCandidate`? It does NOT answer "should we train?". Each `FailureSignal` pairs a real SCORE-0
+observation with a `FailureClass` (ten model-failure slots) and a verified `FailureContext`; the detector
+classifies it via a fixed deterministic precedence into a `CleanFailureStatus` — EXCLUDED (eight
+`FailureExclusion` reasons: missing context / bad retrieval / uncurated data / bad prompt-or-schema / invalid
+test / stale artifact / unverified replay / quarantined candidate), SUBSTRATE (a replay / trace-integrity
+failure — fixed in the substrate, never a model need), or a CLEAN model failure (curation passed or a valid
+refusal context, replay/integrity verified, no exclusion). Clean failures are grouped by class; a
+`ModelNeedCandidate` is emitted ONLY when the clean occurrences reach the explicit `RECURRENCE_THRESHOLD`
+(`= 2`) AND the class + SCORE-0 reason are stable across them — a single failure never emits one. The
+`FailureDetectorReport` records the per-class `FailureCase`s, the candidates, the `FailureRecurrencePolicy`, and
+the always-`false` training flags; a fixed 16-scenario `FailureDetectorMatrix` runs the real detector over
+single / recurring-clean / recurring-substrate / each-exclusion / unstable / refusal / trace-integrity /
+serialized-tamper cases and records the OBSERVED candidate decision. A `ModelNeedCandidate` is structurally NOT
+training authorization: `training_justified` / `opens_training` / `authorizes_training` are all sourced from the
+const `MODEL_NEED_IS_TRAINING_AUTHORIZATION = false`. All records derive `Serialize` but NOT `Deserialize`
+(re-derived + byte-compared via `verify_failure_report_json` / `verify_failure_detector_matrix_json`, with a
+non-vacuous `tampered != canonical` guard). 19 lib unit tests; release_check bumps the cognitive-demo
+unit-count pin 252 → 271 and pins the class count (10) + names, the scenario count (16) + names, the recurrence
+threshold, the SCORE-0 `verifier_score_matrix()` consumption, the `MODEL_NEED_IS_TRAINING_AUTHORIZATION = false`
+const, the no-`: true` boundary/training guard, the Serialize-not-Deserialize / re-derive path, the test names,
+and the 9-line boundary. A capability sprint — library-only (no CLI), no Cargo change, no frozen-crate edit.
+
+**Why.** The next step toward a model-need decision (the later P11 eval) needs an honest, deterministic detector
+that separates a genuine recurring MODEL failure from the far more common substrate / data / harness failures.
+The danger is that a single failure, or a substrate bug, or an uncurated/quarantined observation, gets laundered
+into "the model needs training." FAIL-0 builds the detector the inverse way: it consumes only real SCORE-0
+observations, excludes everything that is not a clean model failure, requires explicit recurrence with a stable
+class+reason, and emits a candidate that is explicitly a flag for further EVAL — never training authorization.
+It answers "did the same clean failure recur?"; it never answers "should we train?". Most failures will be
+substrate or excluded, so most runs emit no candidate at all — the honest, conservative default.
+
+**Boundary recorded.** The failure detector observes recurring clean failures. It does not create truth. It does
+not create memory. It does not create evidence. It does not train. It does not execute external actions. It does
+not promote hypotheses. It does not grant new authority. ModelNeedCandidate is not training authorization (every
+candidate's `training_justified` / `opens_training` / `authorizes_training` is false; `training_never_opens`
+holds across the matrix). P12 stays `training_justified=false`; P13–P15 stay closed; `release_check.sh` remains
+green + byte-silent. Canonical artifact:
+[`crates/cognitive-demo/src/failure_detector.rs`](../crates/cognitive-demo/src/failure_detector.rs).
+
 ## DD-2026-06-26-T — Verifier-as-scorer, observations not authority (SCORE-0)
 
 **Decision.** Add `crates/cognitive-demo/src/score.rs`: turn the substrate's EXISTING verifier outcomes into

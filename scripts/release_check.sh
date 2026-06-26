@@ -1323,11 +1323,11 @@ grep -q 'fn trace_does_not_change_training_gate' crates/cognitive-demo/src/lib.r
 grep -q 'fn trace_does_not_change_verifier_receipt' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_records_every_stage_id_and_links_the_chain' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_grants_no_new_authority' crates/cognitive-demo/src/lib.rs
-# Unit-test REALITY pin: exactly the 252 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
+# Unit-test REALITY pin: exactly the 271 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
 # MTRACE-1 (12) + MTRACE-2 (12) + DOCFLOW-0 (10) + DOCFLOW-2 (10) + CORPUS-0 (12) + CORPUS-2 (12) + NOVELTY-0 (15) +
-# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) + CORPUS-HARVEST-0 (26) + SCORE-0 (20) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
+# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) + CORPUS-HARVEST-0 (26) + SCORE-0 (20) + FAIL-0 (19) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
 _int0_unit="$(cargo test --offline --lib --manifest-path crates/cognitive-demo/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 252
+test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 271
 test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
 # Determinism / no side effects: the trace is a pure, in-memory function — no clock, entropy, or network
 # anywhere in src/, and no floats anywhere in the crate. (`std::process::exit` in the CLI shell is a clean
@@ -4204,3 +4204,96 @@ for _scb in 'The scoring path observes verifier outcomes.' 'It does not create t
 done
 # SCORE-0 makes NO false training claim in its source.
 if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' "$_SCORE"; then exit 1; fi
+
+# ---------------------------------------------------------------------------------------------------
+# FAIL-0 — the recurring-clean-failure detector. It CONSUMES SCORE-0 FailureObservation values (it cannot
+# fabricate one — SCORE-0's constructor is private, so every signal's evidence is pulled from
+# verifier_score_matrix()) and answers ONLY "did the same clean failure recur enough to be a
+# ModelNeedCandidate?" — never "should we train?". It separates clean MODEL failures from SUBSTRATE
+# failures (a replay/trace-integrity failure is never a model need) and the eight EXCLUSIONS (missing
+# context / bad retrieval / uncurated data / bad prompt-or-schema / invalid test / stale artifact /
+# unverified replay / quarantined candidate). A ModelNeedCandidate is emitted ONLY at the explicit,
+# deterministic RECURRENCE_THRESHOLD with a stable class+reason — a single failure never emits one — and
+# it is structurally NOT training authorization (training_justified / opens_training / authorizes_training
+# all sourced from the const MODEL_NEED_IS_TRAINING_AUTHORIZATION = false). Reports are Serialize but NOT
+# Deserialize (re-derived + byte-compared with a non-vacuous tamper guard). The cargo unit-count pin above
+# already RUNS the 19 FAIL-0 tests; the source pins below stop the pipeline from hard-coding outcomes,
+# dropping the SCORE-0 consumption, counting a single/excluded/substrate failure as a model need, or
+# opening training. A capability sprint that ADDS the detector module + tests — no other crate changes.
+# Doctrine: The failure detector observes recurring clean failures. It does not create truth. It does not
+# create memory. It does not create evidence. It does not train. It does not execute external actions. It
+# does not promote hypotheses. It does not grant new authority. ModelNeedCandidate is not training authorization.
+# ---------------------------------------------------------------------------------------------------
+_FAIL=crates/cognitive-demo/src/failure_detector.rs
+test -f "$_FAIL"
+# The module is wired into the crate and its public entrypoints exist.
+grep -qF 'mod failure_detector;' crates/cognitive-demo/src/lib.rs
+grep -qF 'pub use failure_detector::' crates/cognitive-demo/src/lib.rs
+grep -qF 'pub fn detect_failures(' "$_FAIL"
+grep -qF 'pub fn verify_failure_report_json(' "$_FAIL"
+grep -qF 'pub fn failure_detector_matrix(' "$_FAIL"
+grep -qF 'pub fn verify_failure_detector_matrix_json(' "$_FAIL"
+# The nine FAIL-0 core objects exist.
+grep -qF 'pub struct FailureDetectorReport' "$_FAIL"
+grep -qF 'pub struct FailureCase' "$_FAIL"
+grep -qF 'pub enum FailureClass' "$_FAIL"
+grep -qF 'pub enum FailureCause' "$_FAIL"
+grep -qF 'pub enum CleanFailureStatus' "$_FAIL"
+grep -qF 'pub struct ModelNeedCandidate' "$_FAIL"
+grep -qF 'pub struct FailureRecurrencePolicy' "$_FAIL"
+grep -qF 'pub enum FailureExclusion' "$_FAIL"
+grep -qF 'pub struct FailureDetectorMatrix' "$_FAIL"
+# The failure class count is exactly ten, and all ten class names are present.
+grep -qF 'pub const FAILURE_CLASS_COUNT: usize = 10;' "$_FAIL"
+for _fcl in reading_misgrounding source_selection_failure multi_doc_synthesis_failure \
+            horizon_plan_failure tool_use_schema_failure refusal_boundary_failure \
+            memory_retrieval_failure instruction_following_failure coding_patch_failure \
+            replay_inconsistency; do
+  if ! grep -qF "$_fcl" "$_FAIL"; then exit 1; fi
+done
+# The scenario count comes from the observed matrix, and all sixteen scenario names are present.
+grep -qF 'pub const FAILURE_SCENARIO_COUNT: usize = 16;' "$_FAIL"
+for _fsc in single_failure_no_candidate recurring_clean_model_failure_candidate \
+            recurring_substrate_failure_no_candidate missing_context_excluded bad_retrieval_excluded \
+            uncurated_data_excluded bad_prompt_schema_excluded invalid_test_excluded \
+            stale_artifact_excluded unverified_replay_excluded quarantined_candidate_excluded \
+            unstable_failure_class_excluded stable_failure_class_candidate \
+            refusal_boundary_recurrence_candidate trace_integrity_failure_not_model_need \
+            serialized_failure_report_tamper_refused; do
+  if ! grep -qF "\"$_fsc\"" "$_FAIL"; then exit 1; fi
+done
+# The recurrence threshold is explicit and deterministic.
+grep -qF 'pub const RECURRENCE_THRESHOLD: usize = 2;' "$_FAIL"
+# It CONSUMES real SCORE-0 FailureObservations (cannot fabricate one — pulled from the matrix).
+grep -qF 'FailureObservation' "$_FAIL"
+grep -qF 'verifier_score_matrix()' "$_FAIL"
+# A ModelNeedCandidate is NOT training authorization: training_justified / opens_training /
+# authorizes_training are all sourced from the structural const (false); no path sets any true.
+grep -qF 'const MODEL_NEED_IS_TRAINING_AUTHORIZATION: bool = false;' "$_FAIL"
+grep -qF 'training_justified: MODEL_NEED_IS_TRAINING_AUTHORIZATION' "$_FAIL"
+grep -qF 'authorizes_training' "$_FAIL"
+grep -qF 'opens_training' "$_FAIL"
+if grep -qE '(opened_training|created_truth|created_memory|created_evidence|granted_authority|promoted_hypothesis|authorizes_training|opens_training|training_justified):[[:space:]]*true' "$_FAIL"; then exit 1; fi
+# Re-derived, never trusted: Serialize but NEVER derived Deserialize; verify re-derives + byte-compares
+# with a non-vacuous tamper guard (a no-op mutation cannot pass).
+grep -qF 'Serialize' "$_FAIL"
+test "$(grep -cE 'derive\([^)]*Deserialize' "$_FAIL")" -eq 0
+grep -qF 'tampered != canonical' "$_FAIL"
+# The detector tests assert recurrence, every exclusion, substrate-is-not-a-model-need, training closure,
+# and the serialized re-derivation (so the coverage cannot be silently removed from the battery above).
+for _ftt in 'fn single_clean_failure_emits_no_candidate' 'fn recurring_clean_model_failure_emits_candidate' \
+            'fn each_exclusion_blocks_a_candidate' 'fn recurring_substrate_failure_is_not_a_model_need' \
+            'fn detector_never_opens_training_even_with_candidates' \
+            'fn matrix_has_the_sixteen_named_scenarios' \
+            'fn report_is_deterministic_and_re_derives_refusing_tampering'; do
+  if ! grep -qF "$_ftt" "$_FAIL"; then exit 1; fi
+done
+# The nine-line FAIL-0 boundary is recorded verbatim.
+for _fbl in 'The failure detector observes recurring clean failures.' 'It does not create truth.' \
+            'It does not create memory.' 'It does not create evidence.' 'It does not train.' \
+            'It does not execute external actions.' 'It does not promote hypotheses.' \
+            'It does not grant new authority.' 'ModelNeedCandidate is not training authorization.'; do
+  if ! grep -qF "$_fbl" "$_FAIL"; then exit 1; fi
+done
+# FAIL-0 makes NO false training claim in its source.
+if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' "$_FAIL"; then exit 1; fi
