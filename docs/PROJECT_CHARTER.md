@@ -3,6 +3,61 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-26-X — Gated, deterministic local training-attempt harness (TRAIN-0)
+
+**Decision.** Add `crates/cognitive-demo/src/training_attempt.rs`: the first gated training-ATTEMPT harness. It is
+a harness, not a trainer — in this sprint it performs NO real weight mutation. It CONSUMES the REAL TRAIN-GATE-0
+report: `run_training_attempt` runs `evaluate_training_gate()` itself over the supplied `TrainingGateInput` (which
+re-runs P11 over a real battery — the SCORE-0 → FAIL-0 → MODEL-EVAL → TRAIN-GATE → TRAIN-ATTEMPT chain, so the gate
+decision is DERIVED, never handed in as a forgeable report). It enforces TWO KEYS, closed by default: an
+`authorized_local_attempt` may prepare a candidate ONLY when BOTH the consumed gate is exactly
+`TrainingGateDecision::TrainingAttemptAllowed` AND a SEPARATE explicit `AttemptAuthorizationReceipt` is present —
+`TrainingAttemptAllowed` ALONE is insufficient, operator authorization ALONE is insufficient — AND every
+reproducibility prerequisite holds: a deterministic hash-pinned `TrainingRunConfig`, a curated uncontaminated
+`TrainingDatasetBundle`, a present non-leaking `TrainingHoldoutBundle`, a hash-pinned `TrainingBaselineArtifact`, a
+hash-pinned `TrainingRollbackArtifact`, and an affirmative `AuthorityDriftCheck`. Any gap refuses the attempt with
+the full set of `TrainingAttemptRefusal` reasons (12 total). Two modes (`dry_run_only`, `authorized_local_attempt`):
+a dry run ALWAYS prepares a `TrainingAttemptPlan` that touches no weights and yields no candidate (documenting in
+`missing` what a real attempt would still need — proving the project can SAFELY refuse or prepare a run); only a
+fully-authorized attempt prepares a `TrainingCandidateArtifact`. That candidate is `CandidateAcceptance::CandidateOnly`
+at the type level (a single-variant enum — a candidate can never be represented as accepted), is hash-pinned and
+reproducible (an FNV-1a descriptor over the baseline/dataset/config lineage), carries `requires_s8_evaluation =
+true`, and is never promoted / deployed / made evidence / written to memory / granted authority / used to replace
+the baseline. Every forbidden-action flag on the receipt and candidate is sourced from the const
+`ATTEMPT_CREATES_ACCEPTED_MODEL = false` (including `modifies_weights`), and the deeper P12 gate
+(`reading_train_gate::decide`) stays `training_justified = false`. A fixed 20-scenario `TrainingAttemptMatrix` runs
+the real harness over dry-run / each-missing-key / allow-without-auth / auth-without-allow / each-missing-or-unclean
+prerequisite / authorized-candidate-only / candidate-not-promoted/deployed/evidence / requires-s8 / tamper cases and
+records the OBSERVED outcome. All records derive `Serialize` but NOT `Deserialize` (re-derived + byte-compared via
+`verify_training_attempt_receipt_json` / `verify_training_attempt_matrix_json`, with a non-vacuous `tampered !=
+canonical` guard). 21 lib unit tests; release_check bumps the cognitive-demo unit-count pin 309 → 330 and pins the
+mode count (2) + names, the refusal count (12) + names, the scenario count (20) + names, the `evaluate_training_gate()`
+consumption + `TrainingAttemptAllowed` requirement, the two-key rule (allow-alone and auth-alone both refused), the
+`CandidateOnly` + `requires_s8_evaluation` + no-promote/deploy/evidence guards, the `ATTEMPT_CREATES_ACCEPTED_MODEL
+= false` const + flag sourcing, the no-`: true` forbidden-action guard, the Serialize-not-Deserialize / re-derive
+path, the test names, and the 9-line boundary. A capability sprint — library-only (no CLI/runner), no Cargo change,
+no frozen-crate edit; actual weight mutation remains deferred to an external authorized runner governed by a runbook.
+
+**Why.** S6 made a training attempt structurally REACHABLE; it did not make one automatically authorized. TRAIN-0
+is the two-key harness that proves the project can prepare or refuse a run SAFELY before any weight is touched. The
+danger is treating a single key — a `TrainingAttemptAllowed` gate report, or a lone operator sign-off — as
+sufficient to begin training, or treating a freshly-produced candidate as an accepted model. The harness refuses all
+three structurally: it re-derives the gate decision (never trusting a handed-in report), it requires both keys plus
+every reproducibility prerequisite, and a produced candidate is `CandidateOnly` at the type level and must pass S8
+before any promotion. The first success here is not training — it is a deterministic harness that can demonstrably
+refuse, and that, when fully authorized, prepares only a candidate descriptor, never an accepted/promoted/deployed
+model. Real weight mutation stays behind an external runner and a runbook, gated again. This preserves the honest
+ordering: substrate first, a candidate only behind a complete two-key gate, and acceptance only at S8.
+
+**Boundary recorded.** The training attempt path may create a candidate model artifact only after gate approval and
+explicit operator authorization. It does not promote models. It does not deploy models. It does not create truth. It
+does not create memory. It does not create evidence. It does not grant new authority. A candidate model is not an
+accepted model. A candidate model must pass later evaluation before promotion (every receipt/candidate forbidden-action
+flag is false; `modifies_weights` is false; `training_never_opens` holds across the matrix; the real P12
+`reading_train_gate::decide(&[],&[]).training_justified` stays false). P12 stays `training_justified=false`; P13–P15
+stay closed; no S8 acceptance battery is built in this sprint; `release_check.sh` remains green + byte-silent.
+Canonical artifact: [`crates/cognitive-demo/src/training_attempt.rs`](../crates/cognitive-demo/src/training_attempt.rs).
+
 ## DD-2026-06-26-W — Explicit, closed-by-default training-authorization gate (TRAIN-GATE-0)
 
 **Decision.** Add `crates/cognitive-demo/src/training_gate.rs`: the explicit gate that stands between a proven

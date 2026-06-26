@@ -140,6 +140,33 @@ pub use training_gate::{
     TRAIN_GATE_REFUSAL_COUNT, TRAIN_GATE_REFUSAL_NAMES, TRAIN_GATE_SCENARIO_COUNT,
 };
 
+/// TRAIN-0 — the first gated, deterministic local training-ATTEMPT harness. It CONSUMES the real
+/// TRAIN-GATE-0 report (running `evaluate_training_gate` itself over the supplied gate input, which
+/// re-runs P11) and enforces TWO keys before preparing anything: the gate must emit
+/// `TrainingAttemptAllowed` AND a SEPARATE explicit operator authorization for the attempt must be
+/// present — neither alone suffices. A `dry_run_only` invocation prepares a plan that touches no
+/// weights and yields no candidate; an `authorized_local_attempt` prepares a `CandidateOnly`,
+/// hash-pinned candidate descriptor ONLY when both keys turn and every reproducibility prerequisite
+/// (deterministic config, curated uncontaminated dataset, present non-leaking holdout, baseline,
+/// rollback, clean authority-drift) is satisfied. A candidate is never promoted, deployed, made
+/// evidence, written to memory, granted authority, or used to replace the baseline; it MUST be
+/// evaluated later by S8. The harness performs no real weight mutation and leaves P12
+/// `training_justified = false`. Receipts are `Serialize` but never `Deserialize`. See
+/// [`training_attempt`] for the boundary.
+mod training_attempt;
+pub use training_attempt::{
+    run_training_attempt, run_training_attempt_json, training_attempt_matrix,
+    training_attempt_matrix_json, verify_training_attempt_matrix_json,
+    verify_training_attempt_receipt_json, AttemptAuthorizationReceipt, CandidateAcceptance,
+    TrainingAttemptBoundary, TrainingAttemptError, TrainingAttemptInput, TrainingAttemptMatrix,
+    TrainingAttemptMode, TrainingAttemptOutcome, TrainingAttemptPlan, TrainingAttemptReceipt,
+    TrainingAttemptRefusal, TrainingAttemptRequirement, TrainingAttemptScenarioCell,
+    TrainingBaselineArtifact, TrainingCandidateArtifact, TrainingDatasetBundle,
+    TrainingHoldoutBundle, TrainingRollbackArtifact, TrainingRunConfig,
+    TRAINING_ATTEMPT_BOUNDARY_LINES, TRAIN_ATTEMPT_MODE_COUNT, TRAIN_ATTEMPT_MODE_NAMES,
+    TRAIN_ATTEMPT_REFUSAL_COUNT, TRAIN_ATTEMPT_REFUSAL_NAMES, TRAIN_ATTEMPT_SCENARIO_COUNT,
+};
+
 /// What can go wrong building the end-to-end trace. Every failure is explicit; nothing is
 /// silently coerced or fabricated. The first three wrap a frozen-crate error; the last two
 /// are INT-0's own provenance invariants (a trace that did not start from a verified receipt,

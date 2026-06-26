@@ -1323,11 +1323,11 @@ grep -q 'fn trace_does_not_change_training_gate' crates/cognitive-demo/src/lib.r
 grep -q 'fn trace_does_not_change_verifier_receipt' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_records_every_stage_id_and_links_the_chain' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_grants_no_new_authority' crates/cognitive-demo/src/lib.rs
-# Unit-test REALITY pin: exactly the 309 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
+# Unit-test REALITY pin: exactly the 330 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
 # MTRACE-1 (12) + MTRACE-2 (12) + DOCFLOW-0 (10) + DOCFLOW-2 (10) + CORPUS-0 (12) + CORPUS-2 (12) + NOVELTY-0 (15) +
-# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) + CORPUS-HARVEST-0 (26) + SCORE-0 (20) + FAIL-0 (19) + P11-MODEL-EVAL (18) + TRAIN-GATE-0 (20) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
+# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) + CORPUS-HARVEST-0 (26) + SCORE-0 (20) + FAIL-0 (19) + P11-MODEL-EVAL (18) + TRAIN-GATE-0 (20) + TRAIN-0 (21) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
 _int0_unit="$(cargo test --offline --lib --manifest-path crates/cognitive-demo/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 309
+test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 330
 test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
 # Determinism / no side effects: the trace is a pure, in-memory function — no clock, entropy, or network
 # anywhere in src/, and no floats anywhere in the crate. (`std::process::exit` in the CLI shell is a clean
@@ -4524,3 +4524,129 @@ for _gb in 'The training gate evaluates whether a training attempt may be author
 done
 # TRAIN-GATE-0 makes NO false training claim in its source.
 if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' "$_TGATE"; then exit 1; fi
+
+# ---------------------------------------------------------------------------------------------------
+# TRAIN-0 — the first gated, deterministic local training-ATTEMPT harness. It CONSUMES the real
+# TRAIN-GATE-0 report (running evaluate_training_gate itself, which re-runs P11) and enforces TWO keys
+# before preparing anything: the gate must emit TrainingAttemptAllowed AND a SEPARATE explicit operator
+# authorization for the attempt must be present — neither alone suffices. A dry_run_only invocation
+# prepares a plan that touches no weights and yields no candidate; an authorized_local_attempt prepares
+# a CandidateOnly, hash-pinned candidate descriptor ONLY when both keys turn and every reproducibility
+# prerequisite holds. A candidate is never promoted, deployed, made evidence, written to memory, granted
+# authority, or used to replace the baseline; it MUST be evaluated later by S8. The harness performs no
+# real weight mutation and leaves P12 training_justified = false. Boundary: The training attempt path may
+# create a candidate model artifact only after gate approval and explicit operator authorization. It does
+# not promote models. It does not deploy models. It does not create truth. It does not create memory. It
+# does not create evidence. It does not grant new authority. A candidate model is not an accepted model.
+# A candidate model must pass later evaluation before promotion.
+# ---------------------------------------------------------------------------------------------------
+_TATT=crates/cognitive-demo/src/training_attempt.rs
+test -f "$_TATT"
+# The module is wired into the crate and its public entrypoints exist.
+grep -qF 'mod training_attempt;' crates/cognitive-demo/src/lib.rs
+grep -qF 'pub use training_attempt::' crates/cognitive-demo/src/lib.rs
+grep -qF 'pub fn run_training_attempt(' "$_TATT"
+grep -qF 'pub fn run_training_attempt_json(' "$_TATT"
+grep -qF 'pub fn verify_training_attempt_receipt_json(' "$_TATT"
+grep -qF 'pub fn training_attempt_matrix(' "$_TATT"
+grep -qF 'pub fn verify_training_attempt_matrix_json(' "$_TATT"
+# The core objects exist.
+grep -qF 'pub struct TrainingAttemptPlan' "$_TATT"
+grep -qF 'pub struct TrainingAttemptReceipt' "$_TATT"
+grep -qF 'pub enum TrainingAttemptMode' "$_TATT"
+grep -qF 'pub struct TrainingRunConfig' "$_TATT"
+grep -qF 'pub struct TrainingDatasetBundle' "$_TATT"
+grep -qF 'pub struct TrainingCandidateArtifact' "$_TATT"
+grep -qF 'pub struct TrainingBaselineArtifact' "$_TATT"
+grep -qF 'pub struct TrainingRollbackArtifact' "$_TATT"
+grep -qF 'pub struct TrainingHoldoutBundle' "$_TATT"
+grep -qF 'pub enum TrainingAttemptRefusal' "$_TATT"
+grep -qF 'pub struct TrainingAttemptMatrix' "$_TATT"
+# Exactly two modes, and both mode names are present.
+grep -qF 'pub const TRAIN_ATTEMPT_MODE_COUNT: usize = 2;' "$_TATT"
+grep -qF 'DryRunOnly' "$_TATT"
+grep -qF 'AuthorizedLocalAttempt' "$_TATT"
+for _mn in dry_run_only authorized_local_attempt; do
+  if ! grep -qF "\"$_mn\"" "$_TATT"; then exit 1; fi
+done
+# The refusal count is exactly twelve, and all twelve refusal-reason names are present.
+grep -qF 'pub const TRAIN_ATTEMPT_REFUSAL_COUNT: usize = 12;' "$_TATT"
+for _rr in missing_training_gate_allow missing_explicit_operator_authorization \
+           missing_training_run_config missing_curated_dataset_bundle missing_baseline_artifact \
+           missing_holdout_bundle missing_rollback_artifact contaminated_dataset_refused \
+           holdout_leakage_refused authority_drift_refused non_reproducible_config_refused \
+           training_attempt_serialized_tamper_refused; do
+  if ! grep -qF "\"$_rr\"" "$_TATT"; then exit 1; fi
+done
+# The scenario count comes from the observed matrix, and all twenty scenario names are present.
+grep -qF 'pub const TRAIN_ATTEMPT_SCENARIO_COUNT: usize = 20;' "$_TATT"
+for _as in dry_run_plan_created missing_training_gate_allow_denied \
+           missing_operator_authorization_denied allowed_without_operator_authorization_denied \
+           operator_authorization_without_allowed_gate_denied missing_run_config_denied \
+           missing_dataset_bundle_denied missing_baseline_artifact_denied missing_holdout_bundle_denied \
+           missing_rollback_artifact_denied contaminated_dataset_denied holdout_leakage_denied \
+           authority_drift_denied non_reproducible_config_denied authorized_attempt_candidate_only \
+           candidate_not_promoted candidate_not_deployed candidate_not_evidence \
+           candidate_requires_s8_evaluation serialized_training_attempt_tamper_refused; do
+  if ! grep -qF "\"$_as\"" "$_TATT"; then exit 1; fi
+done
+# It CONSUMES the real TRAIN-GATE-0 report (runs evaluate_training_gate; requires TrainingAttemptAllowed).
+grep -qF 'evaluate_training_gate(' "$_TATT"
+grep -qF 'TrainingGateDecision::TrainingAttemptAllowed' "$_TATT"
+grep -qF 'TrainingGateReport' "$_TATT"
+# TWO KEYS: a SEPARATE explicit operator authorization is required; neither key alone is sufficient.
+grep -qF 'pub struct AttemptAuthorizationReceipt' "$_TATT"
+grep -qF 'MissingExplicitOperatorAuthorization' "$_TATT"
+grep -qF 'MissingTrainingGateAllow' "$_TATT"
+# The candidate is CandidateOnly, must pass S8, and is never promoted/deployed/evidence/baseline-replacing.
+grep -qF 'pub enum CandidateAcceptance' "$_TATT"
+grep -qF 'CandidateOnly' "$_TATT"
+grep -qF 'requires_s8_evaluation: true' "$_TATT"
+grep -qF 'candidate_hash' "$_TATT"
+# candidate_not_promoted / candidate_not_deployed / candidate_requires_s8_evaluation guards exist.
+grep -qF 'candidate_not_promoted' "$_TATT"
+grep -qF 'candidate_not_deployed' "$_TATT"
+grep -qF 'candidate_not_evidence' "$_TATT"
+grep -qF 'candidate_requires_s8_evaluation' "$_TATT"
+# A prepared candidate is NOT an accepted model: every forbidden-action flag is sourced from the
+# structural const (false); no path sets any true.
+grep -qF 'const ATTEMPT_CREATES_ACCEPTED_MODEL: bool = false;' "$_TATT"
+grep -qF 'promotes_model: ATTEMPT_CREATES_ACCEPTED_MODEL' "$_TATT"
+grep -qF 'deploys_model: ATTEMPT_CREATES_ACCEPTED_MODEL' "$_TATT"
+grep -qF 'replaces_baseline: ATTEMPT_CREATES_ACCEPTED_MODEL' "$_TATT"
+grep -qF 'modifies_weights: ATTEMPT_CREATES_ACCEPTED_MODEL' "$_TATT"
+grep -qF 'training_justified: ATTEMPT_CREATES_ACCEPTED_MODEL' "$_TATT"
+grep -qF 'promoted: ATTEMPT_CREATES_ACCEPTED_MODEL' "$_TATT"
+grep -qF 'deployed: ATTEMPT_CREATES_ACCEPTED_MODEL' "$_TATT"
+grep -qF 'is_evidence: ATTEMPT_CREATES_ACCEPTED_MODEL' "$_TATT"
+if grep -qE '(promotes_model|deploys_model|replaces_baseline|creates_truth|creates_memory|creates_evidence|grants_authority|modifies_weights|training_justified|promoted|deployed|is_evidence):[[:space:]]*true' "$_TATT"; then exit 1; fi
+# Re-derived, never trusted: Serialize but NEVER derived Deserialize; verify re-derives + byte-compares
+# with a non-vacuous tamper guard (a no-op mutation cannot pass).
+grep -qF 'Serialize' "$_TATT"
+test "$(grep -cE 'derive\([^)]*Deserialize' "$_TATT")" -eq 0
+grep -qF 'tampered != canonical' "$_TATT"
+# The harness tests assert the gate consumption, the dry-run plan, the two-key requirement (allow-alone
+# and auth-alone both refused), the all-prerequisites CandidateOnly preparation, the no-promote/deploy/
+# evidence guards, the twenty scenarios, and the serialized re-derivation.
+for _at in 'fn attempt_consumes_the_real_train_gate_report' \
+           'fn dry_run_builds_a_plan_without_touching_weights' \
+           'fn authorized_attempt_requires_both_gate_allow_and_operator_authorization' \
+           'fn allowed_gate_without_operator_authorization_is_refused' \
+           'fn operator_authorization_without_allowed_gate_is_refused' \
+           'fn authorized_attempt_with_all_prerequisites_prepares_a_candidate_only_artifact' \
+           'fn candidate_is_not_promoted_deployed_or_evidence' \
+           'fn matrix_has_the_twenty_named_scenarios' \
+           'fn receipt_is_deterministic_and_re_derives_refusing_tampering'; do
+  if ! grep -qF "$_at" "$_TATT"; then exit 1; fi
+done
+# The nine-line TRAIN-0 boundary is recorded verbatim.
+for _ab in 'The training attempt path may create a candidate model artifact only after gate approval and explicit operator authorization.' \
+           'It does not promote models.' 'It does not deploy models.' 'It does not create truth.' \
+           'It does not create memory.' 'It does not create evidence.' 'It does not grant new authority.' \
+           'A candidate model is not an accepted model.' \
+           'A candidate model must pass later evaluation before promotion.'; do
+  if ! grep -qF "$_ab" "$_TATT"; then exit 1; fi
+done
+# TRAIN-0 makes NO false training/promotion claim in its source.
+if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' "$_TATT"; then exit 1; fi
+if grep -qE 'modifies_weights[[:space:]]*[=:][[:space:]]*true' "$_TATT"; then exit 1; fi
