@@ -3,6 +3,63 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-26-Z — Explicit, closed-by-default model promotion gate (MODEL-PROMOTE-0)
+
+**Decision.** Add `crates/cognitive-demo/src/model_promote.rs`: the explicit model PROMOTION GATE. It answers exactly
+ONE question — *is a candidate eligible to enter production PACKAGING?* — never "is production now running?". It
+CONSUMES the REAL MODEL-EVAL-1 evaluation: `evaluate_model_promotion` runs `evaluate_candidate()` itself over the
+supplied `CandidateEvalInput` (the full SCORE-0 → … → CANDIDATE-EVAL → PROMOTE chain, so the verdict is DERIVED, never
+hand-set). It emits `ModelPromotionDecision::PromotionReady` ONLY when the consumed verdict is EXACTLY
+`candidate_ready_for_promotion_review` AND every requirement holds together: the candidate / baseline / dataset
+artifact hashes are pinned (`PromotionCandidateReceipt`) AND corroborated against the eval report (`hash_ok` requires
+present + matching — an uncorroborated or empty pin is refused); the eval-report hash is pinned (`PromotionEvalReceipt`)
+AND matches the re-derived `fnv1a_hex(evaluate_candidate_json(..))` (a stale/forged pin is refused); an explicit
+affirmative `PromotionOperatorApprovalReceipt`; a `PromotionRollbackReceipt`; a `PromotionRuntimeConfigReceipt` (baseline
+replacement recorded as PENDING, never performed); a `ProductionSafetyPlanReceipt`; a clean holdout with no
+contamination / memorization leakage / critical regression (re-checked on the consumed report — defense in depth, since
+a not-ready eval also surfaces the specific cause); and an affirmative `AuthorityDriftCheck`. It is CLOSED BY DEFAULT: a
+ready verdict ALONE is insufficient, operator approval ALONE is insufficient — any gap denies with the full set of
+`ModelPromotionRefusal` reasons (16 total). Crucially, `PromotionReady` is ONLY eligibility for S10 packaging / S11
+smoke: the report's and the SEALED `PromotedModelReceipt`'s `deploys_model` / `starts_production` / `replaces_baseline`
+/ `trains` / `modifies_weights` / `creates_evidence` / `creates_memory` / `grants_authority` / `opens_p12` are ALL
+sourced from `const PROMOTION_READY_IS_PRODUCTION = false`; the sealed receipt still `requires_s10_packaging` +
+`requires_s11_smoke` and records `baseline_replacement_pending = true` (never performed). The deeper P12 gate
+(`reading_train_gate::decide`) stays `training_justified = false`. The decision states are `promotion_denied` /
+`promotion_ready` — deliberately NOT `promoted` (S9 produces a sealed receipt, it does not deploy; production use is
+S10/S11). A fixed 22-scenario `ModelPromotionMatrix` runs the real gate over missing-eval / rejected / needs-more-evidence
+/ each-missing-hash / each-missing-receipt / holdout-not-clean / contamination / leakage / critical-regression / drift /
+all-met-ready / ready-is-not-{deployment,training,baseline-replacement} / requires-s10s11 / tamper cases and records the
+OBSERVED decision (`production_never_opens` is the conjunction). All records derive `Serialize` but NOT `Deserialize`
+(re-derived + byte-compared via `verify_model_promotion_report_json` / `verify_model_promotion_matrix_json`, non-vacuous
+`tampered != canonical` guard). 23 lib unit tests; release_check bumps the cognitive-demo unit-count pin 352 → 375 and
+pins the decision count (2) + names, the refusal count (16) + names, the scenario count (22) + names, the
+`evaluate_candidate` / `CandidateEvalReport` / `CandidateReadyForPromotionReview` consumption, every requirement
+enforcement, the `PROMOTION_READY_IS_PRODUCTION = false` const + flag sourcing + the `requires_s10/s11` +
+`baseline_replacement_pending` affirmations, the no-`: true` forbidden-action guard, the Serialize-not-Deserialize /
+re-derive path, the test names, and the 9-line boundary. A capability sprint — library-only (no CLI), no Cargo change,
+no frozen-crate edit; it evaluates eligibility, it does not run production.
+
+**Why.** MODEL-EVAL-1 can declare a candidate `ready_for_promotion_review`; something must convert that readiness into a
+PINNED, auditable, operator-approved eligibility to enter production packaging — without that conversion itself becoming
+deployment or a baseline swap. The danger is collapsing "the candidate is ready for review" into "promote it into
+production now": a gate that deploys, starts a runtime, or silently replaces the baseline the moment the eval looks good.
+MODEL-PROMOTE-0 refuses that collapse structurally. It re-derives the eval verdict (never trusting a claim), it binds
+the promotion to the exact evaluated candidate by corroborating every hash against the re-run report (a mismatched or
+stale pin is refused), it demands an explicit affirmative operator approval plus rollback + runtime config + production
+safety plus a clean holdout and no critical regression, and its single affirmative output is a SEALED receipt that is
+provably inert on every production axis and still gated behind S10/S11. The decision vocabulary enforces the same
+boundary: the success state is `promotion_ready`, not `promoted` — the gate cannot even *say* the model is in
+production. This keeps the honest ordering intact: a candidate may become eligible for packaging, but deployment,
+runtime start, and baseline replacement remain later, separately-governed gates.
+
+**Boundary recorded.** The model promotion gate evaluates whether a candidate model is ready for promotion. It does not
+train. It does not deploy models. It does not start production runtime. It does not create truth. It does not create
+memory. It does not create evidence. It does not bypass rollback. PromotionReady is not production deployment (every
+report/receipt forbidden-action flag is false; `production_never_opens` holds across the matrix; the real P12
+`reading_train_gate::decide(&[],&[]).training_justified` stays false). P12 stays `training_justified=false`; P13–P15 stay
+closed; `release_check.sh` remains green + byte-silent. Canonical artifact:
+[`crates/cognitive-demo/src/model_promote.rs`](../crates/cognitive-demo/src/model_promote.rs).
+
 ## DD-2026-06-26-Y — Candidate-model acceptance battery (MODEL-EVAL-1)
 
 **Decision.** Add `crates/cognitive-demo/src/candidate_eval.rs`: the deterministic candidate-model ACCEPTANCE

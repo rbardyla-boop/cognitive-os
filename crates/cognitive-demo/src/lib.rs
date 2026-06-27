@@ -195,6 +195,31 @@ pub use candidate_eval::{
     CANDIDATE_EVAL_SCENARIO_COUNT, CANDIDATE_EVAL_VERDICT_COUNT, CANDIDATE_EVAL_VERDICT_NAMES,
 };
 
+/// MODEL-PROMOTE-0 — the explicit, closed-by-default model PROMOTION GATE. It CONSUMES the real
+/// MODEL-EVAL-1 evaluation (running `evaluate_candidate` itself over the supplied `CandidateEvalInput`)
+/// and emits `ModelPromotionDecision::PromotionReady` ONLY when the verdict is exactly
+/// `candidate_ready_for_promotion_review` AND every requirement holds: pinned + corroborated candidate/
+/// baseline/dataset/eval-report hashes, an explicit operator promotion approval, a rollback artifact, a
+/// runtime config (baseline replacement only DESCRIBED as pending), a production safety plan, a clean
+/// holdout with no contamination / leakage / critical regression, and an affirmative authority-drift
+/// check. `PromotionReady` is eligibility for S10 packaging / S11 smoke only — it trains nothing,
+/// deploys nothing, starts no production runtime, replaces no baseline, and seals a `PromotedModelReceipt`
+/// whose every production flag is sourced from `PROMOTION_READY_IS_PRODUCTION = false`; P12 stays
+/// `training_justified = false`. Reports are `Serialize` but never `Deserialize`. See [`model_promote`]
+/// for the boundary.
+mod model_promote;
+pub use model_promote::{
+    evaluate_model_promotion, evaluate_model_promotion_json, model_promotion_matrix,
+    model_promotion_matrix_json, verify_model_promotion_matrix_json,
+    verify_model_promotion_report_json, ModelPromotionBoundary, ModelPromotionDecision,
+    ModelPromotionError, ModelPromotionInput, ModelPromotionMatrix, ModelPromotionRefusal,
+    ModelPromotionReport, ModelPromotionScenarioCell, PromotedModelReceipt,
+    PromotionCandidateReceipt, PromotionEvalReceipt, PromotionOperatorApprovalReceipt,
+    PromotionRollbackReceipt, PromotionRuntimeConfigReceipt, MODEL_PROMOTE_BOUNDARY_LINES,
+    MODEL_PROMOTE_DECISION_COUNT, MODEL_PROMOTE_DECISION_NAMES, MODEL_PROMOTE_REFUSAL_COUNT,
+    MODEL_PROMOTE_REFUSAL_NAMES, MODEL_PROMOTE_SCENARIO_COUNT,
+};
+
 /// What can go wrong building the end-to-end trace. Every failure is explicit; nothing is
 /// silently coerced or fabricated. The first three wrap a frozen-crate error; the last two
 /// are INT-0's own provenance invariants (a trace that did not start from a verified receipt,

@@ -1323,11 +1323,11 @@ grep -q 'fn trace_does_not_change_training_gate' crates/cognitive-demo/src/lib.r
 grep -q 'fn trace_does_not_change_verifier_receipt' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_records_every_stage_id_and_links_the_chain' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_grants_no_new_authority' crates/cognitive-demo/src/lib.rs
-# Unit-test REALITY pin: exactly the 352 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
+# Unit-test REALITY pin: exactly the 375 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
 # MTRACE-1 (12) + MTRACE-2 (12) + DOCFLOW-0 (10) + DOCFLOW-2 (10) + CORPUS-0 (12) + CORPUS-2 (12) + NOVELTY-0 (15) +
-# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) + CORPUS-HARVEST-0 (26) + SCORE-0 (20) + FAIL-0 (19) + P11-MODEL-EVAL (18) + TRAIN-GATE-0 (20) + TRAIN-0 (21) + MODEL-EVAL-1 (22) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
+# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) + CORPUS-HARVEST-0 (26) + SCORE-0 (20) + FAIL-0 (19) + P11-MODEL-EVAL (18) + TRAIN-GATE-0 (20) + TRAIN-0 (21) + MODEL-EVAL-1 (22) + MODEL-PROMOTE-0 (23) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
 _int0_unit="$(cargo test --offline --lib --manifest-path crates/cognitive-demo/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 352
+test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 375
 test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
 # Determinism / no side effects: the trace is a pure, in-memory function — no clock, entropy, or network
 # anywhere in src/, and no floats anywhere in the crate. (`std::process::exit` in the CLI shell is a clean
@@ -4772,3 +4772,134 @@ done
 # MODEL-EVAL-1 makes NO false acceptance/promotion/training claim in its source.
 if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' "$_CEVAL"; then exit 1; fi
 if grep -qE 'accepts_model[[:space:]]*[=:][[:space:]]*true' "$_CEVAL"; then exit 1; fi
+
+# ---------------------------------------------------------------------------------------------------
+# MODEL-PROMOTE-0 — the explicit, closed-by-default model PROMOTION GATE. It CONSUMES the real
+# MODEL-EVAL-1 evaluation (running evaluate_candidate itself over the supplied CandidateEvalInput) and
+# emits ModelPromotionDecision::PromotionReady ONLY when the verdict is exactly
+# candidate_ready_for_promotion_review AND every requirement holds: pinned + corroborated candidate/
+# baseline/dataset/eval-report hashes, an explicit operator promotion approval, a rollback artifact, a
+# runtime config (baseline replacement only DESCRIBED as pending), a production safety plan, a clean
+# holdout with no contamination/leakage/critical-regression, and an affirmative authority-drift check.
+# PromotionReady is eligibility for S10 packaging / S11 smoke only — it trains nothing, deploys nothing,
+# starts no production runtime, replaces no baseline; every production flag on the report and the sealed
+# PromotedModelReceipt is sourced from PROMOTION_READY_IS_PRODUCTION = false; P12 stays
+# training_justified = false. Boundary: The model promotion gate evaluates whether a candidate model is
+# ready for promotion. It does not train. It does not deploy models. It does not start production runtime.
+# It does not create truth. It does not create memory. It does not create evidence. It does not bypass
+# rollback. PromotionReady is not production deployment.
+# ---------------------------------------------------------------------------------------------------
+_MPROMO=crates/cognitive-demo/src/model_promote.rs
+test -f "$_MPROMO"
+# The module is wired into the crate and its public entrypoints exist.
+grep -qF 'mod model_promote;' crates/cognitive-demo/src/lib.rs
+grep -qF 'pub use model_promote::' crates/cognitive-demo/src/lib.rs
+grep -qF 'pub fn evaluate_model_promotion(' "$_MPROMO"
+grep -qF 'pub fn evaluate_model_promotion_json(' "$_MPROMO"
+grep -qF 'pub fn verify_model_promotion_report_json(' "$_MPROMO"
+grep -qF 'pub fn model_promotion_matrix(' "$_MPROMO"
+grep -qF 'pub fn verify_model_promotion_matrix_json(' "$_MPROMO"
+# The core objects exist.
+grep -qF 'pub struct ModelPromotionReport' "$_MPROMO"
+grep -qF 'pub struct ModelPromotionInput' "$_MPROMO"
+grep -qF 'pub enum ModelPromotionDecision' "$_MPROMO"
+grep -qF 'pub enum ModelPromotionRefusal' "$_MPROMO"
+grep -qF 'pub struct PromotionCandidateReceipt' "$_MPROMO"
+grep -qF 'pub struct PromotedModelReceipt' "$_MPROMO"
+grep -qF 'pub struct PromotionOperatorApprovalReceipt' "$_MPROMO"
+grep -qF 'pub struct PromotionRollbackReceipt' "$_MPROMO"
+grep -qF 'pub struct PromotionRuntimeConfigReceipt' "$_MPROMO"
+grep -qF 'pub struct PromotionEvalReceipt' "$_MPROMO"
+grep -qF 'pub struct ModelPromotionMatrix' "$_MPROMO"
+# Exactly two decisions, both names present.
+grep -qF 'pub const MODEL_PROMOTE_DECISION_COUNT: usize = 2;' "$_MPROMO"
+grep -qF 'PromotionDenied' "$_MPROMO"
+grep -qF 'PromotionReady' "$_MPROMO"
+for _dn in promotion_denied promotion_ready; do
+  if ! grep -qF "\"$_dn\"" "$_MPROMO"; then exit 1; fi
+done
+# The refusal count is exactly sixteen, and all sixteen refusal-reason names are present.
+grep -qF 'pub const MODEL_PROMOTE_REFUSAL_COUNT: usize = 16;' "$_MPROMO"
+for _rr in missing_candidate_eval_report candidate_not_ready_for_promotion_review \
+           missing_candidate_artifact_hash missing_baseline_artifact_hash missing_dataset_hash \
+           missing_eval_report_hash missing_runtime_config missing_rollback_artifact \
+           missing_operator_approval missing_production_safety_plan holdout_not_clean \
+           contamination_detected memorization_leakage_detected critical_regression_present \
+           authority_drift_detected serialized_promotion_report_tamper_refused; do
+  if ! grep -qF "\"$_rr\"" "$_MPROMO"; then exit 1; fi
+done
+# The scenario count comes from the observed matrix, and all twenty-two scenario names are present.
+grep -qF 'pub const MODEL_PROMOTE_SCENARIO_COUNT: usize = 22;' "$_MPROMO"
+for _ps in missing_candidate_eval_report_denied candidate_rejected_denied \
+           candidate_needs_more_evidence_denied ready_without_candidate_hash_denied \
+           ready_without_baseline_hash_denied ready_without_dataset_hash_denied \
+           ready_without_eval_hash_denied ready_without_runtime_config_denied \
+           ready_without_rollback_denied ready_without_operator_approval_denied \
+           ready_without_production_safety_plan_denied holdout_not_clean_denied \
+           contamination_detected_denied memorization_leakage_denied critical_regression_denied \
+           authority_drift_denied all_requirements_met_promotion_ready promotion_ready_not_deployment \
+           promotion_ready_not_training promotion_ready_not_baseline_replacement \
+           promotion_ready_requires_s10_s11 serialized_promotion_report_tamper_refused; do
+  if ! grep -qF "\"$_ps\"" "$_MPROMO"; then exit 1; fi
+done
+# It CONSUMES the MODEL-EVAL-1 report (runs evaluate_candidate; requires the ready verdict).
+grep -qF 'evaluate_candidate(' "$_MPROMO"
+grep -qF 'CandidateEvalReport' "$_MPROMO"
+grep -qF 'CandidateEvalVerdict::CandidateReadyForPromotionReview' "$_MPROMO"
+# Every promotion requirement is enforced (hashes + receipts + safety re-checks + drift).
+grep -qF 'MissingCandidateArtifactHash' "$_MPROMO"
+grep -qF 'MissingBaselineArtifactHash' "$_MPROMO"
+grep -qF 'MissingDatasetHash' "$_MPROMO"
+grep -qF 'MissingEvalReportHash' "$_MPROMO"
+grep -qF 'MissingRuntimeConfig' "$_MPROMO"
+grep -qF 'MissingRollbackArtifact' "$_MPROMO"
+grep -qF 'MissingOperatorApproval' "$_MPROMO"
+grep -qF 'MissingProductionSafetyPlan' "$_MPROMO"
+grep -qF 'HoldoutNotClean' "$_MPROMO"
+grep -qF 'ContaminationDetected' "$_MPROMO"
+grep -qF 'MemorizationLeakageDetected' "$_MPROMO"
+grep -qF 'CriticalRegressionPresent' "$_MPROMO"
+grep -qF 'AuthorityDriftDetected' "$_MPROMO"
+grep -qF 'is_clean()' "$_MPROMO"
+# PromotionReady is NOT deployment / baseline-replacement, and still requires S10/S11: every forbidden
+# flag is sourced from the structural const (false); no path sets any true.
+grep -qF 'const PROMOTION_READY_IS_PRODUCTION: bool = false;' "$_MPROMO"
+grep -qF 'deploys_model: PROMOTION_READY_IS_PRODUCTION' "$_MPROMO"
+grep -qF 'starts_production: PROMOTION_READY_IS_PRODUCTION' "$_MPROMO"
+grep -qF 'replaces_baseline: PROMOTION_READY_IS_PRODUCTION' "$_MPROMO"
+grep -qF 'trains: PROMOTION_READY_IS_PRODUCTION' "$_MPROMO"
+grep -qF 'modifies_weights: PROMOTION_READY_IS_PRODUCTION' "$_MPROMO"
+grep -qF 'opens_p12: PROMOTION_READY_IS_PRODUCTION' "$_MPROMO"
+grep -qF 'requires_s10_packaging: true' "$_MPROMO"
+grep -qF 'requires_s11_smoke: true' "$_MPROMO"
+grep -qF 'baseline_replacement_pending: true' "$_MPROMO"
+if grep -qE '(deploys_model|starts_production|replaces_baseline|trains|modifies_weights|creates_truth|creates_memory|creates_evidence|grants_authority|opens_p12|training_justified|bypasses_rollback):[[:space:]]*true' "$_MPROMO"; then exit 1; fi
+# Re-derived, never trusted: Serialize but NEVER derived Deserialize; verify re-derives + byte-compares.
+grep -qF 'Serialize' "$_MPROMO"
+test "$(grep -cE 'derive\([^)]*Deserialize' "$_MPROMO")" -eq 0
+grep -qF 'tampered != canonical' "$_MPROMO"
+# The gate tests assert the eval consumption, the missing-eval / needs-more-evidence denials, the
+# missing-operator-approval denial, the all-met promotion-ready, the not-deployment / requires-s10s11
+# safety, the critical-regression denial, the twenty-two scenarios, and the serialized re-derivation.
+for _mt in 'fn gate_consumes_the_real_candidate_eval_report' \
+           'fn missing_candidate_eval_report_is_denied' \
+           'fn candidate_needs_more_evidence_is_denied' \
+           'fn ready_without_each_receipt_is_denied' \
+           'fn all_requirements_met_is_promotion_ready' \
+           'fn promotion_ready_is_not_deployment_or_training' \
+           'fn promotion_ready_requires_s10_s11' \
+           'fn critical_regression_is_denied' \
+           'fn matrix_has_the_twenty_two_named_scenarios' \
+           'fn report_is_deterministic_and_re_derives_refusing_tampering'; do
+  if ! grep -qF "$_mt" "$_MPROMO"; then exit 1; fi
+done
+# The nine-line MODEL-PROMOTE-0 boundary is recorded verbatim.
+for _mb in 'The model promotion gate evaluates whether a candidate model is ready for promotion.' \
+           'It does not train.' 'It does not deploy models.' 'It does not start production runtime.' \
+           'It does not create truth.' 'It does not create memory.' 'It does not create evidence.' \
+           'It does not bypass rollback.' 'PromotionReady is not production deployment.'; do
+  if ! grep -qF "$_mb" "$_MPROMO"; then exit 1; fi
+done
+# MODEL-PROMOTE-0 makes NO false training/deployment claim in its source.
+if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' "$_MPROMO"; then exit 1; fi
+if grep -qE 'starts_production[[:space:]]*[=:][[:space:]]*true' "$_MPROMO"; then exit 1; fi
