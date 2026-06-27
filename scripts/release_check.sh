@@ -1323,11 +1323,11 @@ grep -q 'fn trace_does_not_change_training_gate' crates/cognitive-demo/src/lib.r
 grep -q 'fn trace_does_not_change_verifier_receipt' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_records_every_stage_id_and_links_the_chain' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_grants_no_new_authority' crates/cognitive-demo/src/lib.rs
-# Unit-test REALITY pin: exactly the 375 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
+# Unit-test REALITY pin: exactly the 394 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
 # MTRACE-1 (12) + MTRACE-2 (12) + DOCFLOW-0 (10) + DOCFLOW-2 (10) + CORPUS-0 (12) + CORPUS-2 (12) + NOVELTY-0 (15) +
-# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) + CORPUS-HARVEST-0 (26) + SCORE-0 (20) + FAIL-0 (19) + P11-MODEL-EVAL (18) + TRAIN-GATE-0 (20) + TRAIN-0 (21) + MODEL-EVAL-1 (22) + MODEL-PROMOTE-0 (23) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
+# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) + CORPUS-HARVEST-0 (26) + SCORE-0 (20) + FAIL-0 (19) + P11-MODEL-EVAL (18) + TRAIN-GATE-0 (20) + TRAIN-0 (21) + MODEL-EVAL-1 (22) + MODEL-PROMOTE-0 (23) + PROD-0 (19) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
 _int0_unit="$(cargo test --offline --lib --manifest-path crates/cognitive-demo/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 375
+test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 394
 test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
 # Determinism / no side effects: the trace is a pure, in-memory function — no clock, entropy, or network
 # anywhere in src/, and no floats anywhere in the crate. (`std::process::exit` in the CLI shell is a clean
@@ -4903,3 +4903,124 @@ done
 # MODEL-PROMOTE-0 makes NO false training/deployment claim in its source.
 if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' "$_MPROMO"; then exit 1; fi
 if grep -qE 'starts_production[[:space:]]*[=:][[:space:]]*true' "$_MPROMO"; then exit 1; fi
+
+# ---------------------------------------------------------------------------------------------------
+# PROD-0 — the deterministic, local PRODUCTION RUNTIME PACKAGE. It CONSUMES the real MODEL-PROMOTE-0
+# evaluation (running evaluate_model_promotion itself for a model mode) and packages a complete, pinned,
+# reversible, no-training, offline runtime artifact that is SMOKE-READY — NOT live production. The
+# local_promoted_ready_runtime mode requires ModelPromotionDecision::PromotionReady; local_no_model_runtime
+# packages the substrate runtime; local_candidate_ready_runtime packages an evaluated candidate without
+# requiring promotion-ready. No-training is the only representable training state; an enabled training mode
+# or network is refused. A packaged runtime deploys nothing, starts no service, claims no production,
+# serves no traffic, replaces no baseline; every forbidden flag on the package and the sealed
+# ProductionRuntimeReceipt is sourced from PACKAGE_IS_PRODUCTION = false, it requires_s11_smoke, and P12
+# stays training_justified = false. Boundary: The production runtime package prepares a local runtime
+# artifact. It does not train. It does not mutate weights. It does not deploy models. It does not start
+# production service. It does not replace the baseline. It does not create truth, memory, or evidence. It
+# does not grant new authority. ProductionRuntimePackage is not production smoke.
+# ---------------------------------------------------------------------------------------------------
+_PROD=crates/cognitive-demo/src/production_runtime.rs
+test -f "$_PROD"
+# The module is wired into the crate and its public entrypoints exist.
+grep -qF 'mod production_runtime;' crates/cognitive-demo/src/lib.rs
+grep -qF 'pub use production_runtime::' crates/cognitive-demo/src/lib.rs
+grep -qF 'pub fn package_production_runtime(' "$_PROD"
+grep -qF 'pub fn package_production_runtime_json(' "$_PROD"
+grep -qF 'pub fn verify_production_runtime_package_json(' "$_PROD"
+grep -qF 'pub fn production_runtime_matrix(' "$_PROD"
+grep -qF 'pub fn verify_production_runtime_matrix_json(' "$_PROD"
+# The operator runbook exists (a required precondition; missing_operator_runbook refuses without it).
+test -f docs/PRODUCTION_RUNTIME_RUNBOOK.md
+# The core objects exist.
+grep -qF 'pub struct ProductionRuntimePackage' "$_PROD"
+grep -qF 'pub struct ProductionRuntimeConfig' "$_PROD"
+grep -qF 'pub struct ProductionRuntimeReceipt' "$_PROD"
+grep -qF 'pub struct ProductionRuntimeManifest' "$_PROD"
+grep -qF 'pub enum ProductionRuntimeMode' "$_PROD"
+grep -qF 'pub enum ProductionRuntimeRefusal' "$_PROD"
+grep -qF 'pub struct ProductionRuntimeBoundary' "$_PROD"
+grep -qF 'pub struct RuntimeVersionReceipt' "$_PROD"
+grep -qF 'pub struct RuntimeRollbackReceipt' "$_PROD"
+grep -qF 'pub struct RuntimeModelSlot' "$_PROD"
+grep -qF 'pub enum RuntimeNoTrainingMode' "$_PROD"
+grep -qF 'pub struct ProductionRuntimeMatrix' "$_PROD"
+# Exactly three runtime modes, all three names present.
+grep -qF 'pub const PROD_RUNTIME_MODE_COUNT: usize = 3;' "$_PROD"
+for _mn in local_no_model_runtime local_candidate_ready_runtime local_promoted_ready_runtime; do
+  if ! grep -qF "\"$_mn\"" "$_PROD"; then exit 1; fi
+done
+# The refusal count is exactly fourteen, and all fourteen refusal-reason names are present.
+grep -qF 'pub const PROD_RUNTIME_REFUSAL_COUNT: usize = 14;' "$_PROD"
+for _rr in missing_runtime_config missing_promotion_report promotion_not_ready \
+           missing_model_artifact_hash missing_baseline_hash missing_rollback_artifact \
+           missing_version_receipt missing_operator_runbook training_mode_enabled \
+           unauthorized_network_enabled missing_receipt_output_path missing_replay_output_path \
+           authority_drift_detected serialized_runtime_package_tamper_refused; do
+  if ! grep -qF "\"$_rr\"" "$_PROD"; then exit 1; fi
+done
+# The scenario count comes from the observed matrix, and all twenty scenario names are present.
+grep -qF 'pub const PROD_RUNTIME_SCENARIO_COUNT: usize = 20;' "$_PROD"
+for _ps in local_no_model_runtime_packaged missing_runtime_config_refused \
+           missing_promotion_report_refused promotion_not_ready_refused \
+           missing_model_artifact_hash_refused missing_baseline_hash_refused \
+           missing_rollback_artifact_refused missing_version_receipt_refused \
+           missing_operator_runbook_refused training_mode_enabled_refused \
+           unauthorized_network_enabled_refused missing_receipt_output_path_refused \
+           missing_replay_output_path_refused authority_drift_refused promoted_ready_runtime_packaged \
+           package_is_not_deployment package_is_not_service_start package_is_not_baseline_replacement \
+           package_requires_s11_smoke serialized_runtime_package_tamper_refused; do
+  if ! grep -qF "\"$_ps\"" "$_PROD"; then exit 1; fi
+done
+# It CONSUMES the MODEL-PROMOTE-0 report (runs evaluate_model_promotion; promoted-ready requires ready).
+grep -qF 'evaluate_model_promotion(' "$_PROD"
+grep -qF 'ModelPromotionDecision::PromotionReady' "$_PROD"
+# No-training is the default + only state; training mode + network are refused; rollback + output paths
+# + S11 smoke are required.
+grep -qF 'RuntimeNoTrainingMode::NoTraining' "$_PROD"
+grep -qF 'TrainingModeEnabled' "$_PROD"
+grep -qF 'UnauthorizedNetworkEnabled' "$_PROD"
+grep -qF 'MissingRollbackArtifact' "$_PROD"
+grep -qF 'MissingReceiptOutputPath' "$_PROD"
+grep -qF 'MissingReplayOutputPath' "$_PROD"
+grep -qF 'requires_s11_smoke: true' "$_PROD"
+# A packaged runtime is NOT production: every forbidden flag is sourced from the structural const (false);
+# no path sets any true.
+grep -qF 'const PACKAGE_IS_PRODUCTION: bool = false;' "$_PROD"
+grep -qF 'deploys_model: PACKAGE_IS_PRODUCTION' "$_PROD"
+grep -qF 'starts_production_service: PACKAGE_IS_PRODUCTION' "$_PROD"
+grep -qF 'replaces_baseline: PACKAGE_IS_PRODUCTION' "$_PROD"
+grep -qF 'claims_production: PACKAGE_IS_PRODUCTION' "$_PROD"
+grep -qF 'serves_traffic: PACKAGE_IS_PRODUCTION' "$_PROD"
+grep -qF 'trains: PACKAGE_IS_PRODUCTION' "$_PROD"
+grep -qF 'mutates_weights: PACKAGE_IS_PRODUCTION' "$_PROD"
+grep -qF 'opens_p12: PACKAGE_IS_PRODUCTION' "$_PROD"
+if grep -qE '(deploys_model|starts_production_service|replaces_baseline|trains|mutates_weights|creates_truth|creates_memory|creates_evidence|grants_authority|opens_p12|training_justified|claims_production|serves_traffic):[[:space:]]*true' "$_PROD"; then exit 1; fi
+# Re-derived, never trusted: Serialize but NEVER derived Deserialize; verify re-derives + byte-compares.
+grep -qF 'Serialize' "$_PROD"
+test "$(grep -cE 'derive\([^)]*Deserialize' "$_PROD")" -eq 0
+grep -qF 'tampered != canonical' "$_PROD"
+# The packager tests assert the promotion consumption, the no-model packaging, the promoted-ready
+# requirement, the training/network refusals, the not-deployment / requires-s11 safety, the twenty
+# scenarios, and the serialized re-derivation.
+for _pt in 'fn package_consumes_the_real_promotion_report' \
+           'fn local_no_model_runtime_is_packaged' \
+           'fn promoted_ready_runtime_requires_promotion_ready' \
+           'fn training_mode_and_network_are_refused' \
+           'fn packaged_runtime_is_not_deployment_or_service' \
+           'fn packaged_runtime_requires_s11_smoke' \
+           'fn no_training_mode_is_the_default_and_only_state' \
+           'fn matrix_has_the_twenty_named_scenarios' \
+           'fn report_is_deterministic_and_re_derives_refusing_tampering'; do
+  if ! grep -qF "$_pt" "$_PROD"; then exit 1; fi
+done
+# The nine-line PROD-0 boundary is recorded verbatim.
+for _pb in 'The production runtime package prepares a local runtime artifact.' \
+           'It does not train.' 'It does not mutate weights.' 'It does not deploy models.' \
+           'It does not start production service.' 'It does not replace the baseline.' \
+           'It does not create truth, memory, or evidence.' 'It does not grant new authority.' \
+           'ProductionRuntimePackage is not production smoke.'; do
+  if ! grep -qF "$_pb" "$_PROD"; then exit 1; fi
+done
+# PROD-0 makes NO false training/production claim in its source.
+if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' "$_PROD"; then exit 1; fi
+if grep -qE 'claims_production[[:space:]]*[=:][[:space:]]*true' "$_PROD"; then exit 1; fi

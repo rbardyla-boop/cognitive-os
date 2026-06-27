@@ -3,6 +3,64 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-27-A — Local production runtime package (PROD-0)
+
+**Decision.** Add `crates/cognitive-demo/src/production_runtime.rs` + `docs/PRODUCTION_RUNTIME_RUNBOOK.md`: the
+deterministic, LOCAL production-runtime PACKAGE. It answers exactly ONE question — *can the verified Cognitive OS path
+be PACKAGED for local runtime use — complete, pinned, reversible, no-training, and smoke-ready?* — never "is production
+now running?". `package_production_runtime(&ProductionRuntimeInput)` CONSUMES the REAL MODEL-PROMOTE-0 evaluation: for a
+model-bearing mode it runs `evaluate_model_promotion()` itself over the supplied `ModelPromotionInput` (the full
+SCORE-0 → … → PROMOTE chain, so the decision is DERIVED, never handed in). Three runtime modes:
+`local_no_model_runtime` (substrate runtime, no model slot — only the common receipts required),
+`local_candidate_ready_runtime` (an evaluated candidate slot — requires a consumed promotion report + corroborated
+model/baseline hashes but NOT `PromotionReady`), and `local_promoted_ready_runtime` (requires the consumed decision be
+exactly `ModelPromotionDecision::PromotionReady` — "promoted-ready" = packaged for a LATER smoke/deploy decision, not
+deployed/serving). CLOSED BY DEFAULT: a missing runtime config / version / rollback / runbook / receipt-output /
+replay-output, an absent or UNCORROBORATED model/baseline hash (`hash_ok` requires present + matching the promotion
+report), an enabled training mode or network, or unchecked authority drift each REFUSE (14 `ProductionRuntimeRefusal`
+reasons). No-training is structural: `RuntimeNoTrainingMode::NoTraining` is the ONLY representable training state, and a
+config requesting training mode is refused (`training_mode_enabled`); the runtime is offline by default
+(`unauthorized_network_enabled` refuses an enabled network). The `ProductionRuntimeManifest` describes the full
+verified path `curate → read → corpus → score → fail_detect → model_eval → training_gate → training_attempt →
+candidate_eval → promotion_gate → runtime_receipt` (11 stages) WITHOUT executing it. Crucially, a packaged runtime is
+NOT production: every forbidden-action flag on the `ProductionRuntimePackage` and the sealed `ProductionRuntimeReceipt`
+(`deploys_model` / `starts_production_service` / `replaces_baseline` / `trains` / `mutates_weights` / `creates_evidence`
+/ `creates_memory` / `grants_authority` / `opens_p12` / `claims_production` / `serves_traffic`) is sourced from `const
+PACKAGE_IS_PRODUCTION = false`; the package `requires_s11_smoke = true` before any production claim, records local/
+offline mode, and the deeper P12 gate stays `training_justified = false`. No external deployment — no Clovelearn, no
+Cloudflare, no server, no public endpoint. A fixed 20-scenario `ProductionRuntimeMatrix` runs the real packager over
+no-model / each-missing-or-disallowed-requirement / promoted-ready / not-deployment / not-service / not-baseline /
+requires-s11 / tamper cases and records the OBSERVED outcome (`production_never_opens` is the conjunction). All records
+derive `Serialize` but NOT `Deserialize` (re-derived + byte-compared via `verify_production_runtime_package_json` /
+`verify_production_runtime_matrix_json`, non-vacuous `tampered != canonical` guard). 19 lib unit tests; release_check
+bumps the cognitive-demo unit-count pin 375 → 394 and pins the mode count (3) + names, the refusal count (14) + names,
+the scenario count (20) + names, the `evaluate_model_promotion` / `PromotionReady` consumption, the no-training default
++ training/network refusals + rollback + output-path + S11-smoke requirements, the `PACKAGE_IS_PRODUCTION = false` const
++ flag sourcing, the no-`: true` forbidden-action guard, the Serialize-not-Deserialize / re-derive path, the runbook
+existence, the test names, and the 9-line boundary. A capability sprint — library-only (no CLI), no Cargo change, no
+frozen-crate edit; it packages a local runtime, it does not run one.
+
+**Why.** MODEL-PROMOTE-0 produces a promotion-ready receipt; something must turn that readiness into a COMPLETE, PINNED,
+REVERSIBLE, NO-TRAINING local runtime artifact that is ready to be smoke-tested — without that packaging itself becoming
+a deployment, a running service, or a production claim. The danger is collapsing "the model is promotion-ready" into
+"production is live": a package that deploys, starts a service, serves traffic, enables training, opens a network, or
+swaps the baseline the moment a promotion looks ready. PROD-0 refuses that collapse structurally. It re-derives the
+promotion decision, it binds the runtime to the exact promoted model by corroborating the model/baseline hashes, it
+makes training unrepresentable and the network off-by-default, it demands a rollback + a runbook + receipt/replay
+output paths, and its single affirmative output is a sealed receipt that is provably inert on every production axis and
+still gated behind S11 smoke. The mode vocabulary enforces the boundary: the success state for a model is
+`promoted_ready_runtime` (packaged), never `running` or `deployed`. This keeps the honest ordering intact: a runtime
+may be packaged and made smoke-ready, but actually running it — and any production claim — remains S11.
+
+**Boundary recorded.** The production runtime package prepares a local runtime artifact. It does not train. It does not
+mutate weights. It does not deploy models. It does not start production service. It does not replace the baseline. It
+does not create truth, memory, or evidence. It does not grant new authority. ProductionRuntimePackage is not production
+smoke (every package/receipt forbidden-action flag is false; `production_never_opens` holds across the matrix; the real
+P12 `reading_train_gate::decide(&[],&[]).training_justified` stays false). P12 stays `training_justified=false`; P13–P15
+stay closed; `release_check.sh` remains green + byte-silent. Canonical artifacts:
+[`crates/cognitive-demo/src/production_runtime.rs`](../crates/cognitive-demo/src/production_runtime.rs),
+[`docs/PRODUCTION_RUNTIME_RUNBOOK.md`](PRODUCTION_RUNTIME_RUNBOOK.md).
+
 ## DD-2026-06-26-Z — Explicit, closed-by-default model promotion gate (MODEL-PROMOTE-0)
 
 **Decision.** Add `crates/cognitive-demo/src/model_promote.rs`: the explicit model PROMOTION GATE. It answers exactly

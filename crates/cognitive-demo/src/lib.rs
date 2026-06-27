@@ -220,6 +220,32 @@ pub use model_promote::{
     MODEL_PROMOTE_REFUSAL_NAMES, MODEL_PROMOTE_SCENARIO_COUNT,
 };
 
+/// PROD-0 — the deterministic, local PRODUCTION RUNTIME PACKAGE. It CONSUMES the real MODEL-PROMOTE-0
+/// evaluation (running `evaluate_model_promotion` itself for a model mode) and packages a complete,
+/// pinned, reversible, no-training, offline runtime artifact that is smoke-ready — NOT live production.
+/// The `local_promoted_ready_runtime` mode requires `ModelPromotionDecision::PromotionReady`;
+/// `local_no_model_runtime` packages the substrate runtime; `local_candidate_ready_runtime` packages an
+/// evaluated candidate without requiring promotion-ready. No-training is the only representable training
+/// state and an enabled training mode or network is refused (14 refusal reasons). A packaged runtime
+/// deploys nothing, starts no service, claims no production, replaces no baseline; every forbidden flag
+/// on the package and the sealed `ProductionRuntimeReceipt` is sourced from `PACKAGE_IS_PRODUCTION =
+/// false`, it `requires_s11_smoke`, and P12 stays `training_justified = false`. Reports are `Serialize`
+/// but never `Deserialize`. See [`production_runtime`] for the boundary.
+mod production_runtime;
+pub use production_runtime::{
+    package_production_runtime, package_production_runtime_json, production_runtime_matrix,
+    production_runtime_matrix_json, verify_production_runtime_matrix_json,
+    verify_production_runtime_package_json, OperatorRunbookReceipt, ProductionRuntimeBoundary,
+    ProductionRuntimeConfig, ProductionRuntimeError, ProductionRuntimeInput,
+    ProductionRuntimeManifest, ProductionRuntimeMatrix, ProductionRuntimeMode,
+    ProductionRuntimeOutcome, ProductionRuntimePackage, ProductionRuntimeReceipt,
+    ProductionRuntimeRefusal, ProductionRuntimeScenarioCell, RuntimeModelSlot,
+    RuntimeNoTrainingMode, RuntimeRollbackReceipt, RuntimeVersionReceipt,
+    PRODUCTION_RUNTIME_BOUNDARY_LINES, PROD_RUNTIME_MODE_COUNT, PROD_RUNTIME_MODE_NAMES,
+    PROD_RUNTIME_REFUSAL_COUNT, PROD_RUNTIME_REFUSAL_NAMES, PROD_RUNTIME_SCENARIO_COUNT,
+    PROD_RUNTIME_VERIFIED_PATH,
+};
+
 /// What can go wrong building the end-to-end trace. Every failure is explicit; nothing is
 /// silently coerced or fabricated. The first three wrap a frozen-crate error; the last two
 /// are INT-0's own provenance invariants (a trace that did not start from a verified receipt,
