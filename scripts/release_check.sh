@@ -1325,9 +1325,9 @@ grep -q 'fn trace_records_every_stage_id_and_links_the_chain' crates/cognitive-d
 grep -q 'fn trace_grants_no_new_authority' crates/cognitive-demo/src/lib.rs
 # Unit-test REALITY pin: exactly the 394 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
 # MTRACE-1 (12) + MTRACE-2 (12) + DOCFLOW-0 (10) + DOCFLOW-2 (10) + CORPUS-0 (12) + CORPUS-2 (12) + NOVELTY-0 (15) +
-# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) + CORPUS-HARVEST-0 (26) + SCORE-0 (20) + FAIL-0 (19) + P11-MODEL-EVAL (18) + TRAIN-GATE-0 (20) + TRAIN-0 (21) + MODEL-EVAL-1 (22) + MODEL-PROMOTE-0 (23) + PROD-0 (19) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
+# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) + CORPUS-HARVEST-0 (26) + SCORE-0 (20) + FAIL-0 (19) + P11-MODEL-EVAL (18) + TRAIN-GATE-0 (20) + TRAIN-0 (21) + MODEL-EVAL-1 (22) + MODEL-PROMOTE-0 (23) + PROD-0 (19) + PROD-SMOKE-0 (20) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
 _int0_unit="$(cargo test --offline --lib --manifest-path crates/cognitive-demo/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 394
+test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 414
 test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
 # Determinism / no side effects: the trace is a pure, in-memory function — no clock, entropy, or network
 # anywhere in src/, and no floats anywhere in the crate. (`std::process::exit` in the CLI shell is a clean
@@ -5024,3 +5024,139 @@ done
 # PROD-0 makes NO false training/production claim in its source.
 if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' "$_PROD"; then exit 1; fi
 if grep -qE 'claims_production[[:space:]]*[=:][[:space:]]*true' "$_PROD"; then exit 1; fi
+
+# ---------------------------------------------------------------------------------------------------
+# PROD-SMOKE-0 — the deterministic, local END-TO-END PRODUCTION SMOKE. It CONSUMES the PROD-0 package
+# (run_production_smoke re-runs package_production_runtime itself over the substrate / no-model runtime
+# and verifies it by re-derivation + byte-compare), then EXECUTES the real end-to-end sub-flows — a
+# curated read (verifier_score_matrix_json), a corpus flow (corpus_harvest_matrix_json), a horizon flow
+# (horizon_matrix_json), a refusal case (the runtime packager genuinely refusing a training-mode
+# config), and a replay verification — and writes + hash-verifies receipt/replay artifacts. It is
+# closed by default across SIXTEEN steps and refuses NINETEEN ways. A smoke PASS is NOT production:
+# every forbidden flag on the report and the sealed ProductionSmokeReceipt is sourced from
+# SMOKE_IS_PRODUCTION = false, it requires_release_1, is NOT final release, and P12 stays
+# training_justified = false. The operator smoke (scripts/operator_smoke.sh) runs the harness outcomes
+# end-to-end. Boundary: The production smoke path verifies a local runtime package execution. It does
+# not train. It does not mutate weights. It does not deploy externally. It does not serve production
+# traffic. It does not replace the baseline. It does not create truth, memory, or evidence. It does not
+# grant new authority. ProductionSmokePass is not final release.
+# ---------------------------------------------------------------------------------------------------
+_SMOKE=crates/cognitive-demo/src/production_smoke.rs
+test -f "$_SMOKE"
+# The module is wired into the crate and its public entrypoints exist.
+grep -qF 'mod production_smoke;' crates/cognitive-demo/src/lib.rs
+grep -qF 'pub use production_smoke::' crates/cognitive-demo/src/lib.rs
+grep -qF 'pub fn run_production_smoke(' "$_SMOKE"
+grep -qF 'pub fn run_production_smoke_json(' "$_SMOKE"
+grep -qF 'pub fn verify_production_smoke_report_json(' "$_SMOKE"
+grep -qF 'pub fn production_smoke_matrix(' "$_SMOKE"
+grep -qF 'pub fn verify_production_smoke_matrix_json(' "$_SMOKE"
+# The operator smoke script exists, is executable, and runs the PROD-SMOKE-0 harness end-to-end.
+test -f scripts/operator_smoke.sh
+test -x scripts/operator_smoke.sh
+grep -qF 'PROD-SMOKE-0' scripts/operator_smoke.sh
+grep -qF 'production_smoke::tests::' scripts/operator_smoke.sh
+# The core objects exist.
+grep -qF 'pub struct ProductionSmokeRun' "$_SMOKE"
+grep -qF 'pub struct ProductionSmokeReceipt' "$_SMOKE"
+grep -qF 'pub struct ProductionSmokeReport' "$_SMOKE"
+grep -qF 'pub struct ProductionSmokeConfig' "$_SMOKE"
+grep -qF 'pub enum ProductionSmokeStep' "$_SMOKE"
+grep -qF 'pub struct ProductionSmokeStepResult' "$_SMOKE"
+grep -qF 'pub struct ProductionSmokeArtifactManifest' "$_SMOKE"
+grep -qF 'pub enum ProductionSmokeRefusal' "$_SMOKE"
+grep -qF 'pub struct ProductionSmokeMatrix' "$_SMOKE"
+# Exactly sixteen required steps, all sixteen names present.
+grep -qF 'pub const PROD_SMOKE_STEP_COUNT: usize = 16;' "$_SMOKE"
+for _ss in fresh_runtime_context release_check_green operator_smoke_green runtime_package_verified \
+           curated_read_executed corpus_flow_executed horizon_flow_executed refusal_case_executed \
+           replay_verification_executed receipt_artifacts_written replay_artifacts_written \
+           rollback_check_executed model_version_hash_confirmed no_training_mode_confirmed \
+           no_unauthorized_network_confirmed documented_operator_workflow_confirmed; do
+  if ! grep -qF "\"$_ss\"" "$_SMOKE"; then exit 1; fi
+done
+# The refusal count is exactly nineteen, and all nineteen refusal-reason names are present.
+grep -qF 'pub const PROD_SMOKE_REFUSAL_COUNT: usize = 19;' "$_SMOKE"
+for _sr in missing_runtime_package runtime_package_tampered missing_fresh_context release_check_failed \
+           operator_smoke_failed curated_read_failed corpus_flow_failed horizon_flow_failed \
+           refusal_case_failed replay_verification_failed receipt_artifacts_missing \
+           replay_artifacts_missing rollback_check_failed model_version_hash_missing \
+           training_mode_detected unauthorized_network_detected baseline_replacement_detected \
+           production_claim_attempted serialized_smoke_report_tamper_refused; do
+  if ! grep -qF "\"$_sr\"" "$_SMOKE"; then exit 1; fi
+done
+# The scenario count comes from the observed matrix, and all twenty-one scenario names are present.
+grep -qF 'pub const PROD_SMOKE_SCENARIO_COUNT: usize = 21;' "$_SMOKE"
+for _sp in local_smoke_passes missing_runtime_package_refused runtime_package_tampered_refused \
+           missing_fresh_context_refused release_check_failure_refused operator_smoke_failure_refused \
+           curated_read_failure_refused corpus_flow_failure_refused horizon_flow_failure_refused \
+           refusal_case_failure_refused replay_verification_failure_refused \
+           missing_receipt_artifacts_refused missing_replay_artifacts_refused \
+           rollback_check_failure_refused missing_model_version_hash_refused \
+           training_mode_detected_refused unauthorized_network_detected_refused \
+           baseline_replacement_detected_refused production_claim_attempt_refused \
+           serialized_smoke_report_tamper_refused smoke_pass_is_not_final_release; do
+  if ! grep -qF "\"$_sp\"" "$_SMOKE"; then exit 1; fi
+done
+# It CONSUMES the PROD-0 package (re-runs package_production_runtime; verifies it; executes real sub-flows).
+grep -qF 'package_production_runtime(' "$_SMOKE"
+grep -qF 'verify_production_runtime_package_json(' "$_SMOKE"
+grep -qF 'verifier_score_matrix_json()' "$_SMOKE"
+grep -qF 'corpus_harvest_matrix_json()' "$_SMOKE"
+grep -qF 'horizon_matrix_json()' "$_SMOKE"
+# Fresh context, green release_check + operator_smoke receipts, rollback, and artifacts are required.
+grep -qF 'MissingFreshContext' "$_SMOKE"
+grep -qF 'ReleaseCheckFailed' "$_SMOKE"
+grep -qF 'OperatorSmokeFailed' "$_SMOKE"
+grep -qF 'RollbackCheckFailed' "$_SMOKE"
+grep -qF 'ReceiptArtifactsMissing' "$_SMOKE"
+grep -qF 'ReplayArtifactsMissing' "$_SMOKE"
+# Training mode, unauthorized network, baseline replacement, and production claims are refused.
+grep -qF 'TrainingModeDetected' "$_SMOKE"
+grep -qF 'UnauthorizedNetworkDetected' "$_SMOKE"
+grep -qF 'BaselineReplacementDetected' "$_SMOKE"
+grep -qF 'ProductionClaimAttempted' "$_SMOKE"
+# A smoke pass is NOT final release: every forbidden flag is sourced from the structural const (false);
+# no path sets any true; the pass still requires_release_1.
+grep -qF 'const SMOKE_IS_PRODUCTION: bool = false;' "$_SMOKE"
+grep -qF 'trains: SMOKE_IS_PRODUCTION' "$_SMOKE"
+grep -qF 'deploys_externally: SMOKE_IS_PRODUCTION' "$_SMOKE"
+grep -qF 'serves_production_traffic: SMOKE_IS_PRODUCTION' "$_SMOKE"
+grep -qF 'replaces_baseline: SMOKE_IS_PRODUCTION' "$_SMOKE"
+grep -qF 'claims_production: SMOKE_IS_PRODUCTION' "$_SMOKE"
+grep -qF 'opens_p12: SMOKE_IS_PRODUCTION' "$_SMOKE"
+grep -qF 'is_final_release: SMOKE_IS_PRODUCTION' "$_SMOKE"
+grep -qF 'requires_release_1: true' "$_SMOKE"
+if grep -qE '(trains|mutates_weights|deploys_externally|serves_production_traffic|replaces_baseline|creates_truth|creates_memory|creates_evidence|grants_authority|claims_production|opens_p12|training_justified|is_final_release):[[:space:]]*true' "$_SMOKE"; then exit 1; fi
+# Re-derived, never trusted: Serialize but NEVER derived Deserialize; verify re-derives + byte-compares.
+grep -qF 'Serialize' "$_SMOKE"
+test "$(grep -cE 'derive\([^)]*Deserialize' "$_SMOKE")" -eq 0
+grep -qF 'tampered != canonical' "$_SMOKE"
+# The harness tests assert the consumption, the pass + sealed receipt, the missing/tampered package,
+# the executed sub-flows, the refusal case + replay, the artifacts, the safety refusals, the
+# not-final-release invariant, the twenty-one scenarios, and the serialized re-derivation.
+for _st in 'fn smoke_consumes_the_real_runtime_package' \
+           'fn local_smoke_passes_and_seals_a_receipt' \
+           'fn missing_runtime_package_is_refused' \
+           'fn tampered_runtime_package_is_refused' \
+           'fn smoke_executes_curated_read_corpus_and_horizon_flows' \
+           'fn smoke_executes_a_refusal_case_and_replay_verification' \
+           'fn training_mode_and_network_are_detected_and_refused' \
+           'fn smoke_pass_is_not_final_release' \
+           'fn matrix_has_the_twenty_one_named_scenarios' \
+           'fn report_is_deterministic_and_re_derives_refusing_tampering'; do
+  if ! grep -qF "$_st" "$_SMOKE"; then exit 1; fi
+done
+# The nine-line PROD-SMOKE-0 boundary is recorded verbatim.
+for _sb in 'The production smoke path verifies a local runtime package execution.' \
+           'It does not train.' 'It does not mutate weights.' 'It does not deploy externally.' \
+           'It does not serve production traffic.' 'It does not replace the baseline.' \
+           'It does not create truth, memory, or evidence.' 'It does not grant new authority.' \
+           'ProductionSmokePass is not final release.'; do
+  if ! grep -qF "$_sb" "$_SMOKE"; then exit 1; fi
+done
+# PROD-SMOKE-0 makes NO false training / production / final-release claim in its source. P12 stays closed.
+if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' "$_SMOKE"; then exit 1; fi
+if grep -qE 'claims_production[[:space:]]*[=:][[:space:]]*true' "$_SMOKE"; then exit 1; fi
+if grep -qE 'is_final_release[[:space:]]*[=:][[:space:]]*true' "$_SMOKE"; then exit 1; fi
+grep -qF 'reading_train_gate::decide(&[], &[]).training_justified' "$_SMOKE"

@@ -3,6 +3,47 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-27-B — Local end-to-end production smoke (PROD-SMOKE-0)
+
+**Decision.** Add `crates/cognitive-demo/src/production_smoke.rs` (library-only; no new CLI verb) + an additive
+`PROD-SMOKE-0` section in `scripts/operator_smoke.sh`: the deterministic, **local** end-to-end production smoke for the
+PROD-0 packaged runtime. It answers exactly ONE question — *can the runtime PACKAGED by PROD-0 actually EXECUTE and
+VERIFY its end-to-end path in a fresh local context?* — never "is production running?". `run_production_smoke(&ProductionSmokeRun)`
+CONSUMES the REAL PROD-0 package: it re-runs `package_production_runtime` itself over the supplied runtime input (the
+substrate / no-model runtime — explicitly allowed; the model-bearing package is PROD-0's own verified concern) and
+VERIFIES it by re-derivation + byte-compare. It then EXECUTES the real end-to-end sub-flows — a curated read
+(`verifier_score_matrix_json`), a corpus flow (`corpus_harvest_matrix_json`), a horizon flow (`horizon_matrix_json`), a
+refusal case (the runtime packager genuinely refusing a training-mode config), and a replay verification — and writes +
+hash-verifies receipt/replay artifacts into a `ProductionSmokeArtifactManifest`.
+
+**Closed by default.** SIXTEEN required steps (`fresh_runtime_context`, `release_check_green`, `operator_smoke_green`,
+`runtime_package_verified`, `curated_read_executed`, `corpus_flow_executed`, `horizon_flow_executed`,
+`refusal_case_executed`, `replay_verification_executed`, `receipt_artifacts_written`, `replay_artifacts_written`,
+`rollback_check_executed`, `model_version_hash_confirmed`, `no_training_mode_confirmed`,
+`no_unauthorized_network_confirmed`, `documented_operator_workflow_confirmed`); NINETEEN refusal reasons; a 21-scenario
+`production_smoke_matrix()` that keeps `production_never_opens` and `final_release_never_claimed` across every cell. The
+smoke records the green `release_check`/`operator_smoke` receipts as hash-pinned inputs (it does not shell out from the
+pure library); the operator runs `scripts/operator_smoke.sh`, which now runs the documented operator path AND the
+PROD-SMOKE-0 harness end-to-end.
+
+**Boundary.** A smoke PASS is NOT production: every forbidden-action flag on the report and the sealed
+`ProductionSmokeReceipt` (`trains`, `mutates_weights`, `deploys_externally`, `serves_production_traffic`,
+`replaces_baseline`, `creates_truth`, `creates_memory`, `creates_evidence`, `grants_authority`, `claims_production`,
+`opens_p12`, `training_justified`, `is_final_release`) is sourced from `SMOKE_IS_PRODUCTION = false`. The pass
+`requires_release_1` and is **never** final release; **no external deployment** (no Clovelearn / Cloudflare / server /
+endpoint / long-running daemon); P12 stays `training_justified = false`; P13–P15 remain closed. Reports are `Serialize`
+but never `Deserialize` (re-derived + byte-compared; tampering refused). The boundary, recorded verbatim: *The
+production smoke path verifies a local runtime package execution. It does not train. It does not mutate weights. It does
+not deploy externally. It does not serve production traffic. It does not replace the baseline. It does not create truth,
+memory, or evidence. It does not grant new authority. ProductionSmokePass is not final release.*
+
+**Scope.** Library-only (no Cargo change, no frozen-crate edit, no new CLI subcommand). The pre-existing 610-line
+`scripts/operator_smoke.sh` (OPS-1 → HORIZON-0 operator-path drift guard, run by `release_check`) was **extended
+additively**, never overwritten. The `release_check` `_SMOKE` lock pins the module, entrypoints, 16 steps, 19 refusals,
+21 scenarios, the PROD-0 consumption, the no-false-claim guards, and the unit-count pin (394 → 414). NO tag (capability
+sprint). Canonical artifacts: `crates/cognitive-demo/src/production_smoke.rs`, `scripts/operator_smoke.sh`,
+`docs/PRODUCTION_RUNTIME_RUNBOOK.md`.
+
 ## DD-2026-06-27-A — Local production runtime package (PROD-0)
 
 **Decision.** Add `crates/cognitive-demo/src/production_runtime.rs` + `docs/PRODUCTION_RUNTIME_RUNBOOK.md`: the

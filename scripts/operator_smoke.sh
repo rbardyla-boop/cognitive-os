@@ -607,4 +607,25 @@ for _hzb in 'The horizon operator path exercises bounded interaction depth.' 'It
   grep -qF "$_hzb" "$MANUAL" || fail "manual horizon boundary line drifted: $_hzb"
 done
 
+# PROD-SMOKE-0 — local end-to-end production smoke. The deterministic production_smoke harness re-runs the
+# PROD-0 packaged runtime (package_production_runtime), executes the real curated-read / corpus / horizon
+# sub-flows, a refusal case, and a replay verification, writes + hash-verifies receipt/replay artifacts, and
+# refuses 19 ways. A smoke PASS is NOT external production and is NOT final release (S12 RELEASE-1 is the
+# release gate). Library-only (no new CLI verb): the operator smoke runs the harness outcomes directly, each
+# --exact so a dropped outcome shows "0 passed" and fails here, never "1 passed". No code crate change here —
+# this exercises existing PROD-SMOKE-0 behavior end-to-end.
+for _ps in local_smoke_passes_and_seals_a_receipt missing_runtime_package_is_refused \
+           tampered_runtime_package_is_refused smoke_executes_curated_read_corpus_and_horizon_flows \
+           smoke_executes_a_refusal_case_and_replay_verification \
+           receipt_and_replay_artifacts_are_written_and_hash_verified \
+           training_mode_and_network_are_detected_and_refused smoke_pass_is_not_final_release \
+           p12_training_justified_remains_false_even_when_smoke_passes; do
+  if _ps_out="$(cargo test --offline --lib --manifest-path "$_CDM" -- --exact "production_smoke::tests::$_ps" 2>&1)"; then
+    printf '%s\n' "$_ps_out" | grep -qF '1 passed' || fail "production smoke outcome did not run (vacuous): $_ps"
+  else
+    fail "production smoke outcome test failed: $_ps"
+  fi
+done
+echo 'operator-smoke: PROD-SMOKE-0 OK — the packaged runtime executed and verified locally (not final release)'
+
 echo 'operator-smoke: OK — the documented operator path runs and the manual matches the binary'

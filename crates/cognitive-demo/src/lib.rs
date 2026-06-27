@@ -246,6 +246,24 @@ pub use production_runtime::{
     PROD_RUNTIME_VERIFIED_PATH,
 };
 
+/// PROD-SMOKE-0 — the deterministic, local END-TO-END PRODUCTION SMOKE. It CONSUMES the PROD-0
+/// [`production_runtime`] package (re-running `package_production_runtime` itself), executes the real
+/// end-to-end sub-flows, writes + hash-verifies receipt/replay artifacts, and refuses 19 ways. A smoke
+/// PASS is NOT final release. `Serialize` but never `Deserialize`. See [`production_smoke`] for the
+/// boundary.
+mod production_smoke;
+pub use production_smoke::{
+    production_smoke_matrix, production_smoke_matrix_json, run_production_smoke,
+    run_production_smoke_json, verify_production_smoke_matrix_json,
+    verify_production_smoke_report_json, FreshRuntimeContext, OperatorSmokeReceipt,
+    ProductionSmokeArtifactManifest, ProductionSmokeBoundary, ProductionSmokeConfig,
+    ProductionSmokeError, ProductionSmokeMatrix, ProductionSmokeOutcome, ProductionSmokeReceipt,
+    ProductionSmokeRefusal, ProductionSmokeReport, ProductionSmokeRun, ProductionSmokeScenarioCell,
+    ProductionSmokeStep, ProductionSmokeStepResult, ReleaseCheckReceipt, SmokeArtifact,
+    PRODUCTION_SMOKE_BOUNDARY_LINES, PROD_SMOKE_REFUSAL_COUNT, PROD_SMOKE_REFUSAL_NAMES,
+    PROD_SMOKE_SCENARIO_COUNT, PROD_SMOKE_STEP_COUNT, PROD_SMOKE_STEP_NAMES,
+};
+
 /// What can go wrong building the end-to-end trace. Every failure is explicit; nothing is
 /// silently coerced or fabricated. The first three wrap a frozen-crate error; the last two
 /// are INT-0's own provenance invariants (a trace that did not start from a verified receipt,

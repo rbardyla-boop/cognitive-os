@@ -69,3 +69,59 @@ re-derive it from the same input and byte-compare with `verify_production_runtim
 tampered or foreign package is refused. The 20-scenario `production_runtime_matrix()` records the
 observed outcome of the real packager across the no-model / each-refusal / promoted-ready / not-X /
 tamper cases, and `production_never_opens` holds across all cells.
+
+## End-to-end production smoke (PROD-SMOKE-0 / S11)
+
+PROD-SMOKE-0 (`crates/cognitive-demo/src/production_smoke.rs`) is the deterministic, **local**
+end-to-end smoke for the packaged runtime. It answers exactly one question: *can the runtime PACKAGED
+above actually EXECUTE and VERIFY its end-to-end path in a fresh local context?* — never "is production
+running?". A local smoke **PASS is NOT external production and NOT final release**; S12 (RELEASE-1) is
+the release gate.
+
+`run_production_smoke(&ProductionSmokeRun)` CONSUMES the PROD-0 package — it re-runs
+`package_production_runtime` itself over the supplied runtime input (the substrate / no-model runtime;
+the model-bearing package is PROD-0's own concern) and verifies it by re-derivation + byte-compare. It
+then EXECUTES the real end-to-end sub-flows — a curated read, a corpus flow, a horizon flow, a refusal
+case (the runtime packager genuinely refusing a training-mode config), and a replay verification — and
+writes + hash-verifies receipt and replay artifacts into a `ProductionSmokeArtifactManifest`.
+
+### The sixteen required steps
+
+`fresh_runtime_context`, `release_check_green`, `operator_smoke_green`, `runtime_package_verified`,
+`curated_read_executed`, `corpus_flow_executed`, `horizon_flow_executed`, `refusal_case_executed`,
+`replay_verification_executed`, `receipt_artifacts_written`, `replay_artifacts_written`,
+`rollback_check_executed`, `model_version_hash_confirmed`, `no_training_mode_confirmed`,
+`no_unauthorized_network_confirmed`, `documented_operator_workflow_confirmed`. The smoke refuses
+nineteen ways (a missing/tampered package, a missing fresh context, a non-green `release_check` or
+`operator_smoke` receipt, an omitted sub-flow, missing receipt/replay artifacts, a failed rollback
+check, a missing version hash, a detected training mode / unauthorized network / baseline replacement /
+production claim, or a tampered serialized report).
+
+### Running the smoke
+
+Run `scripts/operator_smoke.sh` (offline, deterministic, temp-dir only). It runs the whole documented
+operator path AND the PROD-SMOKE-0 harness end-to-end; a green run records the
+`operator-smoke: PROD-SMOKE-0 OK …` receipt. The harness records — it does NOT shell out from the pure
+library; it consumes the green `release_check` and `operator_smoke` receipts as hash-pinned inputs.
+
+### The smoke boundary (verbatim)
+
+```text
+The production smoke path verifies a local runtime package execution.
+It does not train.
+It does not mutate weights.
+It does not deploy externally.
+It does not serve production traffic.
+It does not replace the baseline.
+It does not create truth, memory, or evidence.
+It does not grant new authority.
+ProductionSmokePass is not final release.
+```
+
+A smoke PASS seals a `ProductionSmokeReceipt` that `requires_release_1` and is **never** final release.
+Every forbidden-action flag is sourced from `SMOKE_IS_PRODUCTION = false`; P12 stays
+`training_justified = false`; P13–P15 remain closed. There is **no external deployment** — no
+Clovelearn, no Cloudflare, no server, no public endpoint, no long-running service. The report is
+`Serialize` but never `Deserialize`: a serialized smoke report is re-derived and byte-compared, so
+tampering is refused. The 21-scenario `production_smoke_matrix()` keeps `production_never_opens` and
+`final_release_never_claimed` across all cells.
