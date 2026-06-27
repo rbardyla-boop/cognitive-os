@@ -1325,9 +1325,9 @@ grep -q 'fn trace_records_every_stage_id_and_links_the_chain' crates/cognitive-d
 grep -q 'fn trace_grants_no_new_authority' crates/cognitive-demo/src/lib.rs
 # Unit-test REALITY pin: exactly the 394 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
 # MTRACE-1 (12) + MTRACE-2 (12) + DOCFLOW-0 (10) + DOCFLOW-2 (10) + CORPUS-0 (12) + CORPUS-2 (12) + NOVELTY-0 (15) +
-# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) + CORPUS-HARVEST-0 (26) + SCORE-0 (20) + FAIL-0 (19) + P11-MODEL-EVAL (18) + TRAIN-GATE-0 (20) + TRAIN-0 (21) + MODEL-EVAL-1 (22) + MODEL-PROMOTE-0 (23) + PROD-0 (19) + PROD-SMOKE-0 (20) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
+# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) + CORPUS-HARVEST-0 (26) + SCORE-0 (20) + FAIL-0 (19) + P11-MODEL-EVAL (18) + TRAIN-GATE-0 (20) + TRAIN-0 (21) + MODEL-EVAL-1 (22) + MODEL-PROMOTE-0 (23) + PROD-0 (19) + PROD-SMOKE-0 (20) + RELEASE-1 (25) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
 _int0_unit="$(cargo test --offline --lib --manifest-path crates/cognitive-demo/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 414
+test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 439
 test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
 # Determinism / no side effects: the trace is a pure, in-memory function — no clock, entropy, or network
 # anywhere in src/, and no floats anywhere in the crate. (`std::process::exit` in the CLI shell is a clean
@@ -5160,3 +5160,149 @@ if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' "$_SMOKE"; then
 if grep -qE 'claims_production[[:space:]]*[=:][[:space:]]*true' "$_SMOKE"; then exit 1; fi
 if grep -qE 'is_final_release[[:space:]]*[=:][[:space:]]*true' "$_SMOKE"; then exit 1; fi
 grep -qF 'reading_train_gate::decide(&[], &[]).training_justified' "$_SMOKE"
+
+# ---------------------------------------------------------------------------------------------------
+# RELEASE-1 — the FINAL local release gate for Cognitive OS prototype v0.1. It CONSUMES PROD-SMOKE-0
+# (re-running run_production_smoke; requires Passed) and PROD-0 (re-running package_production_runtime;
+# requires Packaged), corroborates the supplied smoke/package hashes, verifies the committed chain head
+# (b653dd3) and the full required lineage, requires every release receipt (artifact manifest, notes,
+# release + operator runbooks, rollback, boundary lock, green release_check + operator_smoke, the 439
+# unit-count pin), and refuses any training / deployment / production-traffic / baseline-replacement
+# intent, unchecked authority drift, or dirty release scope. It declares local_release_ready ONLY when
+# all hold. local_release_ready is NOT external/cloud deployment, public production, traffic serving,
+# baseline replacement, or training: every forbidden flag is sourced from RELEASE_IS_PUBLIC = false, and
+# P12 stays training_justified = false. Boundary: The release gate declares local prototype release
+# readiness only. It does not train. It does not mutate weights. It does not deploy externally. It does
+# not start public production. It does not serve production traffic. It does not replace the baseline.
+# It does not create truth, memory, or evidence. It does not grant new authority. LocalReleaseReady is
+# not cloud or public deployment.
+# ---------------------------------------------------------------------------------------------------
+_RELEASE=crates/cognitive-demo/src/release_gate.rs
+test -f "$_RELEASE"
+# The module is wired into the crate and its public entrypoints exist.
+grep -qF 'mod release_gate;' crates/cognitive-demo/src/lib.rs
+grep -qF 'pub use release_gate::' crates/cognitive-demo/src/lib.rs
+grep -qF 'pub fn evaluate_release_gate(' "$_RELEASE"
+grep -qF 'pub fn evaluate_release_gate_json(' "$_RELEASE"
+grep -qF 'pub fn verify_release_gate_report_json(' "$_RELEASE"
+grep -qF 'pub fn release_matrix(' "$_RELEASE"
+grep -qF 'pub fn verify_release_matrix_json(' "$_RELEASE"
+# The release docs exist (required precondition artifacts).
+test -f docs/RELEASE_RUNBOOK.md
+test -f docs/RELEASE_NOTES_v0.1.md
+# The operator smoke runs the RELEASE-1 gate end-to-end.
+grep -qF 'RELEASE-1' scripts/operator_smoke.sh
+grep -qF 'release_gate::tests::' scripts/operator_smoke.sh
+# The thirteen core objects exist.
+grep -qF 'pub struct ReleaseGate ' "$_RELEASE"
+grep -qF 'pub struct ReleaseGateInput' "$_RELEASE"
+grep -qF 'pub struct ReleaseGateReport' "$_RELEASE"
+grep -qF 'pub enum ReleaseDecision' "$_RELEASE"
+grep -qF 'pub enum ReleaseRefusal' "$_RELEASE"
+grep -qF 'pub struct ReleaseArtifactManifest' "$_RELEASE"
+grep -qF 'pub struct ReleaseChainReceipt' "$_RELEASE"
+grep -qF 'pub struct ReleaseSmokeReceipt' "$_RELEASE"
+grep -qF 'pub struct ReleaseRollbackReceipt' "$_RELEASE"
+grep -qF 'pub struct ReleaseBoundaryReceipt' "$_RELEASE"
+grep -qF 'pub struct ReleaseOperatorRunbookReceipt' "$_RELEASE"
+grep -qF 'pub struct ReleaseNotesReceipt' "$_RELEASE"
+grep -qF 'pub struct ReleaseMatrix' "$_RELEASE"
+# Exactly two decisions, both names present (and no verdict named `released`).
+grep -qF 'pub const RELEASE_DECISION_COUNT: usize = 2;' "$_RELEASE"
+for _rd in release_denied local_release_ready; do
+  if ! grep -qF "\"$_rd\"" "$_RELEASE"; then exit 1; fi
+done
+# The refusal count is exactly twenty-four, and all twenty-four refusal-reason names are present.
+grep -qF 'pub const RELEASE_REFUSAL_COUNT: usize = 24;' "$_RELEASE"
+for _rr in missing_release_input missing_prod_smoke_report prod_smoke_not_passed \
+           missing_prod_runtime_package prod_runtime_package_tampered \
+           missing_release_artifact_manifest missing_release_notes missing_release_runbook \
+           missing_operator_runbook missing_rollback_receipt missing_chain_receipt \
+           chain_head_mismatch missing_required_commit release_check_failed operator_smoke_failed \
+           unit_count_mismatch boundary_lock_missing training_detected deployment_detected \
+           production_traffic_detected baseline_replacement_detected authority_drift_detected \
+           untracked_release_scope_dirty serialized_release_report_tamper_refused; do
+  if ! grep -qF "\"$_rr\"" "$_RELEASE"; then exit 1; fi
+done
+# The scenario count comes from the observed matrix, and all twenty-nine scenario names are present.
+grep -qF 'pub const RELEASE_SCENARIO_COUNT: usize = 29;' "$_RELEASE"
+for _rs in local_release_ready missing_release_input_denied missing_prod_smoke_report_denied \
+           prod_smoke_not_passed_denied missing_prod_runtime_package_denied \
+           prod_runtime_package_tampered_denied missing_release_artifact_manifest_denied \
+           missing_release_notes_denied missing_release_runbook_denied missing_operator_runbook_denied \
+           missing_rollback_receipt_denied missing_chain_receipt_denied chain_head_mismatch_denied \
+           missing_required_commit_denied release_check_failure_denied operator_smoke_failure_denied \
+           unit_count_mismatch_denied boundary_lock_missing_denied training_detected_denied \
+           deployment_detected_denied production_traffic_detected_denied \
+           baseline_replacement_detected_denied authority_drift_denied dirty_release_scope_denied \
+           serialized_release_report_tamper_refused local_release_ready_not_external_deployment \
+           local_release_ready_not_public_production local_release_ready_not_baseline_replacement \
+           local_release_ready_not_training; do
+  if ! grep -qF "\"$_rs\"" "$_RELEASE"; then exit 1; fi
+done
+# It CONSUMES PROD-SMOKE-0 (Passed) and PROD-0 (Packaged) by re-running their real functions.
+grep -qF 'run_production_smoke(' "$_RELEASE"
+grep -qF 'package_production_runtime(' "$_RELEASE"
+grep -qF 'ProductionSmokeOutcome::Passed' "$_RELEASE"
+grep -qF 'ProductionRuntimeOutcome::Packaged' "$_RELEASE"
+# The expected chain head + the full required lineage are pinned (auditable against git log).
+grep -qF 'pub const EXPECTED_CHAIN_HEAD: &str = "b653dd3";' "$_RELEASE"
+for _lc in e30176e f6fd0d8 187466c 2e438c4 72adfe4 9597c49 e33701b fc57104 b653dd3; do
+  if ! grep -qF "\"$_lc\"" "$_RELEASE"; then exit 1; fi
+done
+# The unit-count pin the gate requires matches the suite (439).
+grep -qF 'pub const EXPECTED_RELEASE_UNIT_COUNT: usize = 439;' "$_RELEASE"
+# local_release_ready is NOT production: every forbidden flag is sourced from the structural const
+# (false); no path sets any true; the pinned lineage is verifiable against git history WHEN available
+# (this stays byte-silent and does NOT require git — in a non-git/CI context the source pins are the
+# gate; when history is present, every required commit must be an ancestor of HEAD).
+grep -qF 'const RELEASE_IS_PUBLIC: bool = false;' "$_RELEASE"
+grep -qF 'trains: RELEASE_IS_PUBLIC' "$_RELEASE"
+grep -qF 'deploys_externally: RELEASE_IS_PUBLIC' "$_RELEASE"
+grep -qF 'starts_public_production: RELEASE_IS_PUBLIC' "$_RELEASE"
+grep -qF 'serves_production_traffic: RELEASE_IS_PUBLIC' "$_RELEASE"
+grep -qF 'replaces_baseline: RELEASE_IS_PUBLIC' "$_RELEASE"
+grep -qF 'is_cloud_or_public_deployment: RELEASE_IS_PUBLIC' "$_RELEASE"
+grep -qF 'claims_public_release: RELEASE_IS_PUBLIC' "$_RELEASE"
+grep -qF 'training_justified: RELEASE_IS_PUBLIC' "$_RELEASE"
+if grep -qE '(trains|mutates_weights|deploys_externally|starts_public_production|serves_production_traffic|replaces_baseline|creates_truth|creates_memory|creates_evidence|grants_authority|training_justified|is_cloud_or_public_deployment|claims_public_release):[[:space:]]*true' "$_RELEASE"; then exit 1; fi
+# Re-derived, never trusted: Serialize but NEVER derived Deserialize; verify re-derives + byte-compares.
+grep -qF 'Serialize' "$_RELEASE"
+test "$(grep -cE 'derive\([^)]*Deserialize' "$_RELEASE")" -eq 0
+grep -qF 'tampered != canonical' "$_RELEASE"
+# The gate tests assert the consumption, the ready seal, the chain/lineage refusals, the unit-count and
+# safety refusals, the not-public invariant, the twenty-nine scenarios, and the serialized re-derivation.
+for _rt in 'fn release_gate_consumes_the_real_prod_smoke_and_package' \
+           'fn local_release_ready_seals_a_readiness_receipt' \
+           'fn missing_release_input_is_denied' \
+           'fn chain_head_mismatch_is_denied' \
+           'fn missing_required_commit_is_denied' \
+           'fn unit_count_mismatch_is_denied' \
+           'fn training_deployment_traffic_and_baseline_are_refused' \
+           'fn local_release_ready_is_not_external_deployment_or_public_production' \
+           'fn matrix_has_the_twenty_nine_named_scenarios' \
+           'fn report_is_deterministic_and_re_derives_refusing_tampering'; do
+  if ! grep -qF "$_rt" "$_RELEASE"; then exit 1; fi
+done
+# The ten-line RELEASE-1 boundary is recorded verbatim.
+for _rb in 'The release gate declares local prototype release readiness only.' \
+           'It does not train.' 'It does not mutate weights.' 'It does not deploy externally.' \
+           'It does not start public production.' 'It does not serve production traffic.' \
+           'It does not replace the baseline.' 'It does not create truth, memory, or evidence.' \
+           'It does not grant new authority.' 'LocalReleaseReady is not cloud or public deployment.'; do
+  if ! grep -qF "$_rb" "$_RELEASE"; then exit 1; fi
+done
+# RELEASE-1 makes NO false training / deployment / public-release claim in its source. P12 stays closed.
+if grep -qE 'training_justified[[:space:]]*[=:][[:space:]]*true' "$_RELEASE"; then exit 1; fi
+if grep -qE 'deploys_externally[[:space:]]*[=:][[:space:]]*true' "$_RELEASE"; then exit 1; fi
+if grep -qE 'claims_public_release[[:space:]]*[=:][[:space:]]*true' "$_RELEASE"; then exit 1; fi
+grep -qF 'reading_train_gate::decide(&[], &[]).training_justified' "$_RELEASE"
+# The required lineage is verifiable against git history WHEN present (guarded + byte-silent + portable:
+# release_check never REQUIRES git; if a clone has the commits, each must be an ancestor of HEAD).
+if git rev-parse --git-dir >/dev/null 2>&1; then
+  for _anc in b653dd3 fc57104 e33701b 9597c49 72adfe4 2e438c4 187466c f6fd0d8 e30176e; do
+    if git cat-file -e "${_anc}^{commit}" 2>/dev/null; then
+      git merge-base --is-ancestor "$_anc" HEAD 2>/dev/null || exit 1
+    fi
+  done
+fi

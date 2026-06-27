@@ -264,6 +264,24 @@ pub use production_smoke::{
     PROD_SMOKE_SCENARIO_COUNT, PROD_SMOKE_STEP_COUNT, PROD_SMOKE_STEP_NAMES,
 };
 
+/// RELEASE-1 — the FINAL local release gate for Cognitive OS prototype v0.1. It CONSUMES PROD-SMOKE-0
+/// (re-running `run_production_smoke`) and PROD-0 (re-running `package_production_runtime`), verifies
+/// the committed chain head + lineage by hash-pinned receipt, requires every release receipt, and
+/// declares `local_release_ready` ONLY when all hold — never external/cloud deployment. `Serialize` but
+/// never `Deserialize`. See [`release_gate`] for the boundary.
+mod release_gate;
+pub use release_gate::{
+    evaluate_release_gate, evaluate_release_gate_json, release_matrix, release_matrix_json,
+    verify_release_gate_report_json, verify_release_matrix_json, ReleaseArtifact,
+    ReleaseArtifactManifest, ReleaseBoundaryReceipt, ReleaseChainReceipt, ReleaseCommitPin,
+    ReleaseDecision, ReleaseGate, ReleaseGateBoundary, ReleaseGateError, ReleaseGateInput,
+    ReleaseGateReport, ReleaseMatrix, ReleaseNotesReceipt, ReleaseOperatorRunbookReceipt,
+    ReleaseRefusal, ReleaseRollbackReceipt, ReleaseScenarioCell, ReleaseSmokeReceipt,
+    EXPECTED_CHAIN_HEAD, EXPECTED_RELEASE_UNIT_COUNT, RELEASE_BOUNDARY_LINES,
+    RELEASE_DECISION_COUNT, RELEASE_DECISION_NAMES, RELEASE_REFUSAL_COUNT, RELEASE_REFUSAL_NAMES,
+    RELEASE_SCENARIO_COUNT, REQUIRED_LINEAGE,
+};
+
 /// What can go wrong building the end-to-end trace. Every failure is explicit; nothing is
 /// silently coerced or fabricated. The first three wrap a frozen-crate error; the last two
 /// are INT-0's own provenance invariants (a trace that did not start from a verified receipt,

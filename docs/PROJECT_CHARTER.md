@@ -3,6 +3,51 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-27-C — Final local release gate (RELEASE-1)
+
+**Decision.** Add `crates/cognitive-demo/src/release_gate.rs` (library-only; no new CLI verb) + `docs/RELEASE_RUNBOOK.md`
++ `docs/RELEASE_NOTES_v0.1.md` + an additive `RELEASE-1` section in `scripts/operator_smoke.sh`: the FINAL local release
+gate for Cognitive OS prototype v0.1. It answers exactly ONE question — *is the local prototype RELEASE-READY?* — and may
+declare so ONLY after proving the committed chain, the local production package, the production smoke, the operator
+runbook, the rollback path, the release artifacts, and the boundary locks are all intact. The correct final claim is
+**local prototype release-ready**, never "live production". `evaluate_release_gate(&ReleaseGateInput)` CONSUMES the REAL
+prior layers: it re-runs PROD-SMOKE-0's `run_production_smoke` (requires `Passed`) and PROD-0's
+`package_production_runtime` (requires `Packaged`), corroborates the operator-supplied smoke/package hashes against those
+re-derivations, and verifies the committed chain head (`b653dd3`) and the full required lineage (SCORE-0 `e30176e` →
+FAIL-0 `f6fd0d8` → P11 `187466c` → TRAIN-GATE-0 `2e438c4` → TRAIN-0 `72adfe4` → MODEL-EVAL-1 `9597c49` → MODEL-PROMOTE-0
+`e33701b` → PROD-0 `fc57104` → PROD-SMOKE-0 `b653dd3`) by hash-pinned `ReleaseChainReceipt` constants (the REAL git
+ancestry check lives in `scripts/release_check.sh`, guarded + byte-silent + portable; the pure library never shells out).
+
+**Closed by default.** TWO decisions (`release_denied`, `local_release_ready` — deliberately NOT `released`); TWENTY-FOUR
+refusal reasons; a 29-scenario `release_matrix()` that keeps `release_never_goes_public` and `public_release_never_claimed`
+across every cell. The gate requires every release receipt (artifact manifest, release notes, release + operator runbooks,
+verified rollback, boundary lock, green `release_check` + `operator_smoke`, the 439 unit-count pin) and refuses any
+training / deployment / production-traffic / baseline-replacement intent, unchecked authority drift, or dirty release
+scope. The operator runs `scripts/operator_smoke.sh`, which now runs the documented operator path, the PROD-SMOKE-0
+harness, AND the RELEASE-1 gate end-to-end.
+
+**Boundary.** `local_release_ready` is NOT production: every forbidden-action flag on the report and the sealed
+`ReleaseGate` readiness receipt (`trains`, `mutates_weights`, `deploys_externally`, `starts_public_production`,
+`serves_production_traffic`, `replaces_baseline`, `creates_truth`, `creates_memory`, `creates_evidence`,
+`grants_authority`, `training_justified`, `is_cloud_or_public_deployment`, `claims_public_release`) is sourced from
+`RELEASE_IS_PUBLIC = false`. **No external deployment** (no Clovelearn / Cloudflare / server / endpoint / long-running
+daemon); P12 stays `training_justified = false`; P13–P15 remain closed. Reports are `Serialize` but never `Deserialize`
+(re-derived + byte-compared; tampering refused). The boundary, recorded verbatim: *The release gate declares local
+prototype release readiness only. It does not train. It does not mutate weights. It does not deploy externally. It does
+not start public production. It does not serve production traffic. It does not replace the baseline. It does not create
+truth, memory, or evidence. It does not grant new authority. LocalReleaseReady is not cloud or public deployment.*
+
+**Scope.** Library-only (no Cargo change, no frozen-crate edit, no new CLI subcommand). The pre-existing
+`scripts/operator_smoke.sh` was **extended additively**, never overwritten. The unrelated working-tree dirt
+(`README.md`, `scripts/lint.sh`, `clipping_orchestrator` files, standing `scripts/*.py`, `FEATURES.csv`) was left
+untouched and excluded by explicit-pathspec staged-set guard. The `release_check` `_RELEASE` lock pins the module,
+entrypoints, 2 decisions, 24 refusals, 29 scenarios, the PROD-SMOKE-0/PROD-0 consumption, the chain head + lineage, the
+no-false-claim guards, the unit-count pin (414 → 439), and a guarded git-ancestry check. A tag
+(`cognitive-os-prototype-v0.1`) may be created only after RELEASE-1 is committed, the gate is green post-commit,
+operator_smoke is green post-commit, an independent verifier returns ALL PASS / 0 blocking, the commit scope is clean,
+and the operator issues a separate explicit tag command. Canonical artifacts:
+`crates/cognitive-demo/src/release_gate.rs`, `docs/RELEASE_RUNBOOK.md`, `docs/RELEASE_NOTES_v0.1.md`.
+
 ## DD-2026-06-27-B — Local end-to-end production smoke (PROD-SMOKE-0)
 
 **Decision.** Add `crates/cognitive-demo/src/production_smoke.rs` (library-only; no new CLI verb) + an additive

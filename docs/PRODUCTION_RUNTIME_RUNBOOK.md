@@ -125,3 +125,14 @@ Clovelearn, no Cloudflare, no server, no public endpoint, no long-running servic
 `Serialize` but never `Deserialize`: a serialized smoke report is re-derived and byte-compared, so
 tampering is refused. The 21-scenario `production_smoke_matrix()` keeps `production_never_opens` and
 `final_release_never_claimed` across all cells.
+
+## Final local release (RELEASE-1 / S12)
+
+After a green production smoke, the FINAL local release gate
+(`crates/cognitive-demo/src/release_gate.rs`, RELEASE-1) may declare the local prototype
+**release-ready**. It CONSUMES this PROD-SMOKE-0 smoke (requiring `Passed`) and the PROD-0 package
+(requiring `Packaged`), verifies the committed chain head + lineage, and requires every release
+receipt. `local_release_ready` is **local readiness only** — never external/cloud deployment, public
+production, traffic serving, baseline replacement, or training. See `docs/RELEASE_RUNBOOK.md` for the
+operator checklist, the required lineage, and the tag rule, and `docs/RELEASE_NOTES_v0.1.md` for the
+v0.1 release notes.

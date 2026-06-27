@@ -628,4 +628,27 @@ for _ps in local_smoke_passes_and_seals_a_receipt missing_runtime_package_is_ref
 done
 echo 'operator-smoke: PROD-SMOKE-0 OK — the packaged runtime executed and verified locally (not final release)'
 
+# RELEASE-1 — final local release gate. The deterministic release_gate harness CONSUMES PROD-SMOKE-0
+# (re-running run_production_smoke) and PROD-0 (re-running package_production_runtime), verifies the
+# committed chain head + lineage by hash-pinned receipt, requires every release receipt, and declares
+# local_release_ready ONLY when all hold — never external/cloud deployment. local_release_ready is NOT
+# public production and NOT a deployment. Library-only (no new CLI verb): the operator smoke runs the
+# gate outcomes directly, each --exact so a dropped outcome shows "0 passed" and fails here. No code
+# crate change here — this exercises existing RELEASE-1 behavior end-to-end.
+for _rg in release_gate_consumes_the_real_prod_smoke_and_package \
+           local_release_ready_seals_a_readiness_receipt missing_release_input_is_denied \
+           chain_head_mismatch_is_denied missing_required_commit_is_denied \
+           unit_count_mismatch_is_denied training_deployment_traffic_and_baseline_are_refused \
+           authority_drift_and_dirty_scope_are_refused \
+           local_release_ready_is_not_external_deployment_or_public_production \
+           p12_training_justified_remains_false_even_when_release_ready \
+           report_is_deterministic_and_re_derives_refusing_tampering; do
+  if _rg_out="$(cargo test --offline --lib --manifest-path "$_CDM" -- --exact "release_gate::tests::$_rg" 2>&1)"; then
+    printf '%s\n' "$_rg_out" | grep -qF '1 passed' || fail "release gate outcome did not run (vacuous): $_rg"
+  else
+    fail "release gate outcome test failed: $_rg"
+  fi
+done
+echo 'operator-smoke: RELEASE-1 OK — local prototype release-ready (not cloud or public deployment)'
+
 echo 'operator-smoke: OK — the documented operator path runs and the manual matches the binary'
