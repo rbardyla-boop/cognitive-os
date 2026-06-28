@@ -651,4 +651,25 @@ for _rg in release_gate_consumes_the_real_prod_smoke_and_package \
 done
 echo 'operator-smoke: RELEASE-1 OK — local prototype release-ready (not cloud or public deployment)'
 
+# VAULT-NORM-0 — deterministic Markdown normalization adapter (cognitive-demo only). The adapter improves
+# raw-Markdown -> corpus INPUT FIDELITY (not "better reading"); it does not touch the frozen substrate or
+# splitter. The matrix drives the REAL frozen execute+verify over synthetic fixtures and proves markup
+# pollution drops to zero while grounding stays sound (0 false-grounded), with the over-split outcome
+# MEASURED, not assumed. Library-only, no Cargo change — runs the existing VAULT-NORM-0 outcomes directly,
+# each --exact so a dropped outcome shows "0 passed" and fails here, never "1 passed".
+for _vn in normalization_eliminates_markup_pollution \
+           raw_markdown_grounds_but_pollutes_with_markup \
+           grounding_safety_preserved_zero_false_grounded_both_ways \
+           literal_tokens_survive_verbatim_no_semantic_leakage \
+           unbalanced_fence_does_not_eat_the_document \
+           over_split_is_measured_not_assumed \
+           matrix_json_re_derives_and_refuses_tampering; do
+  if _vn_out="$(cargo test --offline --lib --manifest-path "$_CDM" -- --exact "vault_norm::tests::$_vn" 2>&1)"; then
+    printf '%s\n' "$_vn_out" | grep -qF '1 passed' || fail "vault-norm outcome did not run (vacuous): $_vn"
+  else
+    fail "vault-norm outcome test failed: $_vn"
+  fi
+done
+echo 'operator-smoke: VAULT-NORM-0 OK — markdown input fidelity normalized (not better reading; substrate frozen)'
+
 echo 'operator-smoke: OK — the documented operator path runs and the manual matches the binary'

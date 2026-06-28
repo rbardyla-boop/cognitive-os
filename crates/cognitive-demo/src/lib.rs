@@ -282,6 +282,14 @@ pub use release_gate::{
     RELEASE_SCENARIO_COUNT, REQUIRED_LINEAGE,
 };
 
+mod vault_norm;
+pub use vault_norm::{
+    literal_tokens_survive, normalization_matrix, normalization_matrix_json, normalize_markdown,
+    over_split_resolved_by_adapter, verify_markdown_normalization_matrix_json,
+    MarkdownNormalizationMatrix, NormCell, NormFixture, NormalizationBoundary, NormalizationError,
+    NORM_BOUNDARY_LINES, NORM_FIXTURE_COUNT, NORM_RULE_COUNT, NORM_RULE_NAMES,
+};
+
 /// What can go wrong building the end-to-end trace. Every failure is explicit; nothing is
 /// silently coerced or fabricated. The first three wrap a frozen-crate error; the last two
 /// are INT-0's own provenance invariants (a trace that did not start from a verified receipt,

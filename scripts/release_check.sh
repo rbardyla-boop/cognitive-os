@@ -1325,9 +1325,9 @@ grep -q 'fn trace_records_every_stage_id_and_links_the_chain' crates/cognitive-d
 grep -q 'fn trace_grants_no_new_authority' crates/cognitive-demo/src/lib.rs
 # Unit-test REALITY pin: exactly the 394 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
 # MTRACE-1 (12) + MTRACE-2 (12) + DOCFLOW-0 (10) + DOCFLOW-2 (10) + CORPUS-0 (12) + CORPUS-2 (12) + NOVELTY-0 (15) +
-# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) + CORPUS-HARVEST-0 (26) + SCORE-0 (20) + FAIL-0 (19) + P11-MODEL-EVAL (18) + TRAIN-GATE-0 (20) + TRAIN-0 (21) + MODEL-EVAL-1 (22) + MODEL-PROMOTE-0 (23) + PROD-0 (19) + PROD-SMOKE-0 (20) + RELEASE-1 (25) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
+# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) + CORPUS-HARVEST-0 (26) + SCORE-0 (20) + FAIL-0 (19) + P11-MODEL-EVAL (18) + TRAIN-GATE-0 (20) + TRAIN-0 (21) + MODEL-EVAL-1 (22) + MODEL-PROMOTE-0 (23) + PROD-0 (19) + PROD-SMOKE-0 (20) + RELEASE-1 (25) + VAULT-NORM-0 (21) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
 _int0_unit="$(cargo test --offline --lib --manifest-path crates/cognitive-demo/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 439
+test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 460
 test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
 # Determinism / no side effects: the trace is a pure, in-memory function — no clock, entropy, or network
 # anywhere in src/, and no floats anywhere in the crate. (`std::process::exit` in the CLI shell is a clean
@@ -5306,3 +5306,80 @@ if git rev-parse --git-dir >/dev/null 2>&1; then
     fi
   done
 fi
+
+# ---------------------------------------------------------------------------
+# VAULT-NORM-0 — deterministic Markdown normalization adapter (post-v0.1).
+# A cognitive-demo-ONLY input-fidelity adapter. It improves raw-Markdown ->
+# corpus input fidelity; it does NOT reopen reading-substrate, NOT change the
+# splitter, NOT train, NOT model, NOT release/retag, NOT claim "better reading".
+# All checks byte-silent. The frozen reading crates remain pinned by their own
+# locks above; this lock additionally proves cognitive-demo holds the adapter.
+# ---------------------------------------------------------------------------
+_VN="crates/cognitive-demo/src/vault_norm.rs"
+_CDLIB="crates/cognitive-demo/src/lib.rs"
+test -f "$_VN"
+# Module wiring.
+grep -qF 'mod vault_norm;' "$_CDLIB"
+grep -qF 'pub use vault_norm::{' "$_CDLIB"
+# Entrypoints.
+for _vf in 'pub fn normalize_markdown(' \
+           'pub fn normalization_matrix(' \
+           'pub fn normalization_matrix_json(' \
+           'pub fn verify_markdown_normalization_matrix_json(' \
+           'pub fn over_split_resolved_by_adapter(' \
+           'pub fn literal_tokens_survive('; do
+  grep -qF "$_vf" "$_VN"
+done
+# The 16 named rules are pinned (NORM_RULE_COUNT == 16 + every name).
+grep -qF 'pub const NORM_RULE_COUNT: usize = 16;' "$_VN"
+for _vr in frontmatter_strip fenced_code_strip indented_code_strip table_row_drop \
+           horizontal_rule_drop heading_marker_strip blockquote_marker_strip \
+           unordered_list_marker_strip ordered_list_marker_strip wikilink_unwrap \
+           markdown_link_unwrap image_drop inline_code_strip emphasis_strip \
+           line_as_sentence_unit unbalanced_fence_guard; do
+  grep -qF "\"$_vr\"" "$_VN"
+done
+# The fixture pack is committed and >= 20 (locked at 22).
+grep -qF 'pub const NORM_FIXTURE_COUNT: usize = 22;' "$_VN"
+test "$(grep -cE 'NormFixture \{ name:' "$_VN")" -ge 20
+# The 8-line authority boundary is recorded verbatim and claims input-fidelity only.
+for _vb in 'The Markdown normalizer prepares cleaner corpus input from raw Markdown.' \
+           'It does not change the reading substrate.' \
+           'It does not change the sentence splitter.' \
+           'It does not train or run a model.' \
+           'It does not release or retag.' \
+           'It invents no text; it only deletes markup and unwraps links.' \
+           'Answers remain grounded only to the normalized corpus.' \
+           'NormalizedInput is not better reading.'; do
+  grep -qF "$_vb" "$_VN"
+done
+# Every forbidden-action flag is sourced from the single false const; none is ever true.
+grep -qF 'const NORM_EDITS_SUBSTRATE: bool = false;' "$_VN"
+if grep -qE '(edits_reading_substrate|edits_frozen_crate|changes_split_sentences|trains|is_model|claims_better_reading|retags_release|is_release)[[:space:]]*[=:][[:space:]]*true' "$_VN"; then exit 1; fi
+# Report types are Serialize but NEVER Deserialize (re-derived + byte-compared).
+grep -qF 'use serde::Serialize;' "$_VN"
+if grep -qE 'derive\([^)]*Deserialize' "$_VN"; then exit 1; fi
+# The adapter never redefines the frozen splitter inside cognitive-demo.
+if grep -qE 'fn (split_sentences|is_period_boundary)\b' "$_VN"; then exit 1; fi
+# Purity: no floats anywhere in the adapter (integer permille only).
+if grep -qE '\bf32\b|\bf64\b' "$_VN"; then exit 1; fi
+# The over-split outcome is MEASURED (per-class + overall fields present), not assumed.
+for _vo in over_split_filename_resolved over_split_url_resolved over_split_version_resolved \
+           over_split_resolved_by_adapter literal_tokens_survive boundary_all_inert; do
+  grep -qF "$_vo" "$_VN"
+done
+# The load-bearing behavioural tests (the unit-count pin above RUNS them; named here
+# so deleting one is caught).
+for _vt in 'fn rule_set_has_sixteen_named_rules' \
+           'fn boundary_is_eight_lines_and_claims_input_fidelity_only' \
+           'fn fixture_pack_is_at_least_twenty' \
+           'fn frontmatter_is_stripped' \
+           'fn unbalanced_fence_does_not_eat_the_document' \
+           'fn literal_tokens_survive_verbatim_no_semantic_leakage' \
+           'fn raw_markdown_grounds_but_pollutes_with_markup' \
+           'fn normalization_eliminates_markup_pollution' \
+           'fn grounding_safety_preserved_zero_false_grounded_both_ways' \
+           'fn over_split_is_measured_not_assumed' \
+           'fn matrix_json_re_derives_and_refuses_tampering'; do
+  grep -qF "$_vt" "$_VN"
+done

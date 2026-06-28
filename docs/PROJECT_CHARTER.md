@@ -3,6 +3,32 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-28-A — Deterministic Markdown normalization adapter (VAULT-NORM-0)
+
+**Decision.** Add `crates/cognitive-demo/src/vault_norm.rs` (library-only; no new CLI verb, no Cargo change —
+`cognitive-demo` already depends on `reading-cli` + `reading-substrate`): a deterministic, no-semantics Markdown
+normalization ADAPTER that improves raw-Markdown → corpus **input fidelity** before corpus construction. Motivated by
+the real-vault stress test (2,527 `.md`): the frozen substrate is **safe** (0 false-grounded on messy markdown) but
+**markdown-naive** — ~39% of the spans the reader grounded on were markup, not prose. The claim is strictly **"better
+Markdown-to-corpus input fidelity," never "better reading."**
+
+**Scope / boundary.** This is **not** a `reading-substrate` change, **not** a splitter change, **not** training, **not**
+a model, **not** a release/retag. It preserves the frozen v0.1 substrate and the `cognitive-os-prototype-v0.1` tag @
+`7b64c73`. `normalize_markdown` only DELETES markup, STRIPS leading markers, UNWRAPS links, and APPENDS a terminal
+period — it invents no text. Grounding stays sound by construction: the corpus is built from the normalized text, so the
+FROZEN `reading_substrate::verify` still grounds verbatim against it.
+
+**Evidence (measured through the real frozen `execute`+`verify`, 22 synthetic fixtures).** Markup among grounded spans
+**26.5% → 0.0%**; **false_grounded 0 raw AND 0 normalized** (safety preserved); literal tokens (`drive_scout.py`,
+`https://example.com/path.html`, `v1.2`, `U.S.`) survive verbatim (no semantic leakage). The `.py`/URL/version
+**over-split was MEASURED, not assumed**: `over_split_resolved_by_adapter = false` (version `1.2` is already protected by
+the frozen splitter's digit.digit rule; filename/URL cannot be resolved by an adapter feeding `corpus_from_spans` because
+`verify` re-runs the frozen splitter internally — so a protected single span fails grounding). That negative result is
+the **evidence** that authorizes a SEPARATE, later READ-N splitter sprint **only if** the operator chooses to reopen
+`reading-substrate`. VAULT-NORM-0 does not reopen it. Pinned by a `_VAULT_NORM` lock (16 rules, 22 fixtures, 8-line
+boundary, Serialize-not-Deserialize, the `:true` forbidden-flag guard) + the cognitive-demo unit-count pin (439 → 460),
+with an additive `operator-smoke: VAULT-NORM-0 OK` section. P12 `training_justified=false`; P13–P15 closed.
+
 ## DD-2026-06-27-C — Final local release gate (RELEASE-1)
 
 **Decision.** Add `crates/cognitive-demo/src/release_gate.rs` (library-only; no new CLI verb) + `docs/RELEASE_RUNBOOK.md`
