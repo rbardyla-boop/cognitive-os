@@ -672,4 +672,25 @@ for _vn in normalization_eliminates_markup_pollution \
 done
 echo 'operator-smoke: VAULT-NORM-0 OK — markdown input fidelity normalized (not better reading; substrate frozen)'
 
+# QSELECT-0 — deterministic question-aware evidence SELECTION (cognitive-demo only). The selector RANKS spans
+# by transparent lexical/structural signals (token + phrase overlap, rare-token weighting, title/heading
+# boosts) and feeds ONLY selected candidate spans into the FROZEN execute+verify: selection PROPOSES, the
+# frozen verifier AUTHORIZES support. No model, no training, no new dependency, no substrate edit. Each
+# outcome runs --exact so a dropped one shows "0 passed" and fails here, never "1 passed".
+for _qs in exact_phrase_selects_relevant_span \
+           rare_token_selects_relevant_span \
+           prompt_injection_span_gets_no_authority \
+           selected_span_answer_verifies \
+           unselected_span_cannot_support_answer \
+           model_and_training_signals_are_refused \
+           same_input_same_receipt_hash \
+           matrix_json_re_derives_and_refuses_tampering; do
+  if _qs_out="$(cargo test --offline --lib --manifest-path "$_CDM" -- --exact "query_select::tests::$_qs" 2>&1)"; then
+    printf '%s\n' "$_qs_out" | grep -qF '1 passed' || fail "query-select outcome did not run (vacuous): $_qs"
+  else
+    fail "query-select outcome test failed: $_qs"
+  fi
+done
+echo 'operator-smoke: QSELECT-0 OK — question-aware selection proposes; the frozen verifier authorizes (no model)'
+
 echo 'operator-smoke: OK — the documented operator path runs and the manual matches the binary'

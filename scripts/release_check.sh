@@ -1325,9 +1325,9 @@ grep -q 'fn trace_records_every_stage_id_and_links_the_chain' crates/cognitive-d
 grep -q 'fn trace_grants_no_new_authority' crates/cognitive-demo/src/lib.rs
 # Unit-test REALITY pin: exactly the 394 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
 # MTRACE-1 (12) + MTRACE-2 (12) + DOCFLOW-0 (10) + DOCFLOW-2 (10) + CORPUS-0 (12) + CORPUS-2 (12) + NOVELTY-0 (15) +
-# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) + CORPUS-HARVEST-0 (26) + SCORE-0 (20) + FAIL-0 (19) + P11-MODEL-EVAL (18) + TRAIN-GATE-0 (20) + TRAIN-0 (21) + MODEL-EVAL-1 (22) + MODEL-PROMOTE-0 (23) + PROD-0 (19) + PROD-SMOKE-0 (20) + RELEASE-1 (25) + VAULT-NORM-0 (21) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
+# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) + CORPUS-HARVEST-0 (26) + SCORE-0 (20) + FAIL-0 (19) + P11-MODEL-EVAL (18) + TRAIN-GATE-0 (20) + TRAIN-0 (21) + MODEL-EVAL-1 (22) + MODEL-PROMOTE-0 (23) + PROD-0 (19) + PROD-SMOKE-0 (20) + RELEASE-1 (25) + VAULT-NORM-0 (21) + QSELECT-0 (24) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
 _int0_unit="$(cargo test --offline --lib --manifest-path crates/cognitive-demo/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 460
+test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 484
 test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
 # Determinism / no side effects: the trace is a pure, in-memory function — no clock, entropy, or network
 # anywhere in src/, and no floats anywhere in the crate. (`std::process::exit` in the CLI shell is a clean
@@ -5428,3 +5428,86 @@ grep -qF 'overall resolved after READ-N' "$_VNR"
 # vault_norm STILL does not edit the substrate or flip any forbidden flag.
 grep -qF 'const NORM_EDITS_SUBSTRATE: bool = false;' "$_VNR"
 if grep -qE 'changes_split_sentences[[:space:]]*[=:][[:space:]]*true' "$_VNR"; then exit 1; fi
+
+# ---------------------------------------------------------------------------
+# QSELECT-0 — deterministic question-aware evidence SELECTION (post-v0.1).
+# A cognitive-demo-ONLY selector: it RANKS spans by transparent lexical/structural
+# signals and feeds ONLY selected candidate spans into the FROZEN execute + verify.
+# Selection PROPOSES; the frozen verifier AUTHORIZES. No model, no training, no new
+# dependency (reuses reading-cli + reading-substrate), no reading-substrate edit, no
+# reading-autonomy edit, no retag. It deliberately MIRRORS the READ-8 lexical
+# convention (content_terms / prefix_overlap) and adds phrase overlap, rare-token
+# weighting, per-span score receipts, a refusal matrix, and tamper detection. All
+# checks byte-silent.
+# ---------------------------------------------------------------------------
+_QS="crates/cognitive-demo/src/query_select.rs"
+_CDLIB2="crates/cognitive-demo/src/lib.rs"
+test -f "$_QS"
+# Module wiring.
+grep -qF 'mod query_select;' "$_CDLIB2"
+grep -qF 'pub use query_select::{' "$_CDLIB2"
+# Structural invariant: no model, no training; the candidate authority is fixed.
+grep -qF 'const QSELECT_USES_MODEL: bool = false;' "$_QS"
+grep -qF 'const AUTHORITY_CANDIDATE_ONLY: &str = "candidate_only";' "$_QS"
+# The 10 required report objects exist.
+for _qo in 'pub struct QuerySelectionRun' 'pub struct QuerySelectionConfig' \
+           'pub struct QuerySelectionReceipt' 'pub struct QueryTerm' \
+           'pub struct QuerySpanScore' 'pub enum QuerySelectionDecision' \
+           'pub enum QuerySelectionRefusal' 'pub struct SelectedEvidenceCandidate' \
+           'pub struct SelectionCoverageReport' 'pub struct QuerySelectionMatrix'; do
+  grep -qF "$_qo" "$_QS"
+done
+# The 2 decision slugs.
+for _qd in 'selection_passed' 'selection_refused'; do
+  grep -qF "\"$_qd\"" "$_QS"
+done
+# The 11 refusal slugs.
+for _qr in 'empty_query_refused' 'stopword_only_query_refused' 'missing_corpus_refused' \
+           'no_candidate_spans_refused' 'ungrounded_candidate_refused' \
+           'selection_score_tamper_refused' 'serialized_selection_report_tamper_refused' \
+           'non_deterministic_tie_break_refused' 'model_signal_detected_refused' \
+           'training_signal_detected_refused' 'authority_escalation_refused'; do
+  grep -qF "\"$_qr\"" "$_QS"
+done
+# The 15 matrix scenarios are committed and counted.
+grep -qF 'pub const QSELECT_SCENARIO_COUNT: usize = 15;' "$_QS"
+for _qs in 'exact_phrase_selects_relevant_span' 'rare_token_selects_relevant_span' \
+           'filename_token_selects_relevant_span' 'url_token_selects_relevant_span' \
+           'heading_boost_tie_breaks_deterministically' 'same_score_tie_breaks_by_doc_then_span' \
+           'no_matching_span_refused' 'prompt_injection_span_gets_no_authority' \
+           'same_input_same_receipt_hash' 'selected_span_answer_verifies' \
+           'unselected_span_cannot_support_answer'; do
+  grep -qF "\"$_qs\"" "$_QS"
+done
+# The 9-line authority boundary is recorded verbatim and is selection-only.
+grep -qF 'pub const QSELECT_BOUNDARY_LINES: [&str; 9]' "$_QS"
+grep -qF 'QSELECT-0 selects candidate evidence spans only.' "$_QS"
+grep -qF 'It does not answer from scores.' "$_QS"
+# Selection runs through the FROZEN execute + verify (selection proposes; verify authorizes).
+grep -qF 'use reading_substrate::{execute, verify' "$_QS"
+grep -qE 'execute\(corpus' "$_QS"
+grep -qE 'verify\(corpus' "$_QS"
+# Deliberate READ-8 lexical mirror + the QSELECT-specific value-adds.
+grep -qE 'fn content_terms\(' "$_QS"
+grep -qE 'fn prefix_overlap\(' "$_QS"
+grep -qE 'fn phrase_hit\(' "$_QS"
+grep -qF 'rarity_weight' "$_QS"
+grep -qF 'fn receipt_hash' "$_QS"
+# Report types are Serialize but NEVER Deserialize (re-derived + byte-compared).
+grep -qF 'use serde::Serialize;' "$_QS"
+if grep -qE 'derive\([^)]*Deserialize' "$_QS"; then exit 1; fi
+# No forbidden boundary flag is ever set true (config uses_model/uses_training MAY be
+# true in a refusal test, so they are intentionally excluded from this guard).
+if grep -qE '(answers_from_scores|creates_truth|creates_evidence|changes_grounding_rules|changes_replay_authority|improves_semantic_reading|retags_release)[[:space:]]*[=:][[:space:]]*true' "$_QS"; then exit 1; fi
+# Purity: no floats, no clock/entropy/model/network/async in the selector.
+if grep -qE '\bf32\b|\bf64\b' "$_QS"; then exit 1; fi
+if grep -qE '\brand\b|getrandom|SystemTime|Instant|embedding|tensor|torch|tensorflow|reqwest|\.await' "$_QS"; then exit 1; fi
+# The load-bearing behavioural tests exist (the unit-count pin above RUNS them).
+for _qt in 'fn exact_phrase_selects_relevant_span' 'fn rare_token_selects_relevant_span' \
+           'fn prompt_injection_span_gets_no_authority' 'fn unselected_span_cannot_support_answer' \
+           'fn selected_span_answer_verifies' 'fn model_and_training_signals_are_refused' \
+           'fn authority_escalation_is_refused' 'fn non_deterministic_tie_break_is_refused' \
+           'fn score_tamper_refused' 'fn matrix_json_re_derives_and_refuses_tampering' \
+           'fn same_input_same_receipt_hash'; do
+  grep -qF "$_qt" "$_QS"
+done

@@ -3,6 +3,54 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-29-B — Deterministic question-aware evidence selection (QSELECT-0)
+
+**Decision.** Add `crates/cognitive-demo/src/query_select.rs` (library-only; no new CLI verb, no Cargo change —
+reuses `reading-cli` + `reading-substrate`, already deps): a deterministic, replayable, **question-aware span
+SELECTION** layer. It attacks F4 — the cognitive-demo corpus path reads the FIRST spans, not the most relevant —
+by RANKING corpus spans with transparent lexical/structural signals and feeding ONLY the selected candidate
+spans into the EXISTING frozen `execute` + `verify`. The law is strict and unchanged: **selection PROPOSES
+candidate spans; the frozen verifier AUTHORIZES support.** Scores are explanations, never truth; no selected
+span becomes evidence until `reading_substrate::verify` accepts the resulting answer.
+
+**Scope / boundary.** Not a `reading-substrate` change, not a `reading-autonomy` change, not training, not a
+model, not a semantic-reader claim, not a release/retag. v0.1 stays @ `7b64c73`; P12 `training_justified=false`;
+P13–P15 closed. Signals are lexical/structural ONLY: exact query-token overlap (case-folded), exact phrase
+overlap, rare-token weighting computed from the LOCAL corpus only, document-title / section-heading metadata
+boosts, and stable `(score, document_id, span_id)` tie-breaks. Forbidden signals (LLM judgment, embeddings,
+semantic similarity, web lookup, training, learned weights, wall-clock / random order, answer-confidence-as-
+authority) are structurally excluded — every boundary flag is sourced from `QSELECT_USES_MODEL = false`, and a
+model/training config signal is refused before any work.
+
+**Prior art (disclosed, NOT reused).** `reading-autonomy`'s frozen READ-8/9 readers (`read_budgeted` /
+`read_ranked`) already do deterministic lexical question-aware selection with this same law. Reuse was rejected:
+their lexical helpers are `pub(crate)` (unreachable), their `ReaderOutcome` has no per-span score receipt /
+refusal taxonomy, and depending on them would force a Cargo + dependency-boundary change against a FROZEN crate.
+So QSELECT-0 DELIBERATELY MIRRORS the READ-8 lexical convention (`content_terms`, `prefix_overlap`, the fixed
+stopword list, stable tie-breaks) and ADDS the missing layer: phrase overlap, rare-token weighting, per-span
+score receipts, a refusal matrix, tamper detection, and selected-span verification through the frozen path.
+
+**Objects / decisions / refusals.** 10 `Serialize`-not-`Deserialize` objects (`QuerySelectionRun`,
+`QuerySelectionConfig`, `QuerySelectionReceipt`, `QueryTerm`, `QuerySpanScore`, `QuerySelectionDecision`,
+`QuerySelectionRefusal`, `SelectedEvidenceCandidate`, `SelectionCoverageReport`, `QuerySelectionMatrix`);
+2 decisions (`selection_passed`, `selection_refused`); 11 refusals (`empty_query`, `stopword_only_query`,
+`missing_corpus`, `no_candidate_spans`, `ungrounded_candidate`, `selection_score_tamper`,
+`serialized_selection_report_tamper`, `non_deterministic_tie_break`, `model_signal_detected`,
+`training_signal_detected`, `authority_escalation` — each `*_refused`). Candidates carry `authority =
+candidate_only` always. Reports are re-derived + byte-compared (`verify_query_selection_matrix_json` →
+`ReplayMismatch`; `check_receipt_scores` → score-tamper).
+
+**Evidence (measured through the real frozen `execute` + `verify`).** A 15-scenario `QuerySelectionMatrix`
+proves: exact-phrase / rare-token / filename-token / URL-token selection; heading-boost and doc-then-span
+deterministic tie-breaks; empty / stopword-only / no-match refusals; a prompt-injection span receives NO
+authority (selected as `candidate_only`, grounded as ordinary text); serialized-report and score tamper refused;
+same input → same receipt hash; a selected span's answer VERIFIES through the frozen verifier; and an UNSELECTED
+span's text CANNOT pass the frozen verifier. 24 new lib tests (460 → **484**); fmt + clippy `-D warnings` clean;
+`release_check` 0 / 0B / 0B with a byte-silent `_QSELECT` lock; an additive `operator-smoke: QSELECT-0 OK`
+section. Pinned by the `_QSELECT` lock (module + wiring, 10 objects, 2 decisions, 11 refusal slugs, 15 scenarios,
+9 boundary lines, `QSELECT_USES_MODEL = false`, the boundary `:true` guard, Serialize-not-Deserialize, the
+frozen execute/verify call, the READ-8 mirror + the value-adds, purity, and the load-bearing test names).
+
 ## DD-2026-06-29-A — Internal-period splitter correction (READ-N)
 
 **Decision.** Correct the FROZEN `reading-substrate` sentence splitter (`is_period_boundary` in

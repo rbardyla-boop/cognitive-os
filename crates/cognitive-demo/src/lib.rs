@@ -290,6 +290,16 @@ pub use vault_norm::{
     NORM_BOUNDARY_LINES, NORM_FIXTURE_COUNT, NORM_RULE_COUNT, NORM_RULE_NAMES,
 };
 
+mod query_select;
+pub use query_select::{
+    check_receipt_scores, query_selection_matrix, query_selection_matrix_json, select,
+    select_default, verify_query_selection_matrix_json, QsCell, QuerySelectionBoundary,
+    QuerySelectionConfig, QuerySelectionDecision, QuerySelectionError, QuerySelectionMatrix,
+    QuerySelectionReceipt, QuerySelectionRefusal, QuerySelectionRun, QuerySpanScore, QueryTerm,
+    SelectedEvidenceCandidate, SelectionCoverageReport, QSELECT_BOUNDARY_LINES,
+    QSELECT_SCENARIO_COUNT, QSELECT_SCENARIO_NAMES,
+};
+
 /// What can go wrong building the end-to-end trace. Every failure is explicit; nothing is
 /// silently coerced or fabricated. The first three wrap a frozen-crate error; the last two
 /// are INT-0's own provenance invariants (a trace that did not start from a verified receipt,
