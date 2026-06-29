@@ -140,15 +140,18 @@ impl Corpus {
 ///
 /// READ-5 hardening — `.` is treated as a real sentence boundary using only
 /// DETERMINISTIC, LEXICAL signals (no dictionaries of meaning, no entailment, no
-/// model). A period is NOT a boundary when it is (a) inside a decimal/version
-/// (`3.14`, `v1.2.3` — digit before and after), (b) part of a known abbreviation
-/// (`Dr.`, `Mr.`, `etc.` — a small fixed list), or (c)/(d) a single-letter token
-/// (an acronym letter) immediately followed by a letter (`U.S`, `e.g`) or by a
-/// lowercase continuation (`U.S. economy`). A genuine multi-letter word always
-/// ends the sentence, so `attempt. and ...` still splits. `!`/`?` are always
-/// boundaries. This is the SINGLE source of sentence boundaries shared by the
-/// corpus builder (one sentence per span) and the verifier (sentence-fidelity
-/// grounding), so spans and grounding can never drift apart.
+/// model). A period is NOT a boundary when it is (READ-N) immediately followed by
+/// an alphanumeric character with no space — i.e. glued inside a filename/URL/path/
+/// version token (`drive_scout.py`, `example.com`, `v1.2.3`, `192.168.0.1`); or
+/// (a) inside a decimal/version (`3.14` — digit before and after), (b) part of a
+/// known abbreviation (`Dr.`, `Mr.`, `etc.` — a small fixed list), or (c)/(d) a
+/// single-letter token (an acronym letter) immediately followed by a letter (`U.S`,
+/// `e.g`) or by a lowercase continuation (`U.S. economy`). A genuine multi-letter
+/// word followed by whitespace always ends the sentence, so `attempt. and ...` and
+/// `drive_scout.py now. Then ...` still split. `!`/`?` are always boundaries. This
+/// is the SINGLE source of sentence boundaries shared by the corpus builder (one
+/// sentence per span) and the verifier (sentence-fidelity grounding), so spans and
+/// grounding can never drift apart.
 pub fn split_sentences(text: &str) -> Vec<String> {
     let chars: Vec<char> = text.chars().collect();
     let mut units = Vec::new();
@@ -188,6 +191,15 @@ fn is_period_boundary(chars: &[char], i: usize) -> bool {
         None
     };
     let next = chars.get(i + 1).copied();
+
+    // (READ-N) internal-token period: a `.` glued directly to an alphanumeric
+    // continuation (no space) is inside a filename/URL/path/version token
+    // (`drive_scout.py`, `example.com`, `v1.2.3`, `192.168.0.1`), never a sentence
+    // boundary. A genuine boundary is always followed by whitespace, end-of-text, or
+    // non-alphanumeric punctuation. Additive: rules (a)-(d) below are unchanged.
+    if next.is_some_and(|n| n.is_ascii_alphanumeric()) {
+        return false;
+    }
 
     // (a) decimal / version: a period between two digits.
     if let (Some(p), Some(n)) = (prev, next) {
@@ -413,6 +425,57 @@ mod tests {
         assert_eq!(
             split_sentences("The U.S. dollar fell."),
             vec!["The U.S. dollar fell."]
+        );
+    }
+
+    #[test]
+    fn filenames_do_not_split_on_internal_period() {
+        // READ-N — a filename's internal `.` is glued to its extension, so the
+        // token survives whole instead of shredding into `name.` + `ext`.
+        assert_eq!(
+            split_sentences("Edit drive_scout.py now."),
+            vec!["Edit drive_scout.py now."]
+        );
+        assert_eq!(
+            split_sentences("Open file.name.with.dots.md here."),
+            vec!["Open file.name.with.dots.md here."]
+        );
+        assert_eq!(
+            split_sentences("Unpack archive.tar.gz first."),
+            vec!["Unpack archive.tar.gz first."]
+        );
+        assert_eq!(
+            split_sentences("Run folder/sub.folder/file.py today."),
+            vec!["Run folder/sub.folder/file.py today."]
+        );
+    }
+
+    #[test]
+    fn urls_do_not_split_on_internal_period() {
+        // READ-N — the dots in a URL host/path are glued, so the whole URL stays
+        // one token within its sentence.
+        assert_eq!(
+            split_sentences("Visit https://example.com/path.html now."),
+            vec!["Visit https://example.com/path.html now."]
+        );
+    }
+
+    #[test]
+    fn ip_addresses_do_not_split() {
+        // READ-N (and the pre-existing digit.digit rule) keep dotted IPs whole.
+        assert_eq!(
+            split_sentences("Ping 192.168.0.1 first."),
+            vec!["Ping 192.168.0.1 first."]
+        );
+    }
+
+    #[test]
+    fn filename_token_survives_but_sentence_boundary_still_splits() {
+        // The fix keeps the glued token whole WITHOUT merging the two real
+        // sentences: the `.` after `now` is space-followed, so it stays a boundary.
+        assert_eq!(
+            split_sentences("Edit drive_scout.py now. Then run it."),
+            vec!["Edit drive_scout.py now.", "Then run it."]
         );
     }
 }

@@ -750,21 +750,27 @@ mod tests {
 
     #[test]
     fn over_split_is_measured_not_assumed() {
-        // Measure each class. Version (digit.digit) is already protected by the
-        // frozen splitter; filename/URL are not resolvable by the adapter without
-        // semantic leakage (the frozen splitter re-splits the span on verify).
+        // Measure each class. Version (digit.digit) was always protected by the
+        // splitter. Filename/URL over-split was UNRESOLVABLE by the adapter alone
+        // (the adapter cannot edit token text without semantic leakage) and was the
+        // recorded evidence for READ-N. After READ-N the substrate splitter keeps
+        // `drive_scout.py` / `example.com/path.html` whole, so the one-span probe
+        // now verifies. These expectations therefore record the post-READ-N measured
+        // reality: filename/URL over-split resolves at the SUBSTRATE layer (not via
+        // normalize_markdown — the adapter still never rewrites token text). The
+        // historical field name `over_split_resolved_by_adapter` is kept stable.
         let m = normalization_matrix();
         assert!(
             m.over_split_version_resolved,
             "v1.2 should resolve (digit.digit protected)"
         );
         assert!(
-            !m.over_split_filename_resolved,
-            ".py should NOT resolve via adapter"
+            m.over_split_filename_resolved,
+            "filename over-split resolved at the substrate layer (READ-N)"
         );
         assert!(
-            !m.over_split_url_resolved,
-            "URL should NOT resolve via adapter"
+            m.over_split_url_resolved,
+            "URL over-split resolved at the substrate layer (READ-N)"
         );
         assert_eq!(
             m.over_split_resolved_by_adapter,
@@ -773,8 +779,8 @@ mod tests {
                 && m.over_split_version_resolved
         );
         assert!(
-            !m.over_split_resolved_by_adapter,
-            "overall false -> this is the evidence for a separate READ-N splitter sprint"
+            m.over_split_resolved_by_adapter,
+            "overall resolved after READ-N (the substrate splitter keeps filename/URL whole)"
         );
     }
 

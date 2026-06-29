@@ -5383,3 +5383,48 @@ for _vt in 'fn rule_set_has_sixteen_named_rules' \
            'fn matrix_json_re_derives_and_refuses_tampering'; do
   grep -qF "$_vt" "$_VN"
 done
+
+# ---------------------------------------------------------------------------
+# READ-N — internal-period splitter correction (post-v0.1).
+# A reading-substrate splitter fix: a "." glued to an alphanumeric continuation
+# (no space) is NOT a sentence boundary, so filenames/URLs/paths/versions survive
+# whole. ADDITIVE — the pre-existing rules (a)-(d) are unchanged; no source text is
+# rewritten; no new report object; no retag; no training; no model. cognitive-demo's
+# vault_norm downstream expectation is updated to the post-READ-N measured reality
+# (the substrate splitter, not the adapter, resolves filename/URL over-split). All
+# checks byte-silent. reading-substrate stays gated by its own locks above (fmt /
+# clippy / test exit + fn/struct greps); it has no numeric unit-count pin.
+# ---------------------------------------------------------------------------
+_CORP="crates/reading-substrate/src/corpus.rs"
+# The additive guard is present: a period glued to an alphanumeric is not a boundary.
+grep -qF 'next.is_some_and(|n| n.is_ascii_alphanumeric())' "$_CORP"
+# split_sentences + is_period_boundary still exist (additive change, no rename/removal).
+grep -qE 'fn split_sentences' "$_CORP"
+grep -qE 'fn is_period_boundary\b' "$_CORP"
+# The 5 over-split FIX fixtures are pinned by their exact glued tokens.
+for _rn in 'drive_scout.py' 'example.com/path.html' 'file.name.with.dots.md' \
+           'archive.tar.gz' 'sub.folder/file.py'; do
+  grep -qF "$_rn" "$_CORP"
+done
+# The 4 regression-guard tokens MUST stay asserted (still non-splitting).
+for _rg in 'U.S.' 'e.g.' 'v1.2.3' '192.168.0.1'; do
+  grep -qF "$_rg" "$_CORP"
+done
+# The 4 READ-N test fns exist and are counted (a deleted one drops coverage silently).
+for _rf in 'fn filenames_do_not_split_on_internal_period' \
+           'fn urls_do_not_split_on_internal_period' \
+           'fn ip_addresses_do_not_split' \
+           'fn filename_token_survives_but_sentence_boundary_still_splits'; do
+  grep -qF "$_rf" "$_CORP"
+done
+test "$(grep -cE 'fn (filenames_do_not_split_on_internal_period|urls_do_not_split_on_internal_period|ip_addresses_do_not_split|filename_token_survives_but_sentence_boundary_still_splits)\b' "$_CORP")" -eq 4
+# A genuine sentence boundary after a glued token still splits (no sentence merge).
+grep -qF 'Then run it.' "$_CORP"
+# vault_norm downstream expectation updated to the post-READ-N measured reality:
+# filename/URL over-split now resolves at the substrate layer.
+_VNR="crates/cognitive-demo/src/vault_norm.rs"
+grep -qF 'resolved at the substrate layer (READ-N)' "$_VNR"
+grep -qF 'overall resolved after READ-N' "$_VNR"
+# vault_norm STILL does not edit the substrate or flip any forbidden flag.
+grep -qF 'const NORM_EDITS_SUBSTRATE: bool = false;' "$_VNR"
+if grep -qE 'changes_split_sentences[[:space:]]*[=:][[:space:]]*true' "$_VNR"; then exit 1; fi

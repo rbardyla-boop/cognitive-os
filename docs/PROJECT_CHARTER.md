@@ -3,6 +3,43 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-29-A — Internal-period splitter correction (READ-N)
+
+**Decision.** Correct the FROZEN `reading-substrate` sentence splitter (`is_period_boundary` in
+`crates/reading-substrate/src/corpus.rs`) so a period **glued directly to an alphanumeric continuation** (no space) is
+NOT treated as a sentence boundary — filenames, URLs, paths, and version tokens (`drive_scout.py`,
+`https://example.com/path.html`, `file.name.with.dots.md`, `archive.tar.gz`, `folder/sub.folder/file.py`) now survive as
+ONE token instead of shredding into `name.` + `ext`. This reopens `reading-substrate` by **explicit operator
+authorization** following the VAULT-NORM-0 evidence (DD-2026-06-28-A): the negative measurement
+`over_split_resolved_by_adapter = false` proved the over-split was unfixable at the adapter layer and required a substrate
+correction.
+
+**Implementation — strictly additive.** A single early guard is inserted at the top of `is_period_boundary`
+(`if next.is_some_and(|n| n.is_ascii_alphanumeric()) { return false; }`); the pre-existing rules (a) digit.digit,
+(b) abbreviation list, (c)/(d) single-letter acronym are **unchanged**. A genuine sentence boundary is always followed by
+whitespace / end-of-text / non-alphanumeric punctuation, so real sentences still split (`attempt. and ...`,
+`drive_scout.py now. Then ...`). No source text is rewritten, no normalization is performed in the splitter, the
+`split_sentences` ↔ `verify` single-source invariant is preserved (both consume the same corrected splitter, so spans and
+grounding cannot drift).
+
+**Scope / boundary.** READ-N corrects token-boundary DETECTION only. It does **not** change authority, grounding rules,
+replay format, or the semantic reader; it is **not** training, **not** model logic, **not** a parser rewrite, **not** a
+VAULT-NORM normalizer behavior change, and **not** a release retag — `cognitive-os-prototype-v0.1` stays @ `7b64c73`;
+P12 `training_justified=false`; P13–P15 closed. The only downstream edit is a **narrow expectation update** in
+`crates/cognitive-demo/src/vault_norm.rs`: the `over_split_is_measured_not_assumed` test asserted that filename/URL
+over-split was unresolved — once the substrate is corrected that is false, so the assertions now record that filename/URL
+over-split **resolves at the substrate layer** (the adapter still never rewrites token text; `NORM_EDITS_SUBSTRATE` stays
+`false`; no normalization rule changed). The historical field name `over_split_resolved_by_adapter` is kept stable.
+
+**Evidence (measured).** All 12 inline corpus.rs tests stay green; 4 new READ-N fixture tests pin the 5 fix tokens + the
+real-boundary-still-splits guard; the 5 regression-guard tokens (`v1.2.3`, `U.S.`, `Dr.`, `e.g.`, `192.168.0.1`) remain
+non-splitting. Blast-radius scan (read-only) confirmed ZERO change across every other frozen consumer — dream-engine, the
+four eval crates, reading-cli — because their only glued tokens are document TITLES (metadata, never split) and their
+`U.S.` corpus content is space-followed (unchanged). `cognitive-demo` flips exactly 4 by-design assertions; unit-count pin
+stays 460. Pinned by a `READ-N` lock in `scripts/release_check.sh` (additive guard present, `is_period_boundary` intact,
+5 fix tokens + 4 guard tokens + 4 test fns + no-sentence-merge probe + the vault_norm expectation update). reading-substrate
+has no numeric unit-count pin; it stays gated by fmt / clippy / test-exit + fn greps.
+
 ## DD-2026-06-28-A — Deterministic Markdown normalization adapter (VAULT-NORM-0)
 
 **Decision.** Add `crates/cognitive-demo/src/vault_norm.rs` (library-only; no new CLI verb, no Cargo change —
