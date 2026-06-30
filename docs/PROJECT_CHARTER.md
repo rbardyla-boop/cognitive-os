@@ -3,6 +3,23 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-30-C — Supported lesson surface from intent maps (TEACH-0)
+
+**Decision.** Add `crates/cognitive-demo/src/teach_map.rs` plus four operator-visible CLI verbs
+(`teach-map-demo`, `teach-map-demo-verify`, `teach-map-matrix`, `teach-map-matrix-verify`): the first
+bounded teaching surface above LIT-INTENT-0. TEACH-0 consumes a built `LiteratureIntentMap` and emits a
+user-facing lesson with explanation, examples, misconception checks, quiz items, a next reading step, and
+field-level refusals. Every emitted teaching item must carry support derived from
+`intent_map_from_verified_span`; missing or unsupported lesson parts become refusals rather than invented
+content. The demo and matrix are Serialize-only artifacts verified by re-derive + byte-compare.
+
+**Scope / boundary.** Cognitive-demo only: `teach_map.rs`, `lib.rs`, `main.rs`, this charter entry, and the
+`release_check.sh` unit-count pin. No Cargo change, no reading-substrate/autonomy change, no QFLOW/QSELECT/
+VAULT-NORM behavior change, no model/embedding/training dependency, no learner personalization, no learner
+memory read/write, no truth creation, no hidden-author-motive inference, no full-comprehension claim, no
+production deployment, and no v0.1 retag. TEACH-0 advances the real chain from verified reading → bounded
+intent map → supported lesson surface while keeping P12 `training_justified=false` and P13-P15 closed.
+
 ## DD-2026-06-30-B — Boundary audit / plateau lock (PLATEAU-0)
 
 **Decision.** After QFLOW-0 the prototype crossed a real threshold — deterministic verified local

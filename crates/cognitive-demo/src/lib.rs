@@ -322,6 +322,16 @@ pub use lit_intent::{
     LIT_INTENT_SCENARIO_NAMES,
 };
 
+mod teach_map;
+pub use teach_map::{
+    run_teach_map, run_teach_map_default, teach_map_demo, teach_map_demo_json, teach_map_matrix,
+    teach_map_matrix_json, verify_teach_map_demo_json, verify_teach_map_matrix_json, LessonBlock,
+    MisconceptionCheck, QuizItem, TeachFieldRefusal, TeachLesson, TeachMapBoundary, TeachMapCell,
+    TeachMapConfig, TeachMapDecision, TeachMapError, TeachMapMatrix, TeachMapReceipt,
+    TeachMapRefusal, TeachMapRun, TeachSupportRef, TEACH_MAP_BOUNDARY_LINES,
+    TEACH_MAP_SCENARIO_COUNT, TEACH_MAP_SCENARIO_NAMES,
+};
+
 /// What can go wrong building the end-to-end trace. Every failure is explicit; nothing is
 /// silently coerced or fabricated. The first three wrap a frozen-crate error; the last two
 /// are INT-0's own provenance invariants (a trace that did not start from a verified receipt,

@@ -17,6 +17,10 @@
 //!   cognitive-demo lit-intent-demo-verify --map PATH          # re-derive the demo map and refuse tamper
 //!   cognitive-demo lit-intent-matrix [--out PATH]             # emit the LIT-INTENT-0 scenario matrix
 //!   cognitive-demo lit-intent-matrix-verify --matrix PATH     # re-derive the matrix and refuse tamper
+//!   cognitive-demo teach-map-demo [--out PATH]                # emit the canonical TEACH-0 lesson from a LIT-INTENT map
+//!   cognitive-demo teach-map-demo-verify --lesson PATH        # re-derive the lesson and refuse tamper
+//!   cognitive-demo teach-map-matrix [--out PATH]              # emit the TEACH-0 scenario matrix
+//!   cognitive-demo teach-map-matrix-verify --matrix PATH      # re-derive the matrix and refuse tamper
 //!   cognitive-demo doc-trace        --input PATH [--out PATH] # trace a LOCAL operator document (verify-first)
 //!   cognitive-demo doc-report       --input PATH --trace PATH # render the doc report (re-derive + refuse tamper)
 //!   cognitive-demo doc-bundle       --input PATH --out DIR    # repro bundle over the operator document
@@ -126,13 +130,15 @@ use cognitive_demo::{
     run_dream_export_matrix_verify, run_dream_export_replay, run_dream_export_report,
     run_novelty_packet, run_novelty_replay, run_novelty_report, run_replay, run_report, run_trace,
     scenario_bundle, scenario_matrix, scenario_matrix_report, scenario_pack_manifest,
-    verify_bundle, verify_corpus_bundle, verify_corpus_scenario_pack, verify_doc_bundle,
-    verify_doc_scenario_pack, verify_failure_pack, verify_literature_intent_demo_json,
-    verify_literature_intent_matrix_json, verify_scenario_matrix, verify_scenario_pack, Scenario,
-    BUNDLE_BOUNDARY_LINES, BUNDLE_FILES, CORPUS_BOUNDARY_LINES, CORPUS_BUNDLE_FILES,
-    CORPUS_SCENARIO_BOUNDARY_LINES, CORPUS_SCENARIO_PACK_FILES, DOC_BOUNDARY_LINES,
-    DOC_SCENARIO_BOUNDARY_LINES, DOC_SCENARIO_PACK_FILES, FAILURE_BOUNDARY_LINES,
-    FAILURE_PACK_FILES, MATRIX_BOUNDARY_LINES, MTRACE_BOUNDARY_LINES, PACK_MANIFEST_FILE,
+    teach_map_demo_json, teach_map_matrix_json, verify_bundle, verify_corpus_bundle,
+    verify_corpus_scenario_pack, verify_doc_bundle, verify_doc_scenario_pack, verify_failure_pack,
+    verify_literature_intent_demo_json, verify_literature_intent_matrix_json,
+    verify_scenario_matrix, verify_scenario_pack, verify_teach_map_demo_json,
+    verify_teach_map_matrix_json, Scenario, BUNDLE_BOUNDARY_LINES, BUNDLE_FILES,
+    CORPUS_BOUNDARY_LINES, CORPUS_BUNDLE_FILES, CORPUS_SCENARIO_BOUNDARY_LINES,
+    CORPUS_SCENARIO_PACK_FILES, DOC_BOUNDARY_LINES, DOC_SCENARIO_BOUNDARY_LINES,
+    DOC_SCENARIO_PACK_FILES, FAILURE_BOUNDARY_LINES, FAILURE_PACK_FILES, MATRIX_BOUNDARY_LINES,
+    MTRACE_BOUNDARY_LINES, PACK_MANIFEST_FILE,
 };
 
 fn main() {
@@ -273,6 +279,31 @@ fn dispatch(args: &[String]) -> Result<(), String> {
             let matrix = read_plain_file(args, "--matrix")?;
             verify_literature_intent_matrix_json(&matrix).map_err(|e| format!("{e:?}"))?;
             println!("lit-intent-matrix-verify: OK");
+            Ok(())
+        }
+        Some("teach-map-demo") => {
+            // Emit the canonical TEACH-0 lesson: a bounded user-facing lesson derived only
+            // from the canonical LIT-INTENT-0 map. No model, no memory, no personalization.
+            let json = teach_map_demo_json();
+            emit(&json, flag_value(args, "--out"))
+        }
+        Some("teach-map-demo-verify") => {
+            // Re-derive the canonical TEACH-0 lesson and require provided bytes to match.
+            let lesson = read_plain_file(args, "--lesson")?;
+            verify_teach_map_demo_json(&lesson).map_err(|e| format!("{e:?}"))?;
+            println!("teach-map-demo-verify: OK");
+            Ok(())
+        }
+        Some("teach-map-matrix") => {
+            // Emit the TEACH-0 scenario matrix: supported lesson parts, refusals, and closed gates.
+            let json = teach_map_matrix_json();
+            emit(&json, flag_value(args, "--out"))
+        }
+        Some("teach-map-matrix-verify") => {
+            // Re-derive the TEACH-0 matrix and byte-compare a provided --matrix artifact.
+            let matrix = read_plain_file(args, "--matrix")?;
+            verify_teach_map_matrix_json(&matrix).map_err(|e| format!("{e:?}"))?;
+            println!("teach-map-matrix-verify: OK");
             Ok(())
         }
         Some("failure-cases") => {
@@ -1094,6 +1125,8 @@ fn usage() -> String {
      failure-pack --out DIR | failure-verify --path DIR | \
      lit-intent-demo [--out PATH] | lit-intent-demo-verify --map PATH | \
      lit-intent-matrix [--out PATH] | lit-intent-matrix-verify --matrix PATH | \
+     teach-map-demo [--out PATH] | teach-map-demo-verify --lesson PATH | \
+     teach-map-matrix [--out PATH] | teach-map-matrix-verify --matrix PATH | \
      doc-trace --input PATH [--out PATH] | doc-report --input PATH --trace PATH [--out PATH] | \
      doc-bundle --input PATH --out DIR | doc-bundle-verify --input PATH --path DIR | \
      doc-scenarios | doc-scenario-pack --out DIR | doc-scenario-verify --path DIR | \
