@@ -13,6 +13,10 @@
 //!   cognitive-demo failure-cases                             # list the finite negative-scenario set
 //!   cognitive-demo failure-pack   --out DIR                  # forge forbidden authority; prove each rejected
 //!   cognitive-demo failure-verify --path DIR                 # re-derive the failure pack and refuse any tamper
+//!   cognitive-demo lit-intent-demo [--out PATH]               # emit the canonical LIT-INTENT-0 intent map
+//!   cognitive-demo lit-intent-demo-verify --map PATH          # re-derive the demo map and refuse tamper
+//!   cognitive-demo lit-intent-matrix [--out PATH]             # emit the LIT-INTENT-0 scenario matrix
+//!   cognitive-demo lit-intent-matrix-verify --matrix PATH     # re-derive the matrix and refuse tamper
 //!   cognitive-demo doc-trace        --input PATH [--out PATH] # trace a LOCAL operator document (verify-first)
 //!   cognitive-demo doc-report       --input PATH --trace PATH # render the doc report (re-derive + refuse tamper)
 //!   cognitive-demo doc-bundle       --input PATH --out DIR    # repro bundle over the operator document
@@ -116,14 +120,16 @@ use cognitive_demo::{
     corpus_scenario_matrix, corpus_scenario_pack_files, doc_bundle, doc_scenario_matrix,
     doc_scenario_pack_files, dream_export_matrix, failure_pack_files, list_corpus_scenarios,
     list_doc_scenarios, list_dream_export_scenarios, list_failure_cases, list_questions,
-    list_scenarios, resolved_path_within, run_ask, run_corpus_report, run_corpus_trace,
-    run_doc_report, run_doc_trace, run_dream_export, run_dream_export_matrix_report,
+    list_scenarios, literature_intent_demo_json, literature_intent_matrix_json,
+    resolved_path_within, run_ask, run_corpus_report, run_corpus_trace, run_doc_report,
+    run_doc_trace, run_dream_export, run_dream_export_matrix_report,
     run_dream_export_matrix_verify, run_dream_export_replay, run_dream_export_report,
     run_novelty_packet, run_novelty_replay, run_novelty_report, run_replay, run_report, run_trace,
     scenario_bundle, scenario_matrix, scenario_matrix_report, scenario_pack_manifest,
     verify_bundle, verify_corpus_bundle, verify_corpus_scenario_pack, verify_doc_bundle,
-    verify_doc_scenario_pack, verify_failure_pack, verify_scenario_matrix, verify_scenario_pack,
-    Scenario, BUNDLE_BOUNDARY_LINES, BUNDLE_FILES, CORPUS_BOUNDARY_LINES, CORPUS_BUNDLE_FILES,
+    verify_doc_scenario_pack, verify_failure_pack, verify_literature_intent_demo_json,
+    verify_literature_intent_matrix_json, verify_scenario_matrix, verify_scenario_pack, Scenario,
+    BUNDLE_BOUNDARY_LINES, BUNDLE_FILES, CORPUS_BOUNDARY_LINES, CORPUS_BUNDLE_FILES,
     CORPUS_SCENARIO_BOUNDARY_LINES, CORPUS_SCENARIO_PACK_FILES, DOC_BOUNDARY_LINES,
     DOC_SCENARIO_BOUNDARY_LINES, DOC_SCENARIO_PACK_FILES, FAILURE_BOUNDARY_LINES,
     FAILURE_PACK_FILES, MATRIX_BOUNDARY_LINES, MTRACE_BOUNDARY_LINES, PACK_MANIFEST_FILE,
@@ -240,6 +246,33 @@ fn dispatch(args: &[String]) -> Result<(), String> {
                 std::fs::read_to_string(path).map_err(|e| format!("cannot read {path}: {e}"))?;
             verify_scenario_matrix(&matrix).map_err(|e| e.to_string())?;
             print!("{}", scenario_matrix_verify_summary());
+            Ok(())
+        }
+        Some("lit-intent-demo") => {
+            // Emit the canonical LIT-INTENT-0 demo map: verified QFLOW spans reshaped into
+            // central thesis / bounded author intent / claims / terms / teaching path / refusals.
+            // The artifact is pure and re-derivable; it creates no evidence or authority.
+            let json = literature_intent_demo_json();
+            emit(&json, flag_value(args, "--out"))
+        }
+        Some("lit-intent-demo-verify") => {
+            // Re-derive the canonical demo map and require the provided --map bytes to match exactly.
+            // A tampered or stale map is refused rather than rendered or trusted.
+            let map = read_plain_file(args, "--map")?;
+            verify_literature_intent_demo_json(&map).map_err(|e| format!("{e:?}"))?;
+            println!("lit-intent-demo-verify: OK");
+            Ok(())
+        }
+        Some("lit-intent-matrix") => {
+            // Emit the LIT-INTENT-0 scenario matrix: built/refused outcomes and boundary coverage.
+            let json = literature_intent_matrix_json();
+            emit(&json, flag_value(args, "--out"))
+        }
+        Some("lit-intent-matrix-verify") => {
+            // Re-derive the LIT-INTENT-0 matrix and byte-compare a provided --matrix artifact.
+            let matrix = read_plain_file(args, "--matrix")?;
+            verify_literature_intent_matrix_json(&matrix).map_err(|e| format!("{e:?}"))?;
+            println!("lit-intent-matrix-verify: OK");
             Ok(())
         }
         Some("failure-cases") => {
@@ -1059,6 +1092,8 @@ fn usage() -> String {
      scenario-matrix-report --matrix PATH [--out PATH] | \
      scenario-matrix-verify --pack DIR --matrix PATH | failure-cases | \
      failure-pack --out DIR | failure-verify --path DIR | \
+     lit-intent-demo [--out PATH] | lit-intent-demo-verify --map PATH | \
+     lit-intent-matrix [--out PATH] | lit-intent-matrix-verify --matrix PATH | \
      doc-trace --input PATH [--out PATH] | doc-report --input PATH --trace PATH [--out PATH] | \
      doc-bundle --input PATH --out DIR | doc-bundle-verify --input PATH --path DIR | \
      doc-scenarios | doc-scenario-pack --out DIR | doc-scenario-verify --path DIR | \

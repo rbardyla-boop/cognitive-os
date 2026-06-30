@@ -310,6 +310,18 @@ pub use query_flow::{
     QFLOW_BOUNDARY_LINES, QFLOW_SCENARIO_COUNT, QFLOW_SCENARIO_NAMES,
 };
 
+mod lit_intent;
+pub use lit_intent::{
+    literature_intent_demo, literature_intent_demo_json, literature_intent_matrix,
+    literature_intent_matrix_json, run_literature_intent_map, run_literature_intent_map_default,
+    verify_literature_intent_demo_json, verify_literature_intent_matrix_json, IntentFieldRefusal,
+    IntentSpanRef, KeyTermFinding, LitIntentCell, LiteratureIntentBoundary, LiteratureIntentConfig,
+    LiteratureIntentDecision, LiteratureIntentError, LiteratureIntentMap, LiteratureIntentMatrix,
+    LiteratureIntentReceipt, LiteratureIntentRefusal, LiteratureIntentRequest, LiteratureIntentRun,
+    SpanBackedFinding, TeachingStep, LIT_INTENT_BOUNDARY_LINES, LIT_INTENT_SCENARIO_COUNT,
+    LIT_INTENT_SCENARIO_NAMES,
+};
+
 /// What can go wrong building the end-to-end trace. Every failure is explicit; nothing is
 /// silently coerced or fabricated. The first three wrap a frozen-crate error; the last two
 /// are INT-0's own provenance invariants (a trace that did not start from a verified receipt,
