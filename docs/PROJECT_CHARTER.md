@@ -3,6 +3,31 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-30-B — Boundary audit / plateau lock (PLATEAU-0)
+
+**Decision.** After QFLOW-0 the prototype crossed a real threshold — deterministic verified local
+evidence retrieval — so we FREEZE the boundary before going deeper. Add
+[`docs/PLATEAU-0.md`](PLATEAU-0.md): an authoritative, falsifiable statement of what the system CAN do
+(8 verified capabilities, each tied to a commit + gate), CANNOT do (10 things blocked by construction),
+and MUST NOT CLAIM (11 exact forbidden sentences). A `release_check.sh` `_PLATEAU` lock pins the document
+so it cannot quietly drift into marketing language: it requires the five plateau commit ids, the
+CAN/CANNOT/FORBIDDEN sections, the verbatim forbidden-claim sentences, and asserts the plateau STATEMENT
+(section 1 only) contains "verified local evidence retrieval" and contains none of "semantic
+understanding" / "autonomous intelligence" / "truth engine" / "trained on documents".
+
+**Scope / boundary.** Three files only: `docs/PLATEAU-0.md` (new), `docs/PROJECT_CHARTER.md` (this entry),
+`scripts/release_check.sh` (the `_PLATEAU` lock). NOT a capability sprint: no Rust source edits, no tests
+added, no Cargo change, no `operator_smoke` change, no runtime behaviour change, no model/embedding/training
+language as capability, no v0.1 retag. The lock is byte-silent and adds no code capability — it only
+prevents overclaiming. The crossed line is documented precisely: crossed = deterministic local evidence
+retrieval + question-aware verified evidence packets + raw docs → normalized corpus → selected spans →
+frozen verification → receipt; NOT crossed = autonomous intelligence, model reasoning, semantic
+understanding/synthesis, training justification, truth creation, production deployment.
+
+**Plateau chain.** RELEASE-1 `7b64c73` → VAULT-NORM-0 `afd95c3` → READ-N `0ec0612` → QSELECT-0 `b21ad5e`
+→ QFLOW-0 `04f4908`. Canonical artifact: [`docs/PLATEAU-0.md`](PLATEAU-0.md). P12 `training_justified=false`;
+P13–P15 closed; v0.1 stays @ `7b64c73`.
+
 ## DD-2026-06-30-A — Verified query flow (QFLOW-0)
 
 **Decision.** Add `crates/cognitive-demo/src/query_flow.rs` (library-only; no new CLI verb, no Cargo change —
