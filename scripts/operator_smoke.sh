@@ -693,4 +693,26 @@ for _qs in exact_phrase_selects_relevant_span \
 done
 echo 'operator-smoke: QSELECT-0 OK — question-aware selection proposes; the frozen verifier authorizes (no model)'
 
+# QFLOW-0 — the verified query flow (cognitive-demo only). Composes the safe path end-to-end: raw local docs →
+# VAULT-NORM normalization → corpus_from_documents → QSELECT selection → FROZEN execute+verify → a verified
+# evidence packet OR a typed refusal. QFLOW assembles; it never invents an answer, treats selection as truth, or
+# bypasses verification. A packet exists ONLY when select returns verified. Each outcome runs --exact so a dropped
+# one shows "0 passed" and fails here, never "1 passed".
+for _qf in markdown_question_returns_verified_evidence_packet \
+           filename_question_preserves_drive_scout_py \
+           url_question_preserves_example_com_path_html \
+           prompt_injection_doc_gets_no_authority \
+           prompt_injection_text_as_authority_is_refused \
+           unselected_support_refused \
+           run_query_calls_select_and_only_packets_when_verified \
+           different_raw_same_normalized_changes_receipt_hash \
+           matrix_json_re_derives_and_refuses_tampering; do
+  if _qf_out="$(cargo test --offline --lib --manifest-path "$_CDM" -- --exact "query_flow::tests::$_qf" 2>&1)"; then
+    printf '%s\n' "$_qf_out" | grep -qF '1 passed' || fail "query-flow outcome did not run (vacuous): $_qf"
+  else
+    fail "query-flow outcome test failed: $_qf"
+  fi
+done
+echo 'operator-smoke: QFLOW-0 OK — raw docs in, a verified evidence packet or a typed refusal out (no model)'
+
 echo 'operator-smoke: OK — the documented operator path runs and the manual matches the binary'

@@ -300,6 +300,16 @@ pub use query_select::{
     QSELECT_SCENARIO_COUNT, QSELECT_SCENARIO_NAMES,
 };
 
+mod query_flow;
+pub use query_flow::{
+    check_packet_integrity, evidence_spans_are_selected, run_query, run_query_default,
+    verified_query_matrix, verified_query_matrix_json, verify_verified_query_matrix_json, QfCell,
+    VerifiedDocDigest, VerifiedEvidenceItem, VerifiedEvidencePacket, VerifiedQueryBoundary,
+    VerifiedQueryConfig, VerifiedQueryDecision, VerifiedQueryError, VerifiedQueryFlow,
+    VerifiedQueryMatrix, VerifiedQueryReceipt, VerifiedQueryRefusal, VerifiedQueryRequest,
+    QFLOW_BOUNDARY_LINES, QFLOW_SCENARIO_COUNT, QFLOW_SCENARIO_NAMES,
+};
+
 /// What can go wrong building the end-to-end trace. Every failure is explicit; nothing is
 /// silently coerced or fabricated. The first three wrap a frozen-crate error; the last two
 /// are INT-0's own provenance invariants (a trace that did not start from a verified receipt,

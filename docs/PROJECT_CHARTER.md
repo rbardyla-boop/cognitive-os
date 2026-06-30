@@ -3,6 +3,61 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-30-A — Verified query flow (QFLOW-0)
+
+**Decision.** Add `crates/cognitive-demo/src/query_flow.rs` (library-only; no new CLI verb, no Cargo change —
+reuses `reading-cli` + `reading-substrate`, already deps): a deterministic, replayable **end-to-end verified
+query flow** that composes the last three wins into one operator path:
+
+```text
+raw local docs → VAULT-NORM-0 normalize → corpus_from_documents → QSELECT-0 select → frozen execute + verify
+              → a VerifiedEvidencePacket  OR  a typed refusal.
+```
+
+This turns the substrate from "can rank spans safely" into "can answer a local question by returning a verified
+evidence packet" — WITHOUT a model, learned vectors, training, or any semantic claim. QFLOW is a **pure
+orchestrator**: it adds no scoring and no verification of its own, it MUST call `query_select::select`, and it
+reshapes a `QuerySelectionRun` into a packet **only when `run.verified` is true**.
+
+**The law (preserved).** Selection PROPOSES candidate spans; the FROZEN `reading_substrate::verify` (inside
+`select`) AUTHORIZES support; receipts PRESERVE the input→output mapping. QFLOW may ASSEMBLE a verified evidence
+packet; it may not invent an answer, treat selected spans as truth, answer from scores, or bypass frozen
+verification. Each `VerifiedEvidenceItem` cites a source document + span and carries the VERBATIM corpus text
+the verifier grounded, with `authority = verified_candidate_support` — never higher.
+
+**Scope / boundary.** Not a `reading-substrate` change, not a `reading-autonomy` change, not a `query_select`
+or `vault_norm` behaviour change, no Cargo / Cargo.lock, no `main.rs`, not training, not a model, not a
+semantic-reader claim, not a release/retag. v0.1 stays @ `7b64c73`; P12 `training_justified=false`; P13–P15
+closed. Every boundary flag is sourced from `QFLOW_USES_MODEL = false`; a model/training config signal is
+refused before any work.
+
+**Objects / decisions / refusals.** `Serialize`-not-`Deserialize` objects (`VerifiedQueryFlow`,
+`VerifiedQueryConfig`, `VerifiedQueryRequest`, `VerifiedEvidencePacket`, `VerifiedEvidenceItem`,
+`VerifiedQueryReceipt`, `VerifiedQueryDecision`, `VerifiedQueryRefusal`, `VerifiedQueryMatrix`, plus supporting
+`VerifiedQueryBoundary` / `VerifiedDocDigest` / `QfCell`); 2 decisions (`query_verified`, `query_refused`); 12
+refusals (`empty_question`, `empty_document_set`, `normalization`, `selection`, `no_verified_support`,
+`unselected_support`, `verification_failed`, `prompt_injection_authority`, `serialized_query_receipt_tamper`,
+`model_signal_detected`, `training_signal_detected`, `authority_escalation` — each `*_refused`).
+
+**Two guards, distinct triggers.** `authority_escalation` is the GENERIC structural guard — any item carrying
+authority other than verified-candidate support, or any item whose text is not the verbatim cited span text
+(not grounded by the frozen verifier). `prompt_injection_authority` is the SPECIALIZED guard — the answer is
+not exactly the verbatim join of the verified span texts, the only way a span's imperative/injection text could
+have been obeyed as an instruction instead of grounded as ordinary source text. The matrix's
+`prompt_injection_doc_gets_no_authority` demonstrates the happy path: an injection doc is treated as ordinary
+text, selected at most as a candidate, and grounded verbatim — the imperative is never elevated.
+
+**Receipt.** Canonical FNV-1a hash over question + per-doc raw markdown digest + normalized digest + config +
+`corpus_span_count` + the folded QSELECT `receipt_hash` + QSELECT decision/refusal + QFLOW decision/refusal.
+The RAW digest is hashed distinctly from the NORMALIZED digest, so two different raw inputs that normalize to
+the same text still produce different receipts (source change is detectable). Reports are re-derived +
+byte-compared (`verify_verified_query_matrix_json` → `ReplayMismatch`).
+
+**Tests.** 30 cognitive-demo unit tests: the 15-scenario `VerifiedQueryMatrix` mirrored as direct behavioural
+tests, plus guard / determinism / source-linking / raw→normalized-corpus / boundary tests. Cognitive-demo unit
+pin 484 → 514; a byte-silent `_QFLOW` `release_check` lock; an additive `operator_smoke.sh` QFLOW-0 section.
+Canonical artifact: [`crates/cognitive-demo/src/query_flow.rs`](../crates/cognitive-demo/src/query_flow.rs).
+
 ## DD-2026-06-29-B — Deterministic question-aware evidence selection (QSELECT-0)
 
 **Decision.** Add `crates/cognitive-demo/src/query_select.rs` (library-only; no new CLI verb, no Cargo change —

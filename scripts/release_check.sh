@@ -1325,9 +1325,9 @@ grep -q 'fn trace_records_every_stage_id_and_links_the_chain' crates/cognitive-d
 grep -q 'fn trace_grants_no_new_authority' crates/cognitive-demo/src/lib.rs
 # Unit-test REALITY pin: exactly the 394 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
 # MTRACE-1 (12) + MTRACE-2 (12) + DOCFLOW-0 (10) + DOCFLOW-2 (10) + CORPUS-0 (12) + CORPUS-2 (12) + NOVELTY-0 (15) +
-# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) + CORPUS-HARVEST-0 (26) + SCORE-0 (20) + FAIL-0 (19) + P11-MODEL-EVAL (18) + TRAIN-GATE-0 (20) + TRAIN-0 (21) + MODEL-EVAL-1 (22) + MODEL-PROMOTE-0 (23) + PROD-0 (19) + PROD-SMOKE-0 (20) + RELEASE-1 (25) + VAULT-NORM-0 (21) + QSELECT-0 (24) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
+# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) + CORPUS-HARVEST-0 (26) + SCORE-0 (20) + FAIL-0 (19) + P11-MODEL-EVAL (18) + TRAIN-GATE-0 (20) + TRAIN-0 (21) + MODEL-EVAL-1 (22) + MODEL-PROMOTE-0 (23) + PROD-0 (19) + PROD-SMOKE-0 (20) + RELEASE-1 (25) + VAULT-NORM-0 (21) + QSELECT-0 (24) + QFLOW-0 (30) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
 _int0_unit="$(cargo test --offline --lib --manifest-path crates/cognitive-demo/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 484
+test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 514
 test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
 # Determinism / no side effects: the trace is a pure, in-memory function — no clock, entropy, or network
 # anywhere in src/, and no floats anywhere in the crate. (`std::process::exit` in the CLI shell is a clean
@@ -5510,4 +5510,104 @@ for _qt in 'fn exact_phrase_selects_relevant_span' 'fn rare_token_selects_releva
            'fn score_tamper_refused' 'fn matrix_json_re_derives_and_refuses_tampering' \
            'fn same_input_same_receipt_hash'; do
   grep -qF "$_qt" "$_QS"
+done
+
+# ---------------------------------------------------------------------------
+# QFLOW-0 — the verified query flow (post-v0.1, cognitive-demo only).
+# Composes three already-public layers end-to-end: VAULT-NORM-0 normalization →
+# reading_cli::corpus_from_documents (frozen, READ-N-aware split) → query_select::select
+# (candidate selection + FROZEN execute + verify) → a VerifiedEvidencePacket OR a typed
+# refusal. QFLOW is a PURE ORCHESTRATOR: it adds NO scoring and NO verification of its
+# own, MUST call query_select::select, and builds a packet ONLY when select returns
+# verified. No model, no training, no new dependency, no reading-substrate edit, no
+# query_select / vault_norm behaviour change, no retag. All checks byte-silent.
+# ---------------------------------------------------------------------------
+_QF="crates/cognitive-demo/src/query_flow.rs"
+test -f "$_QF"
+# Module wiring.
+grep -qF 'mod query_flow;' "$_CDLIB2"
+grep -qF 'pub use query_flow::{' "$_CDLIB2"
+# Structural invariant: no model, no training; the verified-item authority is fixed.
+grep -qF 'const QFLOW_USES_MODEL: bool = false;' "$_QF"
+grep -qF 'const AUTHORITY_VERIFIED_CANDIDATE: &str = "verified_candidate_support";' "$_QF"
+# The required report objects exist.
+for _fo in 'pub struct VerifiedQueryFlow' 'pub struct VerifiedQueryConfig' \
+           'pub struct VerifiedQueryRequest' 'pub struct VerifiedEvidencePacket' \
+           'pub struct VerifiedEvidenceItem' 'pub struct VerifiedQueryReceipt' \
+           'pub enum VerifiedQueryDecision' 'pub enum VerifiedQueryRefusal' \
+           'pub struct VerifiedQueryMatrix'; do
+  grep -qF "$_fo" "$_QF"
+done
+# The 2 decision slugs.
+for _fd in 'query_verified' 'query_refused'; do
+  grep -qF "\"$_fd\"" "$_QF"
+done
+# The 12 refusal slugs.
+for _fr in 'empty_question_refused' 'empty_document_set_refused' 'normalization_refused' \
+           'selection_refused' 'no_verified_support_refused' 'unselected_support_refused' \
+           'verification_failed_refused' 'prompt_injection_authority_refused' \
+           'serialized_query_receipt_tamper_refused' 'model_signal_detected_refused' \
+           'training_signal_detected_refused' 'authority_escalation_refused'; do
+  grep -qF "\"$_fr\"" "$_QF"
+done
+# The 15 matrix scenarios are committed and counted.
+grep -qF 'pub const QFLOW_SCENARIO_COUNT: usize = 15;' "$_QF"
+for _fs in 'markdown_question_returns_verified_evidence_packet' \
+           'exact_phrase_question_returns_correct_source_span' \
+           'rare_token_question_returns_correct_source_span' \
+           'filename_question_preserves_drive_scout_py' \
+           'url_question_preserves_example_com_path_html' \
+           'prompt_injection_doc_gets_no_authority' 'unsupported_answer_refused' \
+           'selection_refusal_propagates' 'verification_failure_refused' \
+           'same_input_same_receipt_hash' 'serialized_receipt_tamper_refused' \
+           'no_model_signal_detected' 'no_training_signal_detected'; do
+  grep -qF "\"$_fs\"" "$_QF"
+done
+# The 9-line authority boundary is recorded verbatim and is assemble-only.
+grep -qF 'pub const QFLOW_BOUNDARY_LINES: [&str; 9]' "$_QF"
+grep -qF 'QFLOW-0 assembles a verified evidence packet only.' "$_QF"
+grep -qF 'It does not create evidence from selection.' "$_QF"
+# The flow MUST call query_select::select (selection proposes) and the FROZEN verifier
+# (inside select + the negative demonstrations) AUTHORIZES. It composes, never duplicates.
+grep -qF 'use crate::query_select::{' "$_QF"
+grep -qE 'select\(&corpus, question' "$_QF"
+grep -qF 'use reading_substrate::{execute, verify' "$_QF"
+grep -qF 'use crate::vault_norm::normalize_markdown;' "$_QF"
+grep -qE 'normalize_markdown\(' "$_QF"
+grep -qE 'corpus_from_documents\(' "$_QF"
+# The QSELECT receipt hash + decision/refusal are folded into the QFLOW receipt, and the
+# raw markdown digest is hashed distinctly from the normalized digest.
+grep -qF 'qselect_receipt_hash' "$_QF"
+grep -qF 'raw_hash' "$_QF"
+grep -qF 'normalized_hash' "$_QF"
+grep -qF 'fn receipt_hash' "$_QF"
+# Every refusal variant is REACHABLE (constructed in source), not a vacuous enum member.
+# The unselected-support guard is a distinct, wired check (selection alone never authorizes).
+grep -qF 'fn evidence_spans_are_selected' "$_QF"
+grep -qF 'VerifiedQueryRefusal::UnselectedSupport' "$_QF"
+grep -qE 'evidence_spans_are_selected\(&packet' "$_QF"
+# Report types are Serialize but NEVER Deserialize (re-derived + byte-compared).
+grep -qF 'use serde::Serialize;' "$_QF"
+if grep -qE 'derive\([^)]*Deserialize' "$_QF"; then exit 1; fi
+# No forbidden boundary flag is ever set true (config uses_model/uses_training MAY be
+# true in a refusal test, so they are intentionally excluded from this guard).
+if grep -qE '(answers_from_scores|creates_truth|creates_evidence_from_selection|changes_grounding_rules|changes_replay_authority|claims_semantic_reading|retags_release)[[:space:]]*[=:][[:space:]]*true' "$_QF"; then exit 1; fi
+# Purity: no floats, no clock/entropy/model/network/async in the flow.
+if grep -qE '\bf32\b|\bf64\b' "$_QF"; then exit 1; fi
+if grep -qE '\brand\b|getrandom|SystemTime|Instant|embedding|tensor|torch|tensorflow|reqwest|\.await' "$_QF"; then exit 1; fi
+# The load-bearing behavioural tests exist (the unit-count pin above RUNS them).
+for _ft in 'fn markdown_question_returns_verified_evidence_packet' \
+           'fn filename_question_preserves_drive_scout_py' \
+           'fn url_question_preserves_example_com_path_html' \
+           'fn prompt_injection_doc_gets_no_authority' \
+           'fn prompt_injection_text_as_authority_is_refused' \
+           'fn authority_escalation_is_refused' 'fn unselected_support_refused' \
+           'fn model_and_training_signals_are_refused' \
+           'fn run_query_calls_select_and_only_packets_when_verified' \
+           'fn refused_flows_carry_no_packet' \
+           'fn different_raw_same_normalized_changes_receipt_hash' \
+           'fn qselect_receipt_hash_is_folded_into_qflow_receipt' \
+           'fn raw_markdown_normalizes_into_corpus' \
+           'fn matrix_json_re_derives_and_refuses_tampering'; do
+  grep -qF "$_ft" "$_QF"
 done
