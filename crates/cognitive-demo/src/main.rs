@@ -21,6 +21,10 @@
 //!   cognitive-demo teach-map-demo-verify --lesson PATH        # re-derive the lesson and refuse tamper
 //!   cognitive-demo teach-map-matrix [--out PATH]              # emit the TEACH-0 scenario matrix
 //!   cognitive-demo teach-map-matrix-verify --matrix PATH      # re-derive the matrix and refuse tamper
+//!   cognitive-demo learner-model-demo [--out PATH]            # emit the canonical LEARNER-MODEL-0 state map
+//!   cognitive-demo learner-model-demo-verify --state PATH     # re-derive the state map and refuse tamper
+//!   cognitive-demo learner-model-matrix [--out PATH]          # emit the LEARNER-MODEL-0 scenario matrix
+//!   cognitive-demo learner-model-matrix-verify --matrix PATH  # re-derive the matrix and refuse tamper
 //!   cognitive-demo doc-trace        --input PATH [--out PATH] # trace a LOCAL operator document (verify-first)
 //!   cognitive-demo doc-report       --input PATH --trace PATH # render the doc report (re-derive + refuse tamper)
 //!   cognitive-demo doc-bundle       --input PATH --out DIR    # repro bundle over the operator document
@@ -122,16 +126,17 @@
 use cognitive_demo::{
     canonical_bundle, check_local_input_path, corpus_admits_filename, corpus_bundle,
     corpus_scenario_matrix, corpus_scenario_pack_files, doc_bundle, doc_scenario_matrix,
-    doc_scenario_pack_files, dream_export_matrix, failure_pack_files, list_corpus_scenarios,
-    list_doc_scenarios, list_dream_export_scenarios, list_failure_cases, list_questions,
-    list_scenarios, literature_intent_demo_json, literature_intent_matrix_json,
-    resolved_path_within, run_ask, run_corpus_report, run_corpus_trace, run_doc_report,
-    run_doc_trace, run_dream_export, run_dream_export_matrix_report,
-    run_dream_export_matrix_verify, run_dream_export_replay, run_dream_export_report,
-    run_novelty_packet, run_novelty_replay, run_novelty_report, run_replay, run_report, run_trace,
-    scenario_bundle, scenario_matrix, scenario_matrix_report, scenario_pack_manifest,
-    teach_map_demo_json, teach_map_matrix_json, verify_bundle, verify_corpus_bundle,
-    verify_corpus_scenario_pack, verify_doc_bundle, verify_doc_scenario_pack, verify_failure_pack,
+    doc_scenario_pack_files, dream_export_matrix, failure_pack_files, learner_model_demo_json,
+    learner_model_matrix_json, list_corpus_scenarios, list_doc_scenarios,
+    list_dream_export_scenarios, list_failure_cases, list_questions, list_scenarios,
+    literature_intent_demo_json, literature_intent_matrix_json, resolved_path_within, run_ask,
+    run_corpus_report, run_corpus_trace, run_doc_report, run_doc_trace, run_dream_export,
+    run_dream_export_matrix_report, run_dream_export_matrix_verify, run_dream_export_replay,
+    run_dream_export_report, run_novelty_packet, run_novelty_replay, run_novelty_report,
+    run_replay, run_report, run_trace, scenario_bundle, scenario_matrix, scenario_matrix_report,
+    scenario_pack_manifest, teach_map_demo_json, teach_map_matrix_json, verify_bundle,
+    verify_corpus_bundle, verify_corpus_scenario_pack, verify_doc_bundle, verify_doc_scenario_pack,
+    verify_failure_pack, verify_learner_model_demo_json, verify_learner_model_matrix_json,
     verify_literature_intent_demo_json, verify_literature_intent_matrix_json,
     verify_scenario_matrix, verify_scenario_pack, verify_teach_map_demo_json,
     verify_teach_map_matrix_json, Scenario, BUNDLE_BOUNDARY_LINES, BUNDLE_FILES,
@@ -304,6 +309,31 @@ fn dispatch(args: &[String]) -> Result<(), String> {
             let matrix = read_plain_file(args, "--matrix")?;
             verify_teach_map_matrix_json(&matrix).map_err(|e| format!("{e:?}"))?;
             println!("teach-map-matrix-verify: OK");
+            Ok(())
+        }
+        Some("learner-model-demo") => {
+            // Emit the canonical LEARNER-MODEL-0 state map: a receipt-linked observation
+            // over a supported TEACH-0 lesson. No memory write, adaptation, diagnosis, or model.
+            let json = learner_model_demo_json();
+            emit(&json, flag_value(args, "--out"))
+        }
+        Some("learner-model-demo-verify") => {
+            // Re-derive the canonical learner-state map and require provided bytes to match.
+            let state = read_plain_file(args, "--state")?;
+            verify_learner_model_demo_json(&state).map_err(|e| format!("{e:?}"))?;
+            println!("learner-model-demo-verify: OK");
+            Ok(())
+        }
+        Some("learner-model-matrix") => {
+            // Emit the LEARNER-MODEL-0 scenario matrix: observation mapping plus closed gates.
+            let json = learner_model_matrix_json();
+            emit(&json, flag_value(args, "--out"))
+        }
+        Some("learner-model-matrix-verify") => {
+            // Re-derive the LEARNER-MODEL-0 matrix and byte-compare a provided artifact.
+            let matrix = read_plain_file(args, "--matrix")?;
+            verify_learner_model_matrix_json(&matrix).map_err(|e| format!("{e:?}"))?;
+            println!("learner-model-matrix-verify: OK");
             Ok(())
         }
         Some("failure-cases") => {
@@ -1127,6 +1157,8 @@ fn usage() -> String {
      lit-intent-matrix [--out PATH] | lit-intent-matrix-verify --matrix PATH | \
      teach-map-demo [--out PATH] | teach-map-demo-verify --lesson PATH | \
      teach-map-matrix [--out PATH] | teach-map-matrix-verify --matrix PATH | \
+     learner-model-demo [--out PATH] | learner-model-demo-verify --state PATH | \
+     learner-model-matrix [--out PATH] | learner-model-matrix-verify --matrix PATH | \
      doc-trace --input PATH [--out PATH] | doc-report --input PATH --trace PATH [--out PATH] | \
      doc-bundle --input PATH --out DIR | doc-bundle-verify --input PATH --path DIR | \
      doc-scenarios | doc-scenario-pack --out DIR | doc-scenario-verify --path DIR | \

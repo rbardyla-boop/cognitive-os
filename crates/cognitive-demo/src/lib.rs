@@ -332,6 +332,20 @@ pub use teach_map::{
     TEACH_MAP_SCENARIO_COUNT, TEACH_MAP_SCENARIO_NAMES,
 };
 
+mod learner_model;
+pub use learner_model::{
+    learner_model_demo, learner_model_demo_json, learner_model_matrix, learner_model_matrix_json,
+    run_learner_model, run_learner_model_default, verify_learner_model_demo_json,
+    verify_learner_model_matrix_json, ConfidenceMarker, ConfidenceState,
+    LearnerMisconceptionObservation, LearnerModelBoundary, LearnerModelCell, LearnerModelConfig,
+    LearnerModelDecision, LearnerModelError, LearnerModelFieldRefusal, LearnerModelMatrix,
+    LearnerModelObservation, LearnerModelReceipt, LearnerModelRefusal, LearnerModelRun,
+    LearnerQuizAnswerObservation, LearnerStateMap, LearnerSupportRef, MisconceptionFlag,
+    NextReviewTarget, QuizItemResult, QuizOutcome, QuizResultSummary, SeenLessonItem,
+    TaughtConcept, LEARNER_MODEL_BOUNDARY_LINES, LEARNER_MODEL_SCENARIO_COUNT,
+    LEARNER_MODEL_SCENARIO_NAMES,
+};
+
 /// What can go wrong building the end-to-end trace. Every failure is explicit; nothing is
 /// silently coerced or fabricated. The first three wrap a frozen-crate error; the last two
 /// are INT-0's own provenance invariants (a trace that did not start from a verified receipt,

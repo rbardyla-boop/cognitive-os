@@ -3,6 +3,27 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-30-D — Learner-state receipt map, no memory mutation (LEARNER-MODEL-0)
+
+**Decision.** Add `crates/cognitive-demo/src/learner_model.rs` plus four operator-visible CLI verbs
+(`learner-model-demo`, `learner-model-demo-verify`, `learner-model-matrix`,
+`learner-model-matrix-verify`): the first local learner-state object above TEACH-0. LEARNER-MODEL-0
+records what lesson items were seen, what concept was taught, exact-match quiz outcomes, explicit
+misconception flags, a self-reported confidence marker, a non-adaptive next-review target, and receipt
+links back to the supported TEACH-0 lesson and LIT-INTENT map. It is a schema + receipt discipline for
+learning state, not long-term companion memory. Before first commit the serialized-tamper matrix scenario
+was hardened to construct `SerializedLearnerModelTamper` from a byte-flipped artifact (matching the
+QSELECT/QFLOW precedent), with focused regressions covering the span-support guard and the TEACH/intent
+receipt-hash fold, so no refusal variant is false-green debris.
+
+**Scope / boundary.** Cognitive-demo only: `learner_model.rs`, `lib.rs`, `main.rs`, this charter entry,
+and the `release_check.sh` unit-count pin. No Cargo change, no reading-substrate/autonomy change, no
+QFLOW/QSELECT/VAULT-NORM/LIT-INTENT/TEACH behavior change, no model/embedding/training dependency, no
+personalized generation, no autonomous adaptation, no long-term learner-memory write, no health or psych
+profile, no hidden diagnosis, no truth creation, no production deployment, and no v0.1 retag. This moves
+the chain from verified reading → bounded comprehension → supported teaching → receipt-linked learner
+state while keeping P12 `training_justified=false` and P13-P15 closed.
+
 ## DD-2026-06-30-C — Supported lesson surface from intent maps (TEACH-0)
 
 **Decision.** Add `crates/cognitive-demo/src/teach_map.rs` plus four operator-visible CLI verbs
