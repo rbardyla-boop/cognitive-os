@@ -3,6 +3,37 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-07-02-C — Receipt-linked learning session composer (SESSION-LOOP-0)
+
+**Decision.** Add `crates/cognitive-demo/src/learning_session.rs` plus four operator-visible CLI
+verbs (`learning-session-demo`, `learning-session-demo-verify`, `learning-session-matrix`,
+`learning-session-matrix-verify`): the deterministic "conversation loop" that composes the six
+committed organs — question → verified evidence (QFLOW, run inside LIT-INTENT) → literature
+intent map → supported lesson → quiz/check result → learner-state receipt → memory candidate →
+consented journal append — into ONE receipt-linked session artifact. The composer ADDS NO NEW
+AUTHORITY: it does not score, rank, select, grade, or verify content itself; each session step
+records the frozen organ's own receipt hash, decision slug, and authority string (the journal
+step's authority is the scope-bound consent string). Quiz answers are judged only by the frozen
+LEARNER-MODEL exact-match law — an incorrect answer completes the session as a recorded outcome
+while an unrecognized quiz id refuses. Memory is never written silently: the journal stage runs
+only on explicit request plus scope-bound consent, through the pure LEARNER-MEMORY-1 fold, with
+distinct refusals for missing consent, invalid consent, and structural append failures. A pub
+step-order guard refuses reordered or unsupported step vectors; the byte-flip-constructed
+`session_chain_tamper_refused` scenario and a matrix-coverage test keep all 16 refusal variants
+constructed in production (the A3 law). Two organ passthrough flags (`teach_uses_model`,
+`memory_uses_model`) exist only so the matrix can construct the propagated refusals — a true
+value always refuses through the frozen organ's own signal gate.
+
+**Scope / boundary.** Cognitive-demo only: `learning_session.rs`, `lib.rs`, `main.rs`, this
+charter entry, and `release_check.sh` (unit-count pin 603→627 plus the session-module purity
+pins: no fs/process/net/time/entropy tokens, no Deserialize, all four verbs wired). Pure
+composer ONLY: no new authority, no model reasoning, no personalization, no autonomous
+recall/adaptation, no scheduler/daemon/database/network, no free-form grading, no
+health/psych/identity/diagnosis inference, no truth creation, no durable writes beyond the
+existing `learner-journal-append` path, no v0.1 retag. All six composed organs untouched. This
+turns the committed organ chain into the first deterministic learning conversation loop while
+keeping P12 `training_justified=false` and P13-P15 closed.
+
 ## DD-2026-07-02-B — Consented append-only learner journal (LEARNER-MEMORY-1)
 
 **Decision.** Add `crates/cognitive-demo/src/learner_journal.rs` plus five operator-visible CLI

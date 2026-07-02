@@ -372,6 +372,19 @@ pub use learner_journal::{
     LEARNER_JOURNAL_SCENARIO_COUNT, LEARNER_JOURNAL_SCENARIO_NAMES,
 };
 
+mod learning_session;
+pub use learning_session::{
+    learning_session_demo, learning_session_demo_json, learning_session_demo_request,
+    learning_session_matrix, learning_session_matrix_json, run_learning_session,
+    run_learning_session_default, session_steps_are_chain_ordered,
+    verify_learning_session_demo_json, verify_learning_session_matrix_json,
+    LearningSessionBoundary, LearningSessionCell, LearningSessionConfig, LearningSessionDecision,
+    LearningSessionError, LearningSessionMatrix, LearningSessionReceipt, LearningSessionRefusal,
+    LearningSessionRequest, LearningSessionRun, LearningSessionStep,
+    LEARNING_SESSION_BOUNDARY_LINES, LEARNING_SESSION_SCENARIO_COUNT,
+    LEARNING_SESSION_SCENARIO_NAMES, LEARNING_SESSION_STAGES,
+};
+
 /// What can go wrong building the end-to-end trace. Every failure is explicit; nothing is
 /// silently coerced or fabricated. The first three wrap a frozen-crate error; the last two
 /// are INT-0's own provenance invariants (a trace that did not start from a verified receipt,

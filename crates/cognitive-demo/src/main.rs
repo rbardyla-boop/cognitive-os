@@ -34,6 +34,10 @@
 //!   cognitive-demo learner-journal-matrix [--out PATH]         # emit the LEARNER-MEMORY-1 scenario matrix
 //!   cognitive-demo learner-journal-matrix-verify --matrix PATH # re-derive the matrix and refuse tamper
 //!   cognitive-demo learner-journal-append --journal PATH --consent-operator S --consent-scope S  # consented append
+//!   cognitive-demo learning-session-demo [--out PATH]          # emit the canonical SESSION-LOOP-0 run
+//!   cognitive-demo learning-session-demo-verify --session PATH # re-derive the session run and refuse tamper
+//!   cognitive-demo learning-session-matrix [--out PATH]        # emit the SESSION-LOOP-0 scenario matrix
+//!   cognitive-demo learning-session-matrix-verify --matrix PATH # re-derive the matrix and refuse tamper
 //!   cognitive-demo doc-trace        --input PATH [--out PATH] # trace a LOCAL operator document (verify-first)
 //!   cognitive-demo doc-report       --input PATH --trace PATH # render the doc report (re-derive + refuse tamper)
 //!   cognitive-demo doc-bundle       --input PATH --out DIR    # repro bundle over the operator document
@@ -138,7 +142,8 @@ use cognitive_demo::{
     doc_scenario_pack_files, dream_export_matrix, failure_pack_files, learner_journal_append_at,
     learner_journal_demo_json, learner_journal_json_at, learner_journal_matrix_json,
     learner_journal_state_json, learner_memory_demo_json, learner_memory_matrix_json,
-    learner_model_demo_json, learner_model_matrix_json, list_corpus_scenarios, list_doc_scenarios,
+    learner_model_demo_json, learner_model_matrix_json, learning_session_demo_json,
+    learning_session_matrix_json, list_corpus_scenarios, list_doc_scenarios,
     list_dream_export_scenarios, list_failure_cases, list_questions, list_scenarios,
     literature_intent_demo_json, literature_intent_matrix_json, resolved_path_within, run_ask,
     run_corpus_report, run_corpus_trace, run_doc_report, run_doc_trace, run_dream_export,
@@ -150,6 +155,7 @@ use cognitive_demo::{
     verify_failure_pack, verify_learner_journal_demo_json, verify_learner_journal_matrix_json,
     verify_learner_memory_demo_json, verify_learner_memory_matrix_json,
     verify_learner_model_demo_json, verify_learner_model_matrix_json,
+    verify_learning_session_demo_json, verify_learning_session_matrix_json,
     verify_literature_intent_demo_json, verify_literature_intent_matrix_json,
     verify_scenario_matrix, verify_scenario_pack, verify_teach_map_demo_json,
     verify_teach_map_matrix_json, LearnerJournalConsent, Scenario, BUNDLE_BOUNDARY_LINES,
@@ -450,6 +456,32 @@ fn dispatch(args: &[String]) -> Result<(), String> {
                     run.refusal.map(|r| r.slug()).unwrap_or("unknown")
                 )),
             }
+        }
+        Some("learning-session-demo") => {
+            // Emit the canonical SESSION-LOOP-0 run: the full six-stage spine
+            // (evidence -> intent -> lesson -> learner state -> memory candidate
+            // -> consented journal append) as one receipt-linked artifact.
+            let json = learning_session_demo_json();
+            emit(&json, flag_value(args, "--out"))
+        }
+        Some("learning-session-demo-verify") => {
+            // Re-derive the canonical session run and require provided bytes to match.
+            let session = read_plain_file(args, "--session")?;
+            verify_learning_session_demo_json(&session).map_err(|e| format!("{e:?}"))?;
+            println!("learning-session-demo-verify: OK");
+            Ok(())
+        }
+        Some("learning-session-matrix") => {
+            // Emit the SESSION-LOOP-0 scenario matrix: three completions plus closed gates.
+            let json = learning_session_matrix_json();
+            emit(&json, flag_value(args, "--out"))
+        }
+        Some("learning-session-matrix-verify") => {
+            // Re-derive the SESSION-LOOP-0 matrix and byte-compare a provided artifact.
+            let matrix = read_plain_file(args, "--matrix")?;
+            verify_learning_session_matrix_json(&matrix).map_err(|e| format!("{e:?}"))?;
+            println!("learning-session-matrix-verify: OK");
+            Ok(())
         }
         Some("failure-cases") => {
             // List the finite negative-scenario set (no inputs needed — this is the menu).
@@ -1279,6 +1311,8 @@ fn usage() -> String {
      learner-journal-demo [--out PATH] | learner-journal-demo-verify --journal PATH | \
      learner-journal-matrix [--out PATH] | learner-journal-matrix-verify --matrix PATH | \
      learner-journal-append --journal PATH --consent-operator S --consent-scope S | \
+     learning-session-demo [--out PATH] | learning-session-demo-verify --session PATH | \
+     learning-session-matrix [--out PATH] | learning-session-matrix-verify --matrix PATH | \
      doc-trace --input PATH [--out PATH] | doc-report --input PATH --trace PATH [--out PATH] | \
      doc-bundle --input PATH --out DIR | doc-bundle-verify --input PATH --path DIR | \
      doc-scenarios | doc-scenario-pack --out DIR | doc-scenario-verify --path DIR | \
