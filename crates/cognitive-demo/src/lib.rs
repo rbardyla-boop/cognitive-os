@@ -346,6 +346,18 @@ pub use learner_model::{
     LEARNER_MODEL_SCENARIO_NAMES,
 };
 
+mod learner_memory;
+pub use learner_memory::{
+    learner_memory_demo, learner_memory_demo_json, learner_memory_matrix,
+    learner_memory_matrix_json, memory_items_are_receipt_backed, run_learner_memory,
+    run_learner_memory_default, verify_learner_memory_demo_json, verify_learner_memory_matrix_json,
+    LearnerMemoryBoundary, LearnerMemoryCell, LearnerMemoryConfig, LearnerMemoryDecision,
+    LearnerMemoryError, LearnerMemoryFieldRefusal, LearnerMemoryItem, LearnerMemoryMap,
+    LearnerMemoryMatrix, LearnerMemoryReceipt, LearnerMemoryRefusal, LearnerMemoryRun,
+    MemorySupportRef, SessionConfidence, LEARNER_MEMORY_BOUNDARY_LINES,
+    LEARNER_MEMORY_SCENARIO_COUNT, LEARNER_MEMORY_SCENARIO_NAMES,
+};
+
 /// What can go wrong building the end-to-end trace. Every failure is explicit; nothing is
 /// silently coerced or fabricated. The first three wrap a frozen-crate error; the last two
 /// are INT-0's own provenance invariants (a trace that did not start from a verified receipt,

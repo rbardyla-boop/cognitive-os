@@ -3,6 +3,28 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-07-02-A — Learner-memory receipt candidates, no persistence (LEARNER-MEMORY-0)
+
+**Decision.** Add `crates/cognitive-demo/src/learner_memory.rs` plus four operator-visible CLI verbs
+(`learner-memory-demo`, `learner-memory-demo-verify`, `learner-memory-matrix`,
+`learner-memory-matrix-verify`): the first learner-memory organ above LEARNER-MODEL-0.
+LEARNER-MEMORY-0 consumes a built `LearnerModelRun` plus the anchoring `LiteratureIntentRun`,
+cross-checks the receipt chain (`SourceChainMismatch` on a broken link), and emits a memory
+CANDIDATE: bounded items (concept taught, answered quiz outcomes, flagged misconceptions, the
+non-adaptive next-review pointer), each pointing back to an explicit learner-state field AND all
+four source receipt hashes (LEARNER/TEACH/LIT/QFLOW) with the four-step authority chain on
+verbatim support — enforced by a wired `memory_items_are_receipt_backed` guard whose violation is
+the `UnbackedMemoryItem` refusal. The serialized-tamper matrix scenario constructs
+`SerializedLearnerMemoryTamper` from a byte-flipped artifact (non-vacuous by construction).
+
+**Scope / boundary.** Cognitive-demo only: `learner_memory.rs`, `lib.rs`, `main.rs`, this charter
+entry, and the `release_check.sh` unit-count pin (560→578). Receipt-object ONLY: no disk
+persistence, no journal writes, no long-term memory mutation (a later, separately gated sprint), no
+personalization, no autonomous recall or adaptation, no health/psych/identity profile, no hidden
+diagnosis, no model/embedding/training dependency, no truth creation, no production deployment, no
+v0.1 retag. This moves the chain from receipt-linked learner state to a receipt-linked
+learner-memory candidate while keeping P12 `training_justified=false` and P13-P15 closed.
+
 ## DD-2026-06-30-E — Serialized tamper refusals are non-vacuous (TAMPER-DEBRIS-CLEANUP-0)
 
 **Decision.** Harden the committed LIT-INTENT-0 and TEACH-0 matrices so their serialized-tamper refusal
