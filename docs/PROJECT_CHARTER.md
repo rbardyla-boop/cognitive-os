@@ -3,6 +3,35 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-07-02-B — Consented append-only learner journal (LEARNER-MEMORY-1)
+
+**Decision.** Add `crates/cognitive-demo/src/learner_journal.rs` plus five operator-visible CLI
+verbs (`learner-journal-demo`, `learner-journal-demo-verify`, `learner-journal-matrix`,
+`learner-journal-matrix-verify`, `learner-journal-append`): the deferred persistence half of
+LEARNER-MEMORY-0. The journal persists POINTER ENTRIES only — receipt hashes, counts, and consent
+fields, never memory content. Each append requires an explicit scope-bound consent affirmation
+(`LearnerJournalConsent{operator, journal_scope, consents_to_append}`, the model_promote approval
+precedent strengthened with a per-candidate scope pin), verifies the entire existing chain first
+(`journal_entries_are_chain_linked`, mapping each violation to a DISTINCT refusal: entry tamper,
+reorder, deletion, chain break, duplicate), and cross-checks the candidate's map spine against its
+receipt spine (`UnsupportedSourceReceipt`). The canonical journal pins the consent operator so the
+derivation stays deterministic; the live `learner-journal-append` verb treats the on-disk journal
+as UNTRUSTED input that must byte-match a re-derived canonical state (never parsed) before the
+extended journal is written — all file I/O stays in the main.rs shell, the library remains a pure
+fold. All 16 refusal variants (including the byte-flip-constructed
+`SerializedLearnerJournalTamper`) are constructed in production matrix paths, asserted by a
+matrix-coverage test (the A3 law applied at design time).
+
+**Scope / boundary.** Cognitive-demo only: `learner_journal.rs`, `lib.rs`, `main.rs`, this charter
+entry, and `release_check.sh` (unit-count pin 578→603 plus additive journal-module purity pins:
+no fs/process/net/time/entropy tokens and no Deserialize in `learner_journal.rs`, all five verbs
+wired). Append-only pointer log ONLY: no rich memory content storage, no personalization, no
+autonomous recall or adaptation, no trait inference, no health/psych/identity profile, no hidden
+diagnosis, no model/embedding/training dependency, no database, no daemon, no scheduler, no truth
+creation, no production deployment, no v0.1 retag. `learner_model.rs` and `learner_memory.rs`
+untouched. This moves the chain from memory receipt candidate to consented pointer journal while
+keeping P12 `training_justified=false` and P13-P15 closed.
+
 ## DD-2026-07-02-A — Learner-memory receipt candidates, no persistence (LEARNER-MEMORY-0)
 
 **Decision.** Add `crates/cognitive-demo/src/learner_memory.rs` plus four operator-visible CLI verbs

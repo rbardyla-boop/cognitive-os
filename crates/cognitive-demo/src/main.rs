@@ -29,6 +29,11 @@
 //!   cognitive-demo learner-memory-demo-verify --memory PATH    # re-derive the candidate and refuse tamper
 //!   cognitive-demo learner-memory-matrix [--out PATH]          # emit the LEARNER-MEMORY-0 scenario matrix
 //!   cognitive-demo learner-memory-matrix-verify --matrix PATH  # re-derive the matrix and refuse tamper
+//!   cognitive-demo learner-journal-demo [--out PATH]           # emit the canonical LEARNER-MEMORY-1 journal run
+//!   cognitive-demo learner-journal-demo-verify --journal PATH  # re-derive the journal run and refuse tamper
+//!   cognitive-demo learner-journal-matrix [--out PATH]         # emit the LEARNER-MEMORY-1 scenario matrix
+//!   cognitive-demo learner-journal-matrix-verify --matrix PATH # re-derive the matrix and refuse tamper
+//!   cognitive-demo learner-journal-append --journal PATH --consent-operator S --consent-scope S  # consented append
 //!   cognitive-demo doc-trace        --input PATH [--out PATH] # trace a LOCAL operator document (verify-first)
 //!   cognitive-demo doc-report       --input PATH --trace PATH # render the doc report (re-derive + refuse tamper)
 //!   cognitive-demo doc-bundle       --input PATH --out DIR    # repro bundle over the operator document
@@ -130,26 +135,29 @@
 use cognitive_demo::{
     canonical_bundle, check_local_input_path, corpus_admits_filename, corpus_bundle,
     corpus_scenario_matrix, corpus_scenario_pack_files, doc_bundle, doc_scenario_matrix,
-    doc_scenario_pack_files, dream_export_matrix, failure_pack_files, learner_memory_demo_json,
-    learner_memory_matrix_json, learner_model_demo_json, learner_model_matrix_json,
-    list_corpus_scenarios, list_doc_scenarios, list_dream_export_scenarios, list_failure_cases,
-    list_questions, list_scenarios, literature_intent_demo_json, literature_intent_matrix_json,
-    resolved_path_within, run_ask, run_corpus_report, run_corpus_trace, run_doc_report,
-    run_doc_trace, run_dream_export, run_dream_export_matrix_report,
-    run_dream_export_matrix_verify, run_dream_export_replay, run_dream_export_report,
-    run_novelty_packet, run_novelty_replay, run_novelty_report, run_replay, run_report, run_trace,
-    scenario_bundle, scenario_matrix, scenario_matrix_report, scenario_pack_manifest,
-    teach_map_demo_json, teach_map_matrix_json, verify_bundle, verify_corpus_bundle,
-    verify_corpus_scenario_pack, verify_doc_bundle, verify_doc_scenario_pack, verify_failure_pack,
+    doc_scenario_pack_files, dream_export_matrix, failure_pack_files, learner_journal_append_at,
+    learner_journal_demo_json, learner_journal_json_at, learner_journal_matrix_json,
+    learner_journal_state_json, learner_memory_demo_json, learner_memory_matrix_json,
+    learner_model_demo_json, learner_model_matrix_json, list_corpus_scenarios, list_doc_scenarios,
+    list_dream_export_scenarios, list_failure_cases, list_questions, list_scenarios,
+    literature_intent_demo_json, literature_intent_matrix_json, resolved_path_within, run_ask,
+    run_corpus_report, run_corpus_trace, run_doc_report, run_doc_trace, run_dream_export,
+    run_dream_export_matrix_report, run_dream_export_matrix_verify, run_dream_export_replay,
+    run_dream_export_report, run_novelty_packet, run_novelty_replay, run_novelty_report,
+    run_replay, run_report, run_trace, scenario_bundle, scenario_matrix, scenario_matrix_report,
+    scenario_pack_manifest, teach_map_demo_json, teach_map_matrix_json, verify_bundle,
+    verify_corpus_bundle, verify_corpus_scenario_pack, verify_doc_bundle, verify_doc_scenario_pack,
+    verify_failure_pack, verify_learner_journal_demo_json, verify_learner_journal_matrix_json,
     verify_learner_memory_demo_json, verify_learner_memory_matrix_json,
     verify_learner_model_demo_json, verify_learner_model_matrix_json,
     verify_literature_intent_demo_json, verify_literature_intent_matrix_json,
     verify_scenario_matrix, verify_scenario_pack, verify_teach_map_demo_json,
-    verify_teach_map_matrix_json, Scenario, BUNDLE_BOUNDARY_LINES, BUNDLE_FILES,
-    CORPUS_BOUNDARY_LINES, CORPUS_BUNDLE_FILES, CORPUS_SCENARIO_BOUNDARY_LINES,
+    verify_teach_map_matrix_json, LearnerJournalConsent, Scenario, BUNDLE_BOUNDARY_LINES,
+    BUNDLE_FILES, CORPUS_BOUNDARY_LINES, CORPUS_BUNDLE_FILES, CORPUS_SCENARIO_BOUNDARY_LINES,
     CORPUS_SCENARIO_PACK_FILES, DOC_BOUNDARY_LINES, DOC_SCENARIO_BOUNDARY_LINES,
-    DOC_SCENARIO_PACK_FILES, FAILURE_BOUNDARY_LINES, FAILURE_PACK_FILES, MATRIX_BOUNDARY_LINES,
-    MTRACE_BOUNDARY_LINES, PACK_MANIFEST_FILE,
+    DOC_SCENARIO_PACK_FILES, FAILURE_BOUNDARY_LINES, FAILURE_PACK_FILES,
+    LEARNER_JOURNAL_DEMO_CANDIDATES, MATRIX_BOUNDARY_LINES, MTRACE_BOUNDARY_LINES,
+    PACK_MANIFEST_FILE,
 };
 
 fn main() {
@@ -366,6 +374,82 @@ fn dispatch(args: &[String]) -> Result<(), String> {
             verify_learner_memory_matrix_json(&matrix).map_err(|e| format!("{e:?}"))?;
             println!("learner-memory-matrix-verify: OK");
             Ok(())
+        }
+        Some("learner-journal-demo") => {
+            // Emit the canonical LEARNER-MEMORY-1 journal run: two consented
+            // append-only pointer entries, hash-linked from the genesis head.
+            let json = learner_journal_demo_json();
+            emit(&json, flag_value(args, "--out"))
+        }
+        Some("learner-journal-demo-verify") => {
+            // Re-derive the canonical journal run and require provided bytes to match.
+            let journal = read_plain_file(args, "--journal")?;
+            verify_learner_journal_demo_json(&journal).map_err(|e| format!("{e:?}"))?;
+            println!("learner-journal-demo-verify: OK");
+            Ok(())
+        }
+        Some("learner-journal-matrix") => {
+            // Emit the LEARNER-MEMORY-1 scenario matrix: one clean append plus closed gates.
+            let json = learner_journal_matrix_json();
+            emit(&json, flag_value(args, "--out"))
+        }
+        Some("learner-journal-matrix-verify") => {
+            // Re-derive the LEARNER-MEMORY-1 matrix and byte-compare a provided artifact.
+            let matrix = read_plain_file(args, "--matrix")?;
+            verify_learner_journal_matrix_json(&matrix).map_err(|e| format!("{e:?}"))?;
+            println!("learner-journal-matrix-verify: OK");
+            Ok(())
+        }
+        Some("learner-journal-append") => {
+            // Consented live append. The journal file is UNTRUSTED input: it must
+            // byte-match a canonical verified state (never parsed), and the consent
+            // flags must re-affirm the canonical scope-bound consent. The library
+            // stays pure — every read and write happens here in the I/O shell.
+            let path = flag_value(args, "--journal")
+                .ok_or_else(|| "learner-journal-append requires --journal PATH".to_string())?;
+            let operator = flag_value(args, "--consent-operator")
+                .ok_or_else(|| "learner-journal-append requires --consent-operator".to_string())?;
+            let scope = flag_value(args, "--consent-scope")
+                .ok_or_else(|| "learner-journal-append requires --consent-scope".to_string())?;
+            let existing = if std::path::Path::new(path).exists() {
+                Some(
+                    std::fs::read_to_string(path)
+                        .map_err(|e| format!("cannot read {path}: {e}"))?,
+                )
+            } else {
+                None
+            };
+            let state = match existing {
+                None => 0,
+                Some(bytes) => (0..=LEARNER_JOURNAL_DEMO_CANDIDATES)
+                    .find(|n| learner_journal_json_at(*n).as_deref() == Some(bytes.as_str()))
+                    .ok_or_else(|| {
+                        "learner-journal-append: refused (journal does not byte-match any \
+                         verified canonical state: ReplayMismatch)"
+                            .to_string()
+                    })?,
+            };
+            let consent = LearnerJournalConsent {
+                operator: operator.to_string(),
+                journal_scope: scope.to_string(),
+                consents_to_append: true,
+            };
+            let run = learner_journal_append_at(state, &consent);
+            match run.journal {
+                Some(journal) => {
+                    std::fs::write(path, learner_journal_state_json(&journal))
+                        .map_err(|e| format!("cannot write {path}: {e}"))?;
+                    println!(
+                        "learner-journal-append: OK entries={} head={:016x}",
+                        journal.entry_count, journal.head_hash
+                    );
+                    Ok(())
+                }
+                None => Err(format!(
+                    "learner-journal-append: refused ({})",
+                    run.refusal.map(|r| r.slug()).unwrap_or("unknown")
+                )),
+            }
         }
         Some("failure-cases") => {
             // List the finite negative-scenario set (no inputs needed — this is the menu).
@@ -1192,6 +1276,9 @@ fn usage() -> String {
      learner-model-matrix [--out PATH] | learner-model-matrix-verify --matrix PATH | \
      learner-memory-demo [--out PATH] | learner-memory-demo-verify --memory PATH | \
      learner-memory-matrix [--out PATH] | learner-memory-matrix-verify --matrix PATH | \
+     learner-journal-demo [--out PATH] | learner-journal-demo-verify --journal PATH | \
+     learner-journal-matrix [--out PATH] | learner-journal-matrix-verify --matrix PATH | \
+     learner-journal-append --journal PATH --consent-operator S --consent-scope S | \
      doc-trace --input PATH [--out PATH] | doc-report --input PATH --trace PATH [--out PATH] | \
      doc-bundle --input PATH --out DIR | doc-bundle-verify --input PATH --path DIR | \
      doc-scenarios | doc-scenario-pack --out DIR | doc-scenario-verify --path DIR | \

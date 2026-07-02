@@ -358,6 +358,20 @@ pub use learner_memory::{
     LEARNER_MEMORY_SCENARIO_COUNT, LEARNER_MEMORY_SCENARIO_NAMES,
 };
 
+mod learner_journal;
+pub use learner_journal::{
+    append_learner_journal, append_learner_journal_default, empty_learner_journal,
+    journal_entries_are_chain_linked, journal_scope_for_candidate, learner_journal_append_at,
+    learner_journal_at, learner_journal_demo, learner_journal_demo_json, learner_journal_json_at,
+    learner_journal_matrix, learner_journal_matrix_json, learner_journal_state_json,
+    verify_learner_journal_demo_json, verify_learner_journal_matrix_json, LearnerJournal,
+    LearnerJournalBoundary, LearnerJournalCell, LearnerJournalConfig, LearnerJournalConsent,
+    LearnerJournalDecision, LearnerJournalEntry, LearnerJournalError, LearnerJournalMatrix,
+    LearnerJournalReceipt, LearnerJournalRefusal, LearnerJournalRun, CANONICAL_CONSENT_OPERATOR,
+    LEARNER_JOURNAL_BOUNDARY_LINES, LEARNER_JOURNAL_DEMO_CANDIDATES,
+    LEARNER_JOURNAL_SCENARIO_COUNT, LEARNER_JOURNAL_SCENARIO_NAMES,
+};
+
 /// What can go wrong building the end-to-end trace. Every failure is explicit; nothing is
 /// silently coerced or fabricated. The first three wrap a frozen-crate error; the last two
 /// are INT-0's own provenance invariants (a trace that did not start from a verified receipt,
