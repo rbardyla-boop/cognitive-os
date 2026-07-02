@@ -340,6 +340,14 @@ pub fn verify_literature_intent_demo_json(candidate: &str) -> Result<(), Literat
     }
 }
 
+fn flip_last_byte(input: &str) -> String {
+    let mut bytes = input.as_bytes().to_vec();
+    if let Some(last) = bytes.last_mut() {
+        *last = last.wrapping_add(1);
+    }
+    String::from_utf8(bytes).expect("json stays utf8 after single-byte flip")
+}
+
 pub fn run_literature_intent_map(
     documents: &[(String, String)],
     focus_question: &str,
@@ -855,7 +863,7 @@ fn lesson(
     parts.join(" ")
 }
 
-pub const LIT_INTENT_SCENARIO_COUNT: usize = 10;
+pub const LIT_INTENT_SCENARIO_COUNT: usize = 11;
 pub const LIT_INTENT_SCENARIO_NAMES: [&str; LIT_INTENT_SCENARIO_COUNT] = [
     "verified_document_builds_intent_map",
     "central_thesis_is_span_backed",
@@ -867,6 +875,7 @@ pub const LIT_INTENT_SCENARIO_NAMES: [&str; LIT_INTENT_SCENARIO_COUNT] = [
     "empty_document_set_refused",
     "no_model_signal_detected",
     "no_training_signal_detected",
+    "serialized_intent_map_tamper_refused",
 ];
 
 #[derive(Debug, Clone, Serialize)]
@@ -972,6 +981,24 @@ Symbiosis means a repeated learning relationship with source memory.",
                 map_built: run.decision == LiteratureIntentDecision::IntentMapBuilt
                     && !run.receipt.config.uses_training
                     && run.receipt.boundary_all_inert,
+            }
+        }
+        "serialized_intent_map_tamper_refused" => {
+            let json = literature_intent_demo_json();
+            let refused = verify_literature_intent_demo_json(&flip_last_byte(&json)).is_err();
+            LitIntentCell {
+                scenario: scenario.to_string(),
+                outcome: if refused {
+                    "tamper_refused".to_string()
+                } else {
+                    "tamper_not_refused".to_string()
+                },
+                refusal: refused
+                    .then_some(LiteratureIntentRefusal::SerializedIntentMapTamper)
+                    .map(|r| r.slug().to_string()),
+                evidence_spans: 0,
+                field_refusals: 0,
+                map_built: false,
             }
         }
         other => LitIntentCell {
@@ -1237,6 +1264,24 @@ Symbiosis means a repeated learning relationship with source memory.",
             verify_literature_intent_demo_json(&format!("{json} ")),
             Err(LiteratureIntentError::ReplayMismatch)
         );
+    }
+
+    #[test]
+    fn serialized_tamper_scenario_constructs_refusal() {
+        let matrix = literature_intent_matrix();
+        let cell = matrix
+            .cells
+            .iter()
+            .find(|c| c.scenario == "serialized_intent_map_tamper_refused")
+            .expect("tamper scenario");
+        assert_eq!(cell.outcome, "tamper_refused");
+        assert_eq!(
+            cell.refusal.as_deref(),
+            Some("serialized_intent_map_tamper_refused")
+        );
+
+        let json = literature_intent_demo_json();
+        assert!(verify_literature_intent_demo_json(&flip_last_byte(&json)).is_err());
     }
 
     #[test]

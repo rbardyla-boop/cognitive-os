@@ -3,6 +3,21 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-06-30-E — Serialized tamper refusals are non-vacuous (TAMPER-DEBRIS-CLEANUP-0)
+
+**Decision.** Harden the committed LIT-INTENT-0 and TEACH-0 matrices so their serialized-tamper refusal
+variants are constructed by real production matrix paths. Each matrix now includes one serialized-tamper
+scenario that serializes the canonical demo artifact, flips one byte, observes replay mismatch through the
+existing byte-compare verifier, and records the matching refusal slug. This follows the QSELECT/QFLOW and
+LEARNER-MODEL-0 pattern and removes false-green refusal debris without changing the capability surface.
+
+**Scope / boundary.** Cognitive-demo hardening only: `lit_intent.rs`, `teach_map.rs`, this charter entry,
+and the `release_check.sh` unit-count pin. No new CLI verbs, no `lib.rs` or `main.rs` wiring change, no Cargo
+change, no QFLOW/QSELECT/VAULT-NORM behavior change, no teaching/comprehension/learner-memory behavior
+expansion, no model/embedding/training dependency, no personalization, no learner-memory write, no truth
+creation, no production deployment, and no v0.1 retag. This is replay-trust cleanup below the learner-state
+layer while P12 stays `training_justified=false` and P13-P15 stay closed.
+
 ## DD-2026-06-30-D — Learner-state receipt map, no memory mutation (LEARNER-MODEL-0)
 
 **Decision.** Add `crates/cognitive-demo/src/learner_model.rs` plus four operator-visible CLI verbs

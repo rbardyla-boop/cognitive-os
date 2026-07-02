@@ -322,6 +322,14 @@ pub fn verify_teach_map_demo_json(candidate: &str) -> Result<(), TeachMapError> 
     }
 }
 
+fn flip_last_byte(input: &str) -> String {
+    let mut bytes = input.as_bytes().to_vec();
+    if let Some(last) = bytes.last_mut() {
+        *last = last.wrapping_add(1);
+    }
+    String::from_utf8(bytes).expect("json stays utf8 after single-byte flip")
+}
+
 pub fn run_teach_map_default(intent_run: &LiteratureIntentRun) -> TeachMapRun {
     run_teach_map(intent_run, TeachMapConfig::default_config())
 }
@@ -799,7 +807,7 @@ fn field_refusal(field: &str, reason: &str) -> TeachFieldRefusal {
     }
 }
 
-pub const TEACH_MAP_SCENARIO_COUNT: usize = 12;
+pub const TEACH_MAP_SCENARIO_COUNT: usize = 13;
 pub const TEACH_MAP_SCENARIO_NAMES: [&str; TEACH_MAP_SCENARIO_COUNT] = [
     "verified_intent_map_builds_teach_map",
     "explanation_is_span_backed",
@@ -813,6 +821,7 @@ pub const TEACH_MAP_SCENARIO_NAMES: [&str; TEACH_MAP_SCENARIO_COUNT] = [
     "no_training_signal_detected",
     "personalization_signal_refused",
     "memory_signal_refused",
+    "serialized_teach_map_tamper_refused",
 ];
 
 #[derive(Debug, Clone, Serialize)]
@@ -882,6 +891,25 @@ fn cell_for(scenario: &str) -> TeachMapCell {
             config.writes_memory = true;
             let run = run_teach_map(&literature_intent_demo(), config);
             cell_from_run(scenario, &run)
+        }
+        "serialized_teach_map_tamper_refused" => {
+            let json = teach_map_demo_json();
+            let refused = verify_teach_map_demo_json(&flip_last_byte(&json)).is_err();
+            TeachMapCell {
+                scenario: scenario.to_string(),
+                outcome: if refused {
+                    "tamper_refused".to_string()
+                } else {
+                    "tamper_not_refused".to_string()
+                },
+                refusal: refused
+                    .then_some(TeachMapRefusal::SerializedTeachMapTamper)
+                    .map(|r| r.slug().to_string()),
+                lesson_built: false,
+                lesson_items: 0,
+                field_refusals: 0,
+                boundary_all_inert: false,
+            }
         }
         other => TeachMapCell {
             scenario: other.to_string(),
@@ -1131,6 +1159,24 @@ mod tests {
             verify_teach_map_matrix_json(&format!("{json} ")),
             Err(TeachMapError::ReplayMismatch)
         );
+    }
+
+    #[test]
+    fn serialized_tamper_scenario_constructs_refusal() {
+        let matrix = teach_map_matrix();
+        let cell = matrix
+            .cells
+            .iter()
+            .find(|c| c.scenario == "serialized_teach_map_tamper_refused")
+            .expect("tamper scenario");
+        assert_eq!(cell.outcome, "tamper_refused");
+        assert_eq!(
+            cell.refusal.as_deref(),
+            Some("serialized_teach_map_tamper_refused")
+        );
+
+        let json = teach_map_demo_json();
+        assert!(verify_teach_map_demo_json(&flip_last_byte(&json)).is_err());
     }
 
     #[test]
