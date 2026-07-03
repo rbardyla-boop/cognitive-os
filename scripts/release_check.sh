@@ -5685,3 +5685,56 @@ if printf '%s' "$_PL_STMT" | grep -qF 'semantic understanding'; then exit 1; fi
 if printf '%s' "$_PL_STMT" | grep -qF 'autonomous intelligence'; then exit 1; fi
 if printf '%s' "$_PL_STMT" | grep -qF 'truth engine'; then exit 1; fi
 if printf '%s' "$_PL_STMT" | grep -qF 'trained on documents'; then exit 1; fi
+
+# ---------------------------------------------------------------------------
+# PLATEAU-1 — learning-loop boundary lock (post-SESSION-LOOP). Freezes the plateau
+# document so the learning loop cannot drift into companion-app or understanding-
+# engine claims later. DOCS-ONLY: this lock adds and changes NO runtime/code
+# capability; it only pins what the prototype may CLAIM. It records the eight
+# plateau commit ids, the load-bearing sections, the exact forbidden-claim
+# sentences, and asserts the plateau STATEMENT makes the right claims and none of
+# the banned ones. All checks byte-silent.
+# ---------------------------------------------------------------------------
+_PL1="docs/PLATEAU-1.md"
+test -f "$_PL1"
+# All eight plateau commit ids are recorded (changing/omitting one fails here).
+for _pc1 in e44bbf0 6b434d5 99106f2 fe56822 d55abbf 668d0ce fe58734 3b103a4; do
+  grep -qF "$_pc1" "$_PL1"
+done
+# The three load-bearing sections exist.
+grep -qF '## 3. CAN' "$_PL1"
+grep -qF '## 4. CANNOT' "$_PL1"
+grep -qF '## 5. FORBIDDEN CLAIMS' "$_PL1"
+# Every forbidden-claim sentence is recorded VERBATIM in the canonical FORBIDDEN
+# CLAIMS section (section 5 ONLY). Scope to section 5 so a copy of a sentence
+# elsewhere (e.g. the section-7 evidence table's "Forbidden overclaim" column)
+# cannot mask its removal from the canonical list — removing one from section 5
+# fails here.
+_PL1_FORBIDDEN="$(awk '/^## 5\. FORBIDDEN CLAIMS/{f=1;next} /^## 6\./{f=0} f' "$_PL1")"
+while IFS= read -r _fc1; do
+  printf '%s' "$_PL1_FORBIDDEN" | grep -qF "$_fc1"
+done <<'PLATEAU1_FORBIDDEN'
+This system understands literature.
+This system knows the user.
+This system is a personalized AI companion.
+This system remembers the user autonomously.
+This system adapts itself across sessions.
+This system can grade free-form answers.
+This system can infer the user's psychology.
+This system diagnoses the user.
+This system stores rich personal memory.
+This system writes memory without consent.
+This system trains on the user's learning history.
+This system creates truth.
+PLATEAU1_FORBIDDEN
+# The plateau STATEMENT (section 1 ONLY) makes the right claims and none of the
+# wrong ones. Scope to section 1 so the forbidden-claims list (section 5) and the
+# CANNOT list (section 4) cannot trip the negative greps. Inserting "semantic
+# understanding" or "personalized AI companion" as a capability fails here.
+_PL1_STMT="$(awk '/^## 1\. Plateau statement/{f=1;next} /^## 2\./{f=0} f' "$_PL1")"
+printf '%s' "$_PL1_STMT" | grep -qF 'receipt-linked learning session'
+printf '%s' "$_PL1_STMT" | grep -qF 'consented append-only pointer journal'
+if printf '%s' "$_PL1_STMT" | grep -qF 'semantic understanding'; then exit 1; fi
+if printf '%s' "$_PL1_STMT" | grep -qF 'personalized AI companion'; then exit 1; fi
+if printf '%s' "$_PL1_STMT" | grep -qF 'autonomous recall'; then exit 1; fi
+if printf '%s' "$_PL1_STMT" | grep -qF 'trains on'; then exit 1; fi

@@ -3,6 +3,31 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-07-02-D — Learning-loop boundary lock (PLATEAU-1)
+
+**Decision.** Add `docs/PLATEAU-1.md`, a frozen boundary audit of the learning-loop stack as of
+SESSION-LOOP-0 (`3b103a4`), and a byte-silent `release_check.sh` lock that pins it. The document
+freezes: the plateau statement (one deterministic receipt-linked learning session over verified
+local evidence, ending in a consented append-only pointer journal), the verified eight-commit
+chain since PLATEAU-0 (`e44bbf0`, `6b434d5`, `99106f2`, `fe56822`, `d55abbf`, `668d0ce`,
+`fe58734`, `3b103a4`), ten CAN capabilities, twelve CANNOT-by-construction limits, twelve exact
+forbidden-claim sentences (companion/understanding/psychology/diagnosis/memory/training
+overclaims), the authority-and-consent boundary (single authority source remains
+`reading_substrate::verify`; consent is the only gate to durable memory), an eight-row evidence
+table, residual risks, and a public-safe summary. The lock pins the eight commit ids, the three
+load-bearing section headers, every forbidden sentence verbatim scoped to section 5 (so an
+evidence-table copy cannot mask removal — the PLATEAU-0 masking lesson), and the required and
+banned phrases in the section-1 plateau statement only.
+
+**Scope / boundary.** Docs and gate only: `docs/PLATEAU-1.md`, this charter entry, and
+`release_check.sh`. No Rust source edit, no main.rs edit, no operator_smoke edit, no Cargo
+change, no tests added, no behavior change, no capability added, no memory expansion, no
+multi-session behavior, no model/embedding/training language as capability, no v0.1 retag. The
+crossed line is one deterministic receipt-linked learning loop; NOT crossed: semantic
+understanding, free-form grading, personalization, autonomous recall/adaptation, profiling,
+diagnosis, training, deployment. Next growth step (MULTI-SESSION-0) requires its own MAP gate.
+P12 `training_justified=false`; P13-P15 closed.
+
 ## DD-2026-07-02-C — Receipt-linked learning session composer (SESSION-LOOP-0)
 
 **Decision.** Add `crates/cognitive-demo/src/learning_session.rs` plus four operator-visible CLI
