@@ -3,6 +3,35 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-07-03-A — Canonical multi-session learning arc (MULTI-SESSION-0)
+
+**Decision.** Add `crates/cognitive-demo/src/learning_arc.rs` plus four operator-visible CLI verbs
+(`learning-arc-demo`, `learning-arc-demo-verify`, `learning-arc-matrix`,
+`learning-arc-matrix-verify`): the first multi-session composition. The arc runs the two
+canonical committed learning sessions in order — session 1 (candidate A) from the empty journal,
+session 2 (candidate B) starting FROM canonical journal head 1 — and proves the safe
+cross-session shape: genesis → head 1 → head 2, with head continuity verified at every seam
+(Option A, canonical-only: the arc threads `learner_journal_at(n)` states; `LearningSessionRun`
+deliberately still does not return the appended journal, and this gate does not change that).
+Non-adaptation is test-pinned: both sessions carry identical evidence/intent/teach receipt
+anchors — the journal grows across sessions while content adapts to nothing. Session refusals
+propagate with the failing index recorded: consent failures map to `SessionConsentRefused`,
+journal-append failures to `DuplicateSessionRefused` (on canonical journals the only reachable
+append failure is a duplicate — documented honesty caveat), everything else to `SessionRefused`.
+A pub step guard refuses reordered, unsupported, or seam-broken arc steps; the
+byte-flip-constructed `serialized_learning_arc_tamper_refused` scenario and a matrix-coverage
+test keep all 11 refusal variants constructed in production (the A3 law). The third-session
+attempt refuses as a duplicate — the arc cannot grow past its verified canonical candidates.
+
+**Scope / boundary.** Cognitive-demo only: `learning_arc.rs`, `lib.rs`, `main.rs`, this charter
+entry, and `release_check.sh` (unit-count pin 627→644, arc-module purity pins, four verb pins,
+plus intactness pins on the composed modules: `learning_session.rs` 24 tests /
+`learner_journal.rs` 25 tests and their key entry points). Zero edits to any organ or to
+`learning_session.rs`/`learner_journal.rs`. Pure composer: no personalization, no autonomous
+adaptation, no free-form memory, no general journal threading, no durable I/O, no scheduler, no
+daemon, no model/embedding/training, no truth creation, no v0.1 retag. P12
+`training_justified=false`; P13-P15 closed.
+
 ## DD-2026-07-02-D — Learning-loop boundary lock (PLATEAU-1)
 
 **Decision.** Add `docs/PLATEAU-1.md`, a frozen boundary audit of the learning-loop stack as of

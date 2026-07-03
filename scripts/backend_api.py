@@ -10,7 +10,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from backend_storage import BackendStore, seed_static_memory
-from bridge_world_demo import WORLD, load_scenario, run
+from bridge_world_demo import WORLD, available_scenarios, load_scenario, run
 from world_encoder import encode_world_state
 
 
@@ -54,6 +54,9 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._json({"trace_id": trace[0]["header"]["trace_id"], "packets": trace})
         elif path == "/simulate/scenario":
             scenario_name = body.get("scenario", "normal_crossing")
+            if scenario_name not in available_scenarios():
+                self._json({"error": "unknown_scenario", "scenario": scenario_name}, status=404)
+                return
             try:
                 scenario = load_scenario(scenario_name, allow_test_trusted=False)
             except PermissionError as exc:

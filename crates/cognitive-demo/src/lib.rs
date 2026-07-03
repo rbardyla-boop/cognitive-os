@@ -385,6 +385,17 @@ pub use learning_session::{
     LEARNING_SESSION_SCENARIO_NAMES, LEARNING_SESSION_STAGES,
 };
 
+mod learning_arc;
+pub use learning_arc::{
+    arc_steps_are_chain_linked, learning_arc_demo, learning_arc_demo_json, learning_arc_matrix,
+    learning_arc_matrix_json, learning_arc_second_request, run_learning_arc,
+    run_learning_arc_default, verify_learning_arc_demo_json, verify_learning_arc_matrix_json,
+    LearningArcBoundary, LearningArcCell, LearningArcConfig, LearningArcDecision, LearningArcError,
+    LearningArcMatrix, LearningArcReceipt, LearningArcRefusal, LearningArcRun, LearningArcStep,
+    LEARNING_ARC_BOUNDARY_LINES, LEARNING_ARC_SCENARIO_COUNT, LEARNING_ARC_SCENARIO_NAMES,
+    LEARNING_ARC_SESSION_COUNT, LEARNING_ARC_STAGES,
+};
+
 /// What can go wrong building the end-to-end trace. Every failure is explicit; nothing is
 /// silently coerced or fabricated. The first three wrap a frozen-crate error; the last two
 /// are INT-0's own provenance invariants (a trace that did not start from a verified receipt,

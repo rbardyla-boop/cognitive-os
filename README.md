@@ -39,6 +39,10 @@ See [CIP.md](CIP.md) for the packet envelope, packet type list, epistemic licens
 
 See [MEMORY.md](MEMORY.md) for governed episodic, semantic, procedural, and contradiction memory.
 
+See [CLIPPING_ORCHESTRATOR.md](CLIPPING_ORCHESTRATOR.md) for the local vault clipping
+reader that converts post-cutoff clippings into provenance-bound, hypothesis-only
+knowledge candidates and human review tasks.
+
 See [VERIFIER.md](VERIFIER.md) for trust scoring, conflict detection, adjudication outcomes, and revision pressure.
 
 See [RULE_MIGRATION.md](RULE_MIGRATION.md) for versioned rules, dependency tracing, impact scoring, and lazy cascade evaluation.

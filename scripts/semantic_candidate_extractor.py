@@ -200,7 +200,12 @@ def _require_raw_episode(raw_episode: dict) -> None:
 
 
 def _load_scenario(name: str) -> dict:
-    with (SCENARIO_DIR / f"{name}.json").open("r", encoding="utf-8") as handle:
+    path = SCENARIO_DIR / f"{name}.json"
+    if not path.is_file():
+        names = sorted(p.stem for p in SCENARIO_DIR.glob("*.json")) if SCENARIO_DIR.is_dir() else []
+        listing = "\n".join(f"  - {n}" for n in names) if names else "  (none found)"
+        raise SystemExit(f"unknown scenario '{name}'. Available scenarios:\n{listing}")
+    with path.open("r", encoding="utf-8") as handle:
         return json.load(handle)
 
 

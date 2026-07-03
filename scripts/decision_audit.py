@@ -91,7 +91,14 @@ def main() -> int:
     else:
         command = " ".join(sys.argv[1:]) or "I need to cross the river quickly. Is Bridge A safe?"
         trace = run(command)
-    print(json.dumps(audit_trace(trace), indent=2, sort_keys=True))
+    try:
+        report = audit_trace(trace)
+    except (KeyError, StopIteration) as exc:
+        raise SystemExit(
+            "decision-audit: this trace is missing an expected route-decision packet "
+            f"({exc!r}); the scenario may not be a route-decision scenario"
+        )
+    print(json.dumps(report, indent=2, sort_keys=True))
     return 0
 
 

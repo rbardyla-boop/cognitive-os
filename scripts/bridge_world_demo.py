@@ -167,8 +167,21 @@ def require_packet_use(packet_item: dict, requested_use: str) -> None:
         raise PermissionError(f"{packet_type} {packet_id} is not licensed for {requested_use}")
 
 
+def available_scenarios() -> list[str]:
+    """Sorted names (file stems) of every known bridge-world scenario."""
+    scenarios_dir = WORLD / "scenarios"
+    if not scenarios_dir.is_dir():
+        return []
+    return sorted(path.stem for path in scenarios_dir.glob("*.json"))
+
+
 def load_scenario(name: str, allow_test_trusted: bool = True) -> dict:
-    scenario = load_json(WORLD / "scenarios" / f"{name}.json")
+    path = WORLD / "scenarios" / f"{name}.json"
+    if not path.is_file():
+        names = available_scenarios()
+        listing = "\n".join(f"  - {n}" for n in names) if names else "  (none found)"
+        raise SystemExit(f"unknown scenario '{name}'. Available scenarios:\n{listing}")
+    scenario = load_json(path)
     if not allow_test_trusted and scenario.get("replay_ledger_trust") == "test_trusted":
         raise PermissionError("production scenario loader rejects test_trusted replay ledgers")
     return scenario
