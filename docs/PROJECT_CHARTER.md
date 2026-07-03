@@ -3,6 +3,41 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-07-03-C — Fixture-first navigation/situation state organ (WOW-STATE-0)
+
+**Decision.** Add `crates/cognitive-demo/src/wow_state.rs` plus four operator-visible CLI verbs
+(`wow-state-demo`, `wow-state-demo-verify`, `wow-state-matrix`, `wow-state-matrix-verify`): the
+second rung of the WOW-SANDBOX-0 validation ladder, sitting above GAME-EVIDENCE-0. Given a typed
+character position and a set of active quest objectives (each carrying its `quest_poi`
+world-coordinate polygon), the organ derives a deterministic, receipt-backed navigation snapshot:
+per-objective centroid (arithmetic mean of the polygon), Euclidean distance and `atan2` bearing
+from the character to the centroid (0 = +X, counter-clockwise-positive, matching the live pilot
+convention), a same-continent flag (`character.map_id == objective.map_id`), the nearest
+incomplete same-map objective as the nav target, and the stuck/progress signals that turn a
+memoryless per-tick heading into a persistent objective anchor — the fix for "walking in a
+straight line at a target in another zone". Map-continuity law: on a single `MapID` the world
+coordinates are continuous across zone boundaries, so a same-map objective is steerable regardless
+of zone; a different `MapID` (another continent) is flagged `needs_travel` and excluded from the
+nav target, and a snapshot whose only incomplete objectives are cross-map refuses rather than
+inventing a travel route. Float-free law: the whole crate forbids floating-point types, so
+coordinates are fixed-point centiyards, distance is an integer `isqrt`, and bearing is an integer
+CORDIC in millidegrees — every derivation is a pure integer fold. The canonical fixture is grounded
+on verified `quest_poi` math: Ainn at (-610.8, -4230.6) on map 1, quest 788's objective centroid at
+(-513.25, -4278.0) → 108.45 yd at bearing -26°. All 19 refusal variants are constructed in
+production matrix paths, including the byte-flip `serialized_wow_state_tamper_refused` (the A3 law);
+the 25-scenario matrix carries the six closed signal gates (model, training, gameplay automation,
+pathfinding, network, memory scan), each refusing before any derivation.
+
+**Scope / boundary.** Cognitive-demo only: `wow_state.rs`, `lib.rs`, `main.rs`, this charter entry,
+and `release_check.sh` (unit-count pin 666→693, per-module purity pins, four verb pins, plus
+intactness pins on `game_evidence.rs` — 22 tests and its entry point — alongside the existing
+arc/session/journal pins). Zero edits to the learning stack, the organs, the reading substrate, the
+evidence adapter, or any live WoW code (no `wow_client_pilot.py`, `observe_server.py`, AzerothCore,
+controller, or NN). The organ provides the target and the situation signal; it does not move the
+character, choose gameplay actions, solve pathfinding or cross-map travel, read a client, touch a
+server or network, train or run a model, or automate gameplay — no model/embedding/training, no
+v0.1 retag. P12 `training_justified=false`; P13-P15 closed.
+
 ## DD-2026-07-03-B — Fixture-first game evidence adapter (GAME-EVIDENCE-0)
 
 **Decision.** Add `crates/cognitive-demo/src/game_evidence.rs` plus four operator-visible CLI

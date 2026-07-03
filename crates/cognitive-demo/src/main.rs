@@ -46,6 +46,10 @@
 //!   cognitive-demo game-evidence-demo-verify --packet PATH      # re-derive the packet and refuse tamper
 //!   cognitive-demo game-evidence-matrix [--out PATH]            # emit the GAME-EVIDENCE-0 scenario matrix
 //!   cognitive-demo game-evidence-matrix-verify --matrix PATH    # re-derive the matrix and refuse tamper
+//!   cognitive-demo wow-state-demo [--out PATH]                  # emit the canonical WOW-STATE-0 navigation snapshot
+//!   cognitive-demo wow-state-demo-verify --snapshot PATH        # re-derive the snapshot and refuse tamper
+//!   cognitive-demo wow-state-matrix [--out PATH]                # emit the WOW-STATE-0 scenario matrix
+//!   cognitive-demo wow-state-matrix-verify --matrix PATH        # re-derive the matrix and refuse tamper
 //!   cognitive-demo doc-trace        --input PATH [--out PATH] # trace a LOCAL operator document (verify-first)
 //!   cognitive-demo doc-report       --input PATH --trace PATH # render the doc report (re-derive + refuse tamper)
 //!   cognitive-demo doc-bundle       --input PATH --out DIR    # repro bundle over the operator document
@@ -170,12 +174,13 @@ use cognitive_demo::{
     verify_learning_session_demo_json, verify_learning_session_matrix_json,
     verify_literature_intent_demo_json, verify_literature_intent_matrix_json,
     verify_scenario_matrix, verify_scenario_pack, verify_teach_map_demo_json,
-    verify_teach_map_matrix_json, LearnerJournalConsent, Scenario, BUNDLE_BOUNDARY_LINES,
-    BUNDLE_FILES, CORPUS_BOUNDARY_LINES, CORPUS_BUNDLE_FILES, CORPUS_SCENARIO_BOUNDARY_LINES,
-    CORPUS_SCENARIO_PACK_FILES, DOC_BOUNDARY_LINES, DOC_SCENARIO_BOUNDARY_LINES,
-    DOC_SCENARIO_PACK_FILES, FAILURE_BOUNDARY_LINES, FAILURE_PACK_FILES,
-    LEARNER_JOURNAL_DEMO_CANDIDATES, MATRIX_BOUNDARY_LINES, MTRACE_BOUNDARY_LINES,
-    PACK_MANIFEST_FILE,
+    verify_teach_map_matrix_json, verify_wow_state_demo_json, verify_wow_state_matrix_json,
+    wow_state_demo_json, wow_state_matrix_json, LearnerJournalConsent, Scenario,
+    BUNDLE_BOUNDARY_LINES, BUNDLE_FILES, CORPUS_BOUNDARY_LINES, CORPUS_BUNDLE_FILES,
+    CORPUS_SCENARIO_BOUNDARY_LINES, CORPUS_SCENARIO_PACK_FILES, DOC_BOUNDARY_LINES,
+    DOC_SCENARIO_BOUNDARY_LINES, DOC_SCENARIO_PACK_FILES, FAILURE_BOUNDARY_LINES,
+    FAILURE_PACK_FILES, LEARNER_JOURNAL_DEMO_CANDIDATES, MATRIX_BOUNDARY_LINES,
+    MTRACE_BOUNDARY_LINES, PACK_MANIFEST_FILE,
 };
 
 fn main() {
@@ -543,6 +548,32 @@ fn dispatch(args: &[String]) -> Result<(), String> {
             let matrix = read_plain_file(args, "--matrix")?;
             verify_game_evidence_matrix_json(&matrix).map_err(|e| format!("{e:?}"))?;
             println!("game-evidence-matrix-verify: OK");
+            Ok(())
+        }
+        Some("wow-state-demo") => {
+            // Emit the canonical WOW-STATE-0 navigation snapshot: the Durotar
+            // starter fixture with a chosen nav target and stuck/progress signals.
+            let json = wow_state_demo_json();
+            emit(&json, flag_value(args, "--out"))
+        }
+        Some("wow-state-demo-verify") => {
+            // Re-derive the canonical snapshot and require provided bytes to match.
+            let snapshot = read_plain_file(args, "--snapshot")?;
+            verify_wow_state_demo_json(&snapshot).map_err(|e| format!("{e:?}"))?;
+            println!("wow-state-demo-verify: OK");
+            Ok(())
+        }
+        Some("wow-state-matrix") => {
+            // Emit the WOW-STATE-0 scenario matrix: prepared navigation cells plus
+            // every refusal and closed gate.
+            let json = wow_state_matrix_json();
+            emit(&json, flag_value(args, "--out"))
+        }
+        Some("wow-state-matrix-verify") => {
+            // Re-derive the WOW-STATE-0 matrix and byte-compare a provided artifact.
+            let matrix = read_plain_file(args, "--matrix")?;
+            verify_wow_state_matrix_json(&matrix).map_err(|e| format!("{e:?}"))?;
+            println!("wow-state-matrix-verify: OK");
             Ok(())
         }
         Some("failure-cases") => {
@@ -1379,6 +1410,8 @@ fn usage() -> String {
      learning-arc-matrix [--out PATH] | learning-arc-matrix-verify --matrix PATH | \
      game-evidence-demo [--out PATH] | game-evidence-demo-verify --packet PATH | \
      game-evidence-matrix [--out PATH] | game-evidence-matrix-verify --matrix PATH | \
+     wow-state-demo [--out PATH] | wow-state-demo-verify --snapshot PATH | \
+     wow-state-matrix [--out PATH] | wow-state-matrix-verify --matrix PATH | \
      doc-trace --input PATH [--out PATH] | doc-report --input PATH --trace PATH [--out PATH] | \
      doc-bundle --input PATH --out DIR | doc-bundle-verify --input PATH --path DIR | \
      doc-scenarios | doc-scenario-pack --out DIR | doc-scenario-verify --path DIR | \

@@ -409,6 +409,18 @@ pub use game_evidence::{
     GAME_EVIDENCE_SCENARIO_COUNT, GAME_EVIDENCE_SCENARIO_NAMES,
 };
 
+mod wow_state;
+pub use wow_state::{
+    run_wow_state, verify_wow_state_demo_json, verify_wow_state_matrix_json, wow_state_demo,
+    wow_state_demo_json, wow_state_demo_observation, wow_state_matrix, wow_state_matrix_json,
+    WowCharacterState, WowMovementHistory, WowNavigationVector, WowObjectiveCentroid,
+    WowObjectiveInput, WowPoint, WowProgressWindow, WowQuestObjectiveState, WowStateBoundary,
+    WowStateCell, WowStateConfig, WowStateDecision, WowStateError, WowStateMatrix,
+    WowStateObservation, WowStateReceipt, WowStateRefusal, WowStateRun, WowStateSnapshot,
+    WowStuckSignal, WOW_STATE_ALLOWED_FIELD_KEYS, WOW_STATE_BOUNDARY_LINES,
+    WOW_STATE_SCENARIO_COUNT, WOW_STATE_SCENARIO_NAMES,
+};
+
 /// What can go wrong building the end-to-end trace. Every failure is explicit; nothing is
 /// silently coerced or fabricated. The first three wrap a frozen-crate error; the last two
 /// are INT-0's own provenance invariants (a trace that did not start from a verified receipt,
