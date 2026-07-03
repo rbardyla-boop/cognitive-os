@@ -42,6 +42,10 @@
 //!   cognitive-demo learning-arc-demo-verify --arc PATH          # re-derive the arc and refuse tamper
 //!   cognitive-demo learning-arc-matrix [--out PATH]             # emit the MULTI-SESSION-0 scenario matrix
 //!   cognitive-demo learning-arc-matrix-verify --matrix PATH     # re-derive the matrix and refuse tamper
+//!   cognitive-demo game-evidence-demo [--out PATH]              # emit the canonical GAME-EVIDENCE-0 packet
+//!   cognitive-demo game-evidence-demo-verify --packet PATH      # re-derive the packet and refuse tamper
+//!   cognitive-demo game-evidence-matrix [--out PATH]            # emit the GAME-EVIDENCE-0 scenario matrix
+//!   cognitive-demo game-evidence-matrix-verify --matrix PATH    # re-derive the matrix and refuse tamper
 //!   cognitive-demo doc-trace        --input PATH [--out PATH] # trace a LOCAL operator document (verify-first)
 //!   cognitive-demo doc-report       --input PATH --trace PATH # render the doc report (re-derive + refuse tamper)
 //!   cognitive-demo doc-bundle       --input PATH --out DIR    # repro bundle over the operator document
@@ -143,13 +147,14 @@
 use cognitive_demo::{
     canonical_bundle, check_local_input_path, corpus_admits_filename, corpus_bundle,
     corpus_scenario_matrix, corpus_scenario_pack_files, doc_bundle, doc_scenario_matrix,
-    doc_scenario_pack_files, dream_export_matrix, failure_pack_files, learner_journal_append_at,
-    learner_journal_demo_json, learner_journal_json_at, learner_journal_matrix_json,
-    learner_journal_state_json, learner_memory_demo_json, learner_memory_matrix_json,
-    learner_model_demo_json, learner_model_matrix_json, learning_arc_demo_json,
-    learning_arc_matrix_json, learning_session_demo_json, learning_session_matrix_json,
-    list_corpus_scenarios, list_doc_scenarios, list_dream_export_scenarios, list_failure_cases,
-    list_questions, list_scenarios, literature_intent_demo_json, literature_intent_matrix_json,
+    doc_scenario_pack_files, dream_export_matrix, failure_pack_files, game_evidence_demo_json,
+    game_evidence_matrix_json, learner_journal_append_at, learner_journal_demo_json,
+    learner_journal_json_at, learner_journal_matrix_json, learner_journal_state_json,
+    learner_memory_demo_json, learner_memory_matrix_json, learner_model_demo_json,
+    learner_model_matrix_json, learning_arc_demo_json, learning_arc_matrix_json,
+    learning_session_demo_json, learning_session_matrix_json, list_corpus_scenarios,
+    list_doc_scenarios, list_dream_export_scenarios, list_failure_cases, list_questions,
+    list_scenarios, literature_intent_demo_json, literature_intent_matrix_json,
     resolved_path_within, run_ask, run_corpus_report, run_corpus_trace, run_doc_report,
     run_doc_trace, run_dream_export, run_dream_export_matrix_report,
     run_dream_export_matrix_verify, run_dream_export_replay, run_dream_export_report,
@@ -157,6 +162,7 @@ use cognitive_demo::{
     scenario_bundle, scenario_matrix, scenario_matrix_report, scenario_pack_manifest,
     teach_map_demo_json, teach_map_matrix_json, verify_bundle, verify_corpus_bundle,
     verify_corpus_scenario_pack, verify_doc_bundle, verify_doc_scenario_pack, verify_failure_pack,
+    verify_game_evidence_demo_json, verify_game_evidence_matrix_json,
     verify_learner_journal_demo_json, verify_learner_journal_matrix_json,
     verify_learner_memory_demo_json, verify_learner_memory_matrix_json,
     verify_learner_model_demo_json, verify_learner_model_matrix_json,
@@ -512,6 +518,31 @@ fn dispatch(args: &[String]) -> Result<(), String> {
             let matrix = read_plain_file(args, "--matrix")?;
             verify_learning_arc_matrix_json(&matrix).map_err(|e| format!("{e:?}"))?;
             println!("learning-arc-matrix-verify: OK");
+            Ok(())
+        }
+        Some("game-evidence-demo") => {
+            // Emit the canonical GAME-EVIDENCE-0 run: eleven fixture observations
+            // converted into strict, verbatim-preserving evidence documents.
+            let json = game_evidence_demo_json();
+            emit(&json, flag_value(args, "--out"))
+        }
+        Some("game-evidence-demo-verify") => {
+            // Re-derive the canonical packet and require provided bytes to match.
+            let packet = read_plain_file(args, "--packet")?;
+            verify_game_evidence_demo_json(&packet).map_err(|e| format!("{e:?}"))?;
+            println!("game-evidence-demo-verify: OK");
+            Ok(())
+        }
+        Some("game-evidence-matrix") => {
+            // Emit the GAME-EVIDENCE-0 scenario matrix: eleven built kinds plus closed gates.
+            let json = game_evidence_matrix_json();
+            emit(&json, flag_value(args, "--out"))
+        }
+        Some("game-evidence-matrix-verify") => {
+            // Re-derive the GAME-EVIDENCE-0 matrix and byte-compare a provided artifact.
+            let matrix = read_plain_file(args, "--matrix")?;
+            verify_game_evidence_matrix_json(&matrix).map_err(|e| format!("{e:?}"))?;
+            println!("game-evidence-matrix-verify: OK");
             Ok(())
         }
         Some("failure-cases") => {
@@ -1346,6 +1377,8 @@ fn usage() -> String {
      learning-session-matrix [--out PATH] | learning-session-matrix-verify --matrix PATH | \
      learning-arc-demo [--out PATH] | learning-arc-demo-verify --arc PATH | \
      learning-arc-matrix [--out PATH] | learning-arc-matrix-verify --matrix PATH | \
+     game-evidence-demo [--out PATH] | game-evidence-demo-verify --packet PATH | \
+     game-evidence-matrix [--out PATH] | game-evidence-matrix-verify --matrix PATH | \
      doc-trace --input PATH [--out PATH] | doc-report --input PATH --trace PATH [--out PATH] | \
      doc-bundle --input PATH --out DIR | doc-bundle-verify --input PATH --path DIR | \
      doc-scenarios | doc-scenario-pack --out DIR | doc-scenario-verify --path DIR | \

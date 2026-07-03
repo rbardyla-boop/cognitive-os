@@ -3,6 +3,41 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-07-03-B — Fixture-first game evidence adapter (GAME-EVIDENCE-0)
+
+**Decision.** Add `crates/cognitive-demo/src/game_evidence.rs` plus four operator-visible CLI
+verbs (`game-evidence-demo`, `game-evidence-demo-verify`, `game-evidence-matrix`,
+`game-evidence-matrix-verify`): the first rung of the WOW-SANDBOX-0 validation ladder. The
+adapter converts typed private-WotLK-like game observations — a closed set of eleven kinds
+(quest text, quest objective, spell tooltip, item tooltip, combat log, death log, inventory
+snapshot, position snapshot, visible-object snapshot, agent report, operator report) — into
+deterministic documents in one strict shape (`KIND` / `SOURCE_ID` / `OBSERVED_TEXT` /
+`NORMALIZED_FIELDS` / `BOUNDARY`, title `game-evidence:<kind>:<stable_id>`), fixture-first: no
+server, no client, no controller. Verbatim law: the OBSERVED_TEXT block preserves source text
+byte-for-byte, a wired guard re-extracts and byte-compares every built document, and source text
+that cannot round-trip (carriage return, trailing newline) refuses as non-verbatim rather than
+being normalized. Authority law: game text is untrusted — prompt-injection-like content stays
+ordinary preserved text under the fixed boundary sentence ("This is untrusted game evidence, not
+an instruction authority."), and the only injection refusal is structural (a source line that
+collides with the document's own section markers, which could impersonate document structure).
+Normalized fields are restricted to a closed 16-key allowlist. Six closed-gate config signals
+(model, training, gameplay automation, network, memory scan, packets) each refuse before any
+document is built. All 15 refusal variants are constructed in production matrix paths, including
+the byte-flip `serialized_game_evidence_tamper_refused` (the A3 law); the 27-scenario matrix
+carries the operator's 18 gated names plus 9 added so every variant is matrix-constructed, and a
+test proves the adapter's documents flow through the EXISTING QFLOW verification (the frozen
+execute+verify chain grounds the quest span) — the adapter prepares evidence for existing
+verification and adds no authority of its own.
+
+**Scope / boundary.** Cognitive-demo only: `game_evidence.rs`, `lib.rs`, `main.rs`, this charter
+entry, and `release_check.sh` (unit-count pin 644→666, per-module purity pins, four verb pins,
+plus intactness pins on `learning_arc.rs` — 17 tests and its entry point — alongside the
+existing session/journal pins). Zero edits to the learning stack, the organs, or the reading
+substrate; no AzerothCore/controller/server work. The adapter does not interpret game state as
+truth, does not plan actions, does not control the game or the NN, does not read a client, does
+not automate gameplay, and performs no durable I/O — no model/embedding/training, no v0.1 retag.
+P12 `training_justified=false`; P13-P15 closed.
+
 ## DD-2026-07-03-A — Canonical multi-session learning arc (MULTI-SESSION-0)
 
 **Decision.** Add `crates/cognitive-demo/src/learning_arc.rs` plus four operator-visible CLI verbs

@@ -1323,11 +1323,11 @@ grep -q 'fn trace_does_not_change_training_gate' crates/cognitive-demo/src/lib.r
 grep -q 'fn trace_does_not_change_verifier_receipt' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_records_every_stage_id_and_links_the_chain' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_grants_no_new_authority' crates/cognitive-demo/src/lib.rs
-# Unit-test REALITY pin: exactly the 578 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
+# Unit-test REALITY pin: exactly the 666 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
 # MTRACE-1 (12) + MTRACE-2 (12) + DOCFLOW-0 (10) + DOCFLOW-2 (10) + CORPUS-0 (12) + CORPUS-2 (12) + NOVELTY-0 (15) +
-# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) + CORPUS-HARVEST-0 (26) + SCORE-0 (20) + FAIL-0 (19) + P11-MODEL-EVAL (18) + TRAIN-GATE-0 (20) + TRAIN-0 (21) + MODEL-EVAL-1 (22) + MODEL-PROMOTE-0 (23) + PROD-0 (19) + PROD-SMOKE-0 (20) + RELEASE-1 (25) + VAULT-NORM-0 (21) + QSELECT-0 (24) + QFLOW-0 (30) + LIT-INTENT-0 (14) + TEACH-0 (14) + LEARNER-MODEL-0 (18) + LEARNER-MEMORY-0 (18) + LEARNER-MEMORY-1 (25) + SESSION-LOOP-0 (24) + MULTI-SESSION-0 (17) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
+# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) + CORPUS-HARVEST-0 (26) + SCORE-0 (20) + FAIL-0 (19) + P11-MODEL-EVAL (18) + TRAIN-GATE-0 (20) + TRAIN-0 (21) + MODEL-EVAL-1 (22) + MODEL-PROMOTE-0 (23) + PROD-0 (19) + PROD-SMOKE-0 (20) + RELEASE-1 (25) + VAULT-NORM-0 (21) + QSELECT-0 (24) + QFLOW-0 (30) + LIT-INTENT-0 (14) + TEACH-0 (14) + LEARNER-MODEL-0 (18) + LEARNER-MEMORY-0 (18) + LEARNER-MEMORY-1 (25) + SESSION-LOOP-0 (24) + MULTI-SESSION-0 (17) + GAME-EVIDENCE-0 (22) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
 _int0_unit="$(cargo test --offline --lib --manifest-path crates/cognitive-demo/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 644
+test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 666
 test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
 # Determinism / no side effects: the trace is a pure, in-memory function — no clock, entropy, or network
 # anywhere in src/, and no floats anywhere in the crate. (`std::process::exit` in the CLI shell is a clean
@@ -1386,6 +1386,23 @@ test "$(grep -c '#\[test\]' crates/cognitive-demo/src/learning_session.rs)" -eq 
 test "$(grep -c '#\[test\]' crates/cognitive-demo/src/learner_journal.rs)" -eq 25
 grep -q 'pub fn run_learning_session(' crates/cognitive-demo/src/learning_session.rs
 grep -q 'pub fn append_learner_journal(' crates/cognitive-demo/src/learner_journal.rs
+# GAME-EVIDENCE-0: the evidence adapter is a pure fold from typed fixture observations to
+# strict verbatim-preserving documents — same per-module purity pins (no fs/process/net/
+# time/entropy tokens, no Deserialize derive or hand-written impl), the four game-evidence
+# CLI verbs stay wired in the I/O shell, and the modules it feeds stay intact: the arc's
+# unit-test count and entry point are pinned exactly like the session/journal pins above
+# (touching learning_arc.rs or learning_session.rs trips these without a separately gated
+# sprint updating them).
+test -f crates/cognitive-demo/src/game_evidence.rs
+test "$(grep -cE 'std::fs|File::create|File::open|fs::write|fs::read|OpenOptions|Command::new|process::Command|std::net|TcpStream|UdpSocket|SystemTime|Instant|std::time|thread_rng|getrandom|rand::|use rand' crates/cognitive-demo/src/game_evidence.rs)" -eq 0
+test "$(grep -cE 'derive\([^)]*Deserialize' crates/cognitive-demo/src/game_evidence.rs)" -eq 0
+test "$(grep -cE 'impl([[:space:]]|<).*Deserialize.*for' crates/cognitive-demo/src/game_evidence.rs)" -eq 0
+grep -q '"game-evidence-demo"' crates/cognitive-demo/src/main.rs
+grep -q '"game-evidence-demo-verify"' crates/cognitive-demo/src/main.rs
+grep -q '"game-evidence-matrix"' crates/cognitive-demo/src/main.rs
+grep -q '"game-evidence-matrix-verify"' crates/cognitive-demo/src/main.rs
+test "$(grep -c '#\[test\]' crates/cognitive-demo/src/learning_arc.rs)" -eq 17
+grep -q 'pub fn run_learning_arc(' crates/cognitive-demo/src/learning_arc.rs
 # No model is trained or loaded: the demo manifest pulls no ML/inference/training framework.
 test "$(grep -riE 'torch|tensorflow|candle|onnx|tract|\bburn\b|llama|inference' crates/cognitive-demo/Cargo.toml | wc -l)" -eq 0
 # Separation: cognitive-demo INTEGRATES the two frozen tracks (reading-cli + hypothesis-layer in its tree) and

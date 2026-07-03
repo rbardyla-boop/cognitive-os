@@ -396,6 +396,19 @@ pub use learning_arc::{
     LEARNING_ARC_SESSION_COUNT, LEARNING_ARC_STAGES,
 };
 
+mod game_evidence;
+pub use game_evidence::{
+    documents_preserve_verbatim_text, game_evidence_demo, game_evidence_demo_json,
+    game_evidence_demo_observations, game_evidence_matrix, game_evidence_matrix_json,
+    game_evidence_session_documents, run_game_evidence, verify_game_evidence_demo_json,
+    verify_game_evidence_matrix_json, GameEvidenceBoundary, GameEvidenceCell, GameEvidenceConfig,
+    GameEvidenceDecision, GameEvidenceDocument, GameEvidenceError, GameEvidenceKind,
+    GameEvidenceMatrix, GameEvidenceObservation, GameEvidencePacket, GameEvidenceReceipt,
+    GameEvidenceRefusal, GameEvidenceRun, GAME_EVIDENCE_ALLOWED_FIELD_KEYS,
+    GAME_EVIDENCE_BOUNDARY_LINE, GAME_EVIDENCE_BOUNDARY_LINES, GAME_EVIDENCE_KIND_COUNT,
+    GAME_EVIDENCE_SCENARIO_COUNT, GAME_EVIDENCE_SCENARIO_NAMES,
+};
+
 /// What can go wrong building the end-to-end trace. Every failure is explicit; nothing is
 /// silently coerced or fabricated. The first three wrap a frozen-crate error; the last two
 /// are INT-0's own provenance invariants (a trace that did not start from a verified receipt,
