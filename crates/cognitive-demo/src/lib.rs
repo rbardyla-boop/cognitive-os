@@ -421,6 +421,18 @@ pub use wow_state::{
     WOW_STATE_SCENARIO_COUNT, WOW_STATE_SCENARIO_NAMES,
 };
 
+mod wow_taskplan;
+pub use wow_taskplan::{
+    run_wow_taskplan, verify_wow_taskplan_demo_json, verify_wow_taskplan_matrix_json,
+    wow_taskplan_demo, wow_taskplan_demo_evidence, wow_taskplan_demo_json,
+    wow_taskplan_demo_request, wow_taskplan_matrix, wow_taskplan_matrix_json, WowAllowedAction,
+    WowForbiddenAction, WowStopCondition, WowStopKind, WowSuccessCondition, WowSuccessKind,
+    WowTaskPlan, WowTaskPlanBoundary, WowTaskPlanCell, WowTaskPlanConfig, WowTaskPlanDecision,
+    WowTaskPlanError, WowTaskPlanMatrix, WowTaskPlanReceipt, WowTaskPlanRefusal,
+    WowTaskPlanRequest, WowTaskPlanRun, WowTaskPlanStep, WOW_TASKPLAN_BOUNDARY_LINES,
+    WOW_TASKPLAN_SCENARIO_COUNT, WOW_TASKPLAN_SCENARIO_NAMES,
+};
+
 /// What can go wrong building the end-to-end trace. Every failure is explicit; nothing is
 /// silently coerced or fabricated. The first three wrap a frozen-crate error; the last two
 /// are INT-0's own provenance invariants (a trace that did not start from a verified receipt,

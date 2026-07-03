@@ -1323,11 +1323,11 @@ grep -q 'fn trace_does_not_change_training_gate' crates/cognitive-demo/src/lib.r
 grep -q 'fn trace_does_not_change_verifier_receipt' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_records_every_stage_id_and_links_the_chain' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_grants_no_new_authority' crates/cognitive-demo/src/lib.rs
-# Unit-test REALITY pin: exactly the 693 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
+# Unit-test REALITY pin: exactly the 715 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
 # MTRACE-1 (12) + MTRACE-2 (12) + DOCFLOW-0 (10) + DOCFLOW-2 (10) + CORPUS-0 (12) + CORPUS-2 (12) + NOVELTY-0 (15) +
-# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) + CORPUS-HARVEST-0 (26) + SCORE-0 (20) + FAIL-0 (19) + P11-MODEL-EVAL (18) + TRAIN-GATE-0 (20) + TRAIN-0 (21) + MODEL-EVAL-1 (22) + MODEL-PROMOTE-0 (23) + PROD-0 (19) + PROD-SMOKE-0 (20) + RELEASE-1 (25) + VAULT-NORM-0 (21) + QSELECT-0 (24) + QFLOW-0 (30) + LIT-INTENT-0 (14) + TEACH-0 (14) + LEARNER-MODEL-0 (18) + LEARNER-MEMORY-0 (18) + LEARNER-MEMORY-1 (25) + SESSION-LOOP-0 (24) + MULTI-SESSION-0 (17) + GAME-EVIDENCE-0 (22) + WOW-STATE-0 (27) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
+# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) + CORPUS-HARVEST-0 (26) + SCORE-0 (20) + FAIL-0 (19) + P11-MODEL-EVAL (18) + TRAIN-GATE-0 (20) + TRAIN-0 (21) + MODEL-EVAL-1 (22) + MODEL-PROMOTE-0 (23) + PROD-0 (19) + PROD-SMOKE-0 (20) + RELEASE-1 (25) + VAULT-NORM-0 (21) + QSELECT-0 (24) + QFLOW-0 (30) + LIT-INTENT-0 (14) + TEACH-0 (14) + LEARNER-MODEL-0 (18) + LEARNER-MEMORY-0 (18) + LEARNER-MEMORY-1 (25) + SESSION-LOOP-0 (24) + MULTI-SESSION-0 (17) + GAME-EVIDENCE-0 (22) + WOW-STATE-0 (27) + WOW-TASKPLAN-0 (22) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
 _int0_unit="$(cargo test --offline --lib --manifest-path crates/cognitive-demo/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 693
+test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 715
 test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
 # Determinism / no side effects: the trace is a pure, in-memory function — no clock, entropy, or network
 # anywhere in src/, and no floats anywhere in the crate. (`std::process::exit` in the CLI shell is a clean
@@ -1422,6 +1422,42 @@ test "$(grep -c '#\[test\]' crates/cognitive-demo/src/wow_state.rs)" -eq 27
 grep -q 'pub fn run_wow_state(' crates/cognitive-demo/src/wow_state.rs
 test "$(grep -c '#\[test\]' crates/cognitive-demo/src/game_evidence.rs)" -eq 22
 grep -q 'pub fn run_game_evidence(' crates/cognitive-demo/src/game_evidence.rs
+# WOW-TASKPLAN-0: the task-plan proposal is a pure integer fold over the two FROZEN organs
+# (game_evidence + wow_state), run internally for genuine provenance. Same per-module purity pins
+# (no fs/process/net/time/entropy, no Deserialize derive or hand-written impl), plus CONTROL-ADJACENT
+# structural locks the pin-only-regresses lesson makes load-bearing: no coordinate/route math and no
+# coordinate-field steering reads (the bearing is copied verbatim from WOW-STATE, never recomputed);
+# no downstream-executor/model import or call; each guard is CALLED inside run_wow_taskplan so it cannot
+# be silently deleted. The four wow-taskplan CLI verbs stay wired, and the two rungs it folds stay
+# intact (game_evidence 22 + wow_state 27 test counts and entry points are pinned above/below).
+test -f crates/cognitive-demo/src/wow_taskplan.rs
+test "$(grep -cE 'std::fs|File::create|File::open|fs::write|fs::read|OpenOptions|Command::new|process::Command|std::net|TcpStream|UdpSocket|SystemTime|Instant|std::time|thread_rng|getrandom|rand::|use rand' crates/cognitive-demo/src/wow_taskplan.rs)" -eq 0
+test "$(grep -cE 'derive\([^)]*Deserialize' crates/cognitive-demo/src/wow_taskplan.rs)" -eq 0
+test "$(grep -cE 'impl([[:space:]]|<).*Deserialize.*for' crates/cognitive-demo/src/wow_taskplan.rs)" -eq 0
+# Anti-routing lock: no coordinate/route math tokens, and coordinate_path may appear ONLY as the
+# forbidden-action slug literal "direct_coordinate_path" (named-and-refused), never as a computation.
+test "$(grep -cE 'atan2|isqrt|cordic|waypoint|path_to|route_to' crates/cognitive-demo/src/wow_taskplan.rs)" -eq 0
+test "$(grep -oE '[a-zA-Z_]*coordinate_path' crates/cognitive-demo/src/wow_taskplan.rs | grep -vc 'direct_coordinate_path')" -eq 0
+test "$(grep -cE '\.x_cy|\.y_cy|centroid' crates/cognitive-demo/src/wow_taskplan.rs)" -eq 0
+# Untrusted-text lock: the planner may read an evidence document's stable_id and body_hash for identity,
+# but NEVER its untrusted body (parsing a body into an action parameter is the inherited GAME-EVIDENCE
+# prompt-injection risk). `.body_hash` is allowed; a bare `.body` read is not.
+test "$(grep -cE '\.body\b' crates/cognitive-demo/src/wow_taskplan.rs)" -eq 0
+# No downstream-executor/model invocation or import (the config flag invokes_controller and the refusal
+# controller_signal_detected are deliberately NOT matched — they are the plan's own boundary declaration).
+test "$(grep -cE 'learner_model|controller_bridge|torch|onnx|neural|inference|embedding' crates/cognitive-demo/src/wow_taskplan.rs)" -eq 0
+# Every wired guard is CALLED inside run_wow_taskplan (linkage cannot be silently removed).
+grep -q 'steps_are_receipt_linked(&steps' crates/cognitive-demo/src/wow_taskplan.rs
+grep -q 'nav_step_matches_state(&steps' crates/cognitive-demo/src/wow_taskplan.rs
+grep -q 'at_most_one_nav_step(&steps' crates/cognitive-demo/src/wow_taskplan.rs
+grep -q 'plan_has_stop_condition(&stop_conditions' crates/cognitive-demo/src/wow_taskplan.rs
+grep -q 'plan_has_success_condition(&success_conditions' crates/cognitive-demo/src/wow_taskplan.rs
+grep -q '"wow-taskplan-demo"' crates/cognitive-demo/src/main.rs
+grep -q '"wow-taskplan-demo-verify"' crates/cognitive-demo/src/main.rs
+grep -q '"wow-taskplan-matrix"' crates/cognitive-demo/src/main.rs
+grep -q '"wow-taskplan-matrix-verify"' crates/cognitive-demo/src/main.rs
+test "$(grep -c '#\[test\]' crates/cognitive-demo/src/wow_taskplan.rs)" -eq 22
+grep -q 'pub fn run_wow_taskplan(' crates/cognitive-demo/src/wow_taskplan.rs
 # No model is trained or loaded: the demo manifest pulls no ML/inference/training framework.
 test "$(grep -riE 'torch|tensorflow|candle|onnx|tract|\bburn\b|llama|inference' crates/cognitive-demo/Cargo.toml | wc -l)" -eq 0
 # Separation: cognitive-demo INTEGRATES the two frozen tracks (reading-cli + hypothesis-layer in its tree) and

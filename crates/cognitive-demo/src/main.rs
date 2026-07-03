@@ -50,6 +50,10 @@
 //!   cognitive-demo wow-state-demo-verify --snapshot PATH        # re-derive the snapshot and refuse tamper
 //!   cognitive-demo wow-state-matrix [--out PATH]                # emit the WOW-STATE-0 scenario matrix
 //!   cognitive-demo wow-state-matrix-verify --matrix PATH        # re-derive the matrix and refuse tamper
+//!   cognitive-demo wow-taskplan-demo [--out PATH]               # emit the canonical WOW-TASKPLAN-0 plan proposal
+//!   cognitive-demo wow-taskplan-demo-verify --plan PATH         # re-derive the plan and refuse tamper
+//!   cognitive-demo wow-taskplan-matrix [--out PATH]             # emit the WOW-TASKPLAN-0 scenario matrix
+//!   cognitive-demo wow-taskplan-matrix-verify --matrix PATH     # re-derive the matrix and refuse tamper
 //!   cognitive-demo doc-trace        --input PATH [--out PATH] # trace a LOCAL operator document (verify-first)
 //!   cognitive-demo doc-report       --input PATH --trace PATH # render the doc report (re-derive + refuse tamper)
 //!   cognitive-demo doc-bundle       --input PATH --out DIR    # repro bundle over the operator document
@@ -175,8 +179,9 @@ use cognitive_demo::{
     verify_literature_intent_demo_json, verify_literature_intent_matrix_json,
     verify_scenario_matrix, verify_scenario_pack, verify_teach_map_demo_json,
     verify_teach_map_matrix_json, verify_wow_state_demo_json, verify_wow_state_matrix_json,
-    wow_state_demo_json, wow_state_matrix_json, LearnerJournalConsent, Scenario,
-    BUNDLE_BOUNDARY_LINES, BUNDLE_FILES, CORPUS_BOUNDARY_LINES, CORPUS_BUNDLE_FILES,
+    verify_wow_taskplan_demo_json, verify_wow_taskplan_matrix_json, wow_state_demo_json,
+    wow_state_matrix_json, wow_taskplan_demo_json, wow_taskplan_matrix_json, LearnerJournalConsent,
+    Scenario, BUNDLE_BOUNDARY_LINES, BUNDLE_FILES, CORPUS_BOUNDARY_LINES, CORPUS_BUNDLE_FILES,
     CORPUS_SCENARIO_BOUNDARY_LINES, CORPUS_SCENARIO_PACK_FILES, DOC_BOUNDARY_LINES,
     DOC_SCENARIO_BOUNDARY_LINES, DOC_SCENARIO_PACK_FILES, FAILURE_BOUNDARY_LINES,
     FAILURE_PACK_FILES, LEARNER_JOURNAL_DEMO_CANDIDATES, MATRIX_BOUNDARY_LINES,
@@ -574,6 +579,30 @@ fn dispatch(args: &[String]) -> Result<(), String> {
             let matrix = read_plain_file(args, "--matrix")?;
             verify_wow_state_matrix_json(&matrix).map_err(|e| format!("{e:?}"))?;
             println!("wow-state-matrix-verify: OK");
+            Ok(())
+        }
+        Some("wow-taskplan-demo") => {
+            // Emit the canonical WOW-TASKPLAN-0 bounded task-plan proposal.
+            let json = wow_taskplan_demo_json();
+            emit(&json, flag_value(args, "--out"))
+        }
+        Some("wow-taskplan-demo-verify") => {
+            // Re-derive the canonical plan and require provided bytes to match.
+            let plan = read_plain_file(args, "--plan")?;
+            verify_wow_taskplan_demo_json(&plan).map_err(|e| format!("{e:?}"))?;
+            println!("wow-taskplan-demo-verify: OK");
+            Ok(())
+        }
+        Some("wow-taskplan-matrix") => {
+            // Emit the WOW-TASKPLAN-0 scenario matrix.
+            let json = wow_taskplan_matrix_json();
+            emit(&json, flag_value(args, "--out"))
+        }
+        Some("wow-taskplan-matrix-verify") => {
+            // Re-derive the WOW-TASKPLAN-0 matrix and byte-compare a provided artifact.
+            let matrix = read_plain_file(args, "--matrix")?;
+            verify_wow_taskplan_matrix_json(&matrix).map_err(|e| format!("{e:?}"))?;
+            println!("wow-taskplan-matrix-verify: OK");
             Ok(())
         }
         Some("failure-cases") => {
@@ -1412,6 +1441,8 @@ fn usage() -> String {
      game-evidence-matrix [--out PATH] | game-evidence-matrix-verify --matrix PATH | \
      wow-state-demo [--out PATH] | wow-state-demo-verify --snapshot PATH | \
      wow-state-matrix [--out PATH] | wow-state-matrix-verify --matrix PATH | \
+     wow-taskplan-demo [--out PATH] | wow-taskplan-demo-verify --plan PATH | \
+     wow-taskplan-matrix [--out PATH] | wow-taskplan-matrix-verify --matrix PATH | \
      doc-trace --input PATH [--out PATH] | doc-report --input PATH --trace PATH [--out PATH] | \
      doc-bundle --input PATH --out DIR | doc-bundle-verify --input PATH --path DIR | \
      doc-scenarios | doc-scenario-pack --out DIR | doc-scenario-verify --path DIR | \

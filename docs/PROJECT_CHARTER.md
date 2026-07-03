@@ -3,6 +3,46 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-07-03-D — Fixture-first receipt-linked task-plan proposal (WOW-TASKPLAN-0)
+
+**Decision.** Add `crates/cognitive-demo/src/wow_taskplan.rs` plus four operator-visible CLI verbs
+(`wow-taskplan-demo`, `wow-taskplan-demo-verify`, `wow-taskplan-matrix`,
+`wow-taskplan-matrix-verify`): the third rung of the WOW-SANDBOX-0 ladder, above GAME-EVIDENCE-0 and
+WOW-STATE-0. `run_wow_taskplan` takes raw GAME-EVIDENCE and raw WOW-STATE observations, runs the two
+FROZEN organs internally (genuine organ-produced provenance, not caller-supplied runs), and folds
+their receipt-backed outputs into a bounded task-plan PROPOSAL: an ordered set of allowlisted action
+steps plus declarative stop/success boundaries, every one carrying the upstream receipt hash it traces
+to. A plan is a proposal, never authority — it does not execute, move the character, choose a target,
+solve routing, invoke the downstream executor, parse untrusted text into action parameters, run a
+model, or loop. Selection law (load-bearing): WOW-STATE owns target selection — the request NAMES a
+quest and the plan reads per-objective state ONLY to refuse (cross-map → needs_travel; complete →
+no_actionable_nav_target; not the organ's chosen nav_target → unsupported_objective), and it STEERS
+only by copying `snapshot.nav_target` verbatim (never a per-objective bearing). Untrusted-text law:
+GAME-EVIDENCE supplies objective identity by `stable_id` + `body_hash` only; document bodies are never
+parsed, so the five named-entity actions (`interact_target`/`target_nearest_named`/`cast_named_spell`/
+`use_named_item`/`loot_nearby`) are DEFERRED this gate (no trusted entity table yet) and refuse
+`unsupported_action`. Anti-routing law: the only navigation action is `move_toward_bearing`, whose
+`bearing_millideg`/`distance_cy` are byte-copied from WOW-STATE's chosen nav_target; the module
+performs no geometry, reads no coordinate, and emits at most ONE navigation step (a second is a route →
+`pathfinding_signal_detected`). Bounded-execution law: a mandatory finite integer `max_reissues`
+budget (missing/zero/over-limit → `automation_loop_signal_detected`). Config carries the plan's OWN
+signal gates (`invokes_controller`/`uses_model`/`uses_training`/`self_loops`) that refuse before any
+organ runs. All 16 refusal variants are constructed in reachable production/matrix paths, including the
+byte-flip `serialized_wow_taskplan_tamper` (A3); the 20-scenario matrix (1 prepared + 16 refusals + 3
+control-boundary cells) pins them, and a matrix-coverage test asserts every variant is constructed.
+Float-free integer fold, Serialize-not-Deserialize, no fs/net/process/clock/entropy.
+
+**Scope / boundary.** Cognitive-demo only: `wow_taskplan.rs`, `lib.rs`, `main.rs`, this charter entry,
+and `release_check.sh` (unit-count pin 693→715, per-module purity pins, four verb pins, control-adjacent
+structural locks — no coordinate/route math, no coordinate-field steering reads, no executor/model
+import, each wired guard asserted CALLED in `run_wow_taskplan` — plus intactness pins on the two folded
+rungs: `game_evidence.rs` 22 tests + entry, `wow_state.rs` 27 tests + entry). Zero edits to the two
+organs, the learning stack, the reading substrate, or any live WoW code (no `wow_client_pilot.py`,
+`observe_server.py`, AzerothCore, executor, addon, or NN). The planner emits a proposal only — it does
+not execute the plan, control the game, invoke the executor, pathfind, parse untrusted text into
+action parameters, train or run a model — no model/embedding/training, no v0.1 retag. P12
+`training_justified=false`; P13-P15 closed.
+
 ## DD-2026-07-03-C — Fixture-first navigation/situation state organ (WOW-STATE-0)
 
 **Decision.** Add `crates/cognitive-demo/src/wow_state.rs` plus four operator-visible CLI verbs
