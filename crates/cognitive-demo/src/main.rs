@@ -1696,11 +1696,12 @@ enum ProducerRefusal {
     ModelSignalDetected,
     TrainingSignalDetected,
     SerializedLiveActuatorProducerTamper,
+    TargetQuestIdInvalid,
 }
 
 impl ProducerRefusal {
     #[allow(dead_code)] // enumerated for the A3 matrix-coverage test
-    const ALL: [ProducerRefusal; 20] = [
+    const ALL: [ProducerRefusal; 21] = [
         ProducerRefusal::MissingOutbox,
         ProducerRefusal::MissingLedger,
         ProducerRefusal::InvalidOutboxPath,
@@ -1721,6 +1722,7 @@ impl ProducerRefusal {
         ProducerRefusal::ModelSignalDetected,
         ProducerRefusal::TrainingSignalDetected,
         ProducerRefusal::SerializedLiveActuatorProducerTamper,
+        ProducerRefusal::TargetQuestIdInvalid,
     ];
 
     fn slug(&self) -> &'static str {
@@ -1749,6 +1751,7 @@ impl ProducerRefusal {
             ProducerRefusal::SerializedLiveActuatorProducerTamper => {
                 "serialized_live_actuator_producer_tamper_refused"
             }
+            ProducerRefusal::TargetQuestIdInvalid => "target_quest_id_invalid_refused",
         }
     }
 }
@@ -1757,6 +1760,10 @@ impl ProducerRefusal {
 struct LiveActuatorEnvelopeArtifact {
     schema: String,
     emission_seq: i64,
+    // Inert top-level metadata copied from the internally minted
+    // controller_bridge run receipt (never parsed from text, never authority). The
+    // client keys per-target emission_seq supersession on it.
+    target_quest_id: i64,
     producer_head_before: u64,
     producer_head_after: u64,
     controller_bridge_envelope: ControllerBridgeRun,
@@ -1769,6 +1776,7 @@ struct ProducerLedgerEntry {
     prev_entry_hash: u64,
     emission_seq: i64,
     command_id: u64,
+    target_quest_id: i64,
     taskplan_receipt_hash: u64,
     evidence_receipt_hash: u64,
     state_receipt_hash: u64,
@@ -1805,6 +1813,9 @@ fn lap_artifact_hash(emission_seq: i64, head_before: u64, run: &ControllerBridge
     let mut h = LAP_FNV_OFFSET;
     h = lap_fnv_mix(h, LAP_SCHEMA_ARTIFACT.as_bytes());
     h = lap_fnv_i64(h, emission_seq);
+    // Fold the lifted top-level target_quest_id explicitly (it also rides inside run_json,
+    // but the lifted copy must be hash-bound so it cannot drift from its minted source).
+    h = lap_fnv_i64(h, run.receipt.target_quest_id);
     h = lap_fnv_u64(h, head_before);
     h = lap_fnv_mix(h, run_json.as_bytes());
     h
@@ -1816,6 +1827,7 @@ fn lap_entry_hash(
     prev: u64,
     emission_seq: i64,
     command_id: u64,
+    target_quest_id: i64,
     taskplan: u64,
     evidence: u64,
     state: u64,
@@ -1829,6 +1841,7 @@ fn lap_entry_hash(
     h = lap_fnv_u64(h, prev);
     h = lap_fnv_i64(h, emission_seq);
     h = lap_fnv_u64(h, command_id);
+    h = lap_fnv_i64(h, target_quest_id);
     h = lap_fnv_u64(h, taskplan);
     h = lap_fnv_u64(h, evidence);
     h = lap_fnv_u64(h, state);
@@ -1946,17 +1959,31 @@ fn lap_write_ok(ok: bool) -> Option<ProducerRefusal> {
     }
 }
 
+/// The lifted top-level target_quest_id must be a real quest id (> 0, never the
+/// refused-path 0 sentinel) AND must equal the value minted into the controller-bridge
+/// receipt it was copied from. In production `lifted` and `minted` are one value (a single
+/// source of truth), so the mismatch branch is a regression tripwire constructed in the
+/// matrix; the `minted <= 0` branch is the live sentinel defense.
+fn lap_target_quest_id_ok(lifted: i64, minted: i64) -> Option<ProducerRefusal> {
+    if minted <= 0 || lifted != minted {
+        Some(ProducerRefusal::TargetQuestIdInvalid)
+    } else {
+        None
+    }
+}
+
 // -------------------------------------------------------- ledger records -------
 
 fn lap_entry_record(e: &ProducerLedgerEntry) -> String {
     let refusal = e.refusal.as_deref().unwrap_or("-");
     format!(
-        "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
+        "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
         LAP_LEDGER_RECORD_TAG,
         e.seq,
         e.prev_entry_hash,
         e.emission_seq,
         e.command_id,
+        e.target_quest_id,
         e.taskplan_receipt_hash,
         e.evidence_receipt_hash,
         e.state_receipt_hash,
@@ -1980,7 +2007,7 @@ fn lap_parse_ledger(text: &str) -> Result<Vec<ProducerLedgerEntry>, ProducerRefu
             continue;
         }
         let parts: Vec<&str> = line.split('|').collect();
-        if parts.len() != 12 || parts[0] != LAP_LEDGER_RECORD_TAG {
+        if parts.len() != 13 || parts[0] != LAP_LEDGER_RECORD_TAG {
             return Err(ProducerRefusal::LedgerTamper);
         }
         let seq = parts[1]
@@ -1995,21 +2022,24 @@ fn lap_parse_ledger(text: &str) -> Result<Vec<ProducerLedgerEntry>, ProducerRefu
         let command_id = parts[4]
             .parse::<u64>()
             .map_err(|_| ProducerRefusal::LedgerTamper)?;
-        let taskplan = parts[5]
+        let target_quest_id = parts[5]
+            .parse::<i64>()
+            .map_err(|_| ProducerRefusal::LedgerTamper)?;
+        let taskplan = parts[6]
             .parse::<u64>()
             .map_err(|_| ProducerRefusal::LedgerTamper)?;
-        let evidence = parts[6]
+        let evidence = parts[7]
             .parse::<u64>()
             .map_err(|_| ProducerRefusal::LedgerTamper)?;
-        let state = parts[7]
+        let state = parts[8]
             .parse::<u64>()
             .map_err(|_| ProducerRefusal::LedgerTamper)?;
-        let artifact_hash = parts[8]
+        let artifact_hash = parts[9]
             .parse::<u64>()
             .map_err(|_| ProducerRefusal::LedgerTamper)?;
-        let decision = parts[9].to_string();
-        let refusal_raw = parts[10];
-        let entry_hash = parts[11]
+        let decision = parts[10].to_string();
+        let refusal_raw = parts[11];
+        let entry_hash = parts[12]
             .parse::<u64>()
             .map_err(|_| ProducerRefusal::LedgerTamper)?;
         if seq != expected_seq || rec_prev != prev {
@@ -2020,6 +2050,7 @@ fn lap_parse_ledger(text: &str) -> Result<Vec<ProducerLedgerEntry>, ProducerRefu
             rec_prev,
             emission,
             command_id,
+            target_quest_id,
             taskplan,
             evidence,
             state,
@@ -2040,6 +2071,7 @@ fn lap_parse_ledger(text: &str) -> Result<Vec<ProducerLedgerEntry>, ProducerRefu
             prev_entry_hash: rec_prev,
             emission_seq: emission,
             command_id,
+            target_quest_id,
             taskplan_receipt_hash: taskplan,
             evidence_receipt_hash: evidence,
             state_receipt_hash: state,
@@ -2062,6 +2094,7 @@ fn lap_build_entry(
     prev: u64,
     emission_seq: i64,
     command_id: u64,
+    target_quest_id: i64,
     taskplan: u64,
     evidence: u64,
     state: u64,
@@ -2073,6 +2106,7 @@ fn lap_build_entry(
         prev,
         emission_seq,
         command_id,
+        target_quest_id,
         taskplan,
         evidence,
         state,
@@ -2085,6 +2119,7 @@ fn lap_build_entry(
         prev_entry_hash: prev,
         emission_seq,
         command_id,
+        target_quest_id,
         taskplan_receipt_hash: taskplan,
         evidence_receipt_hash: evidence,
         state_receipt_hash: state,
@@ -2102,12 +2137,14 @@ fn lap_prepare(
     head_before: u64,
 ) -> LiveActuatorProducerRun {
     let (command_id, taskplan, evidence, state) = lap_run_identity(run);
+    let target_quest_id = run.receipt.target_quest_id;
     let artifact_hash = lap_artifact_hash(emission_seq, head_before, run);
     let entry = lap_build_entry(
         seq,
         head_before,
         emission_seq,
         command_id,
+        target_quest_id,
         taskplan,
         evidence,
         state,
@@ -2116,6 +2153,7 @@ fn lap_prepare(
     let artifact = LiveActuatorEnvelopeArtifact {
         schema: LAP_SCHEMA_ARTIFACT.to_string(),
         emission_seq,
+        target_quest_id,
         producer_head_before: head_before,
         producer_head_after: entry.entry_hash,
         controller_bridge_envelope: run.clone(),
@@ -2166,6 +2204,10 @@ fn producer_demo() -> LiveActuatorProducerRun {
     if let Some(refusal) = lap_bridge_dry_run(run.receipt.config.dry_run) {
         return lap_refuse(refusal);
     }
+    let target_quest_id = run.receipt.target_quest_id;
+    if let Some(refusal) = lap_target_quest_id_ok(target_quest_id, target_quest_id) {
+        return lap_refuse(refusal);
+    }
     // An empty ledger: emission_seq 1, prev = genesis head.
     lap_prepare(&run, 1, 1, LAP_GENESIS_HEAD)
 }
@@ -2184,7 +2226,7 @@ fn verify_producer_demo_json(candidate: &str) -> Result<(), ProducerError> {
 
 // ------------------------------------------------------------- matrix ----------
 
-const LAP_SCENARIO_COUNT: usize = 21;
+const LAP_SCENARIO_COUNT: usize = 22;
 const LAP_SCENARIO_NAMES: [&str; LAP_SCENARIO_COUNT] = [
     "prepared_artifact_written_to_outbox",
     "producer_ledger_appends_seq_1",
@@ -2207,6 +2249,7 @@ const LAP_SCENARIO_NAMES: [&str; LAP_SCENARIO_COUNT] = [
     "model_signal_detected_refused",
     "training_signal_detected_refused",
     "serialized_live_actuator_producer_tamper_refused",
+    "target_quest_id_invalid_refused",
 ];
 
 #[derive(Debug, Clone, Serialize)]
@@ -2247,6 +2290,7 @@ fn lap_prepared_cell(scenario: &str, run: &LiveActuatorProducerRun) -> ProducerC
                             e.prev_entry_hash,
                             e.emission_seq,
                             e.command_id,
+                            e.target_quest_id,
                             e.taskplan_receipt_hash,
                             e.evidence_receipt_hash,
                             e.state_receipt_hash,
@@ -2283,6 +2327,7 @@ fn lap_entry_cell(scenario: &str, entry: &ProducerLedgerEntry, expected_prev: u6
                 entry.prev_entry_hash,
                 entry.emission_seq,
                 entry.command_id,
+                entry.target_quest_id,
                 entry.taskplan_receipt_hash,
                 entry.evidence_receipt_hash,
                 entry.state_receipt_hash,
@@ -2322,6 +2367,7 @@ fn lap_cell_for(scenario: &str) -> ProducerCell {
                 e1.entry_hash,
                 2,
                 command_id ^ 0x01,
+                e1.target_quest_id,
                 taskplan,
                 evidence,
                 state,
@@ -2448,6 +2494,20 @@ fn lap_cell_for(scenario: &str) -> ProducerCell {
                 linked: false,
             }
         }
+        "target_quest_id_invalid_refused" => {
+            // Construct BOTH invalid sub-cases: the 0-sentinel (minted <= 0, the live
+            // defense) and the lifted-vs-minted mismatch (the matrix-only regression
+            // tripwire). The demo/write production path always passes (788, 788).
+            let sentinel =
+                lap_target_quest_id_ok(788, 0) == Some(ProducerRefusal::TargetQuestIdInvalid);
+            let mismatch =
+                lap_target_quest_id_ok(999_999, 788) == Some(ProducerRefusal::TargetQuestIdInvalid);
+            lap_refusal_cell(
+                scenario,
+                ProducerRefusal::TargetQuestIdInvalid,
+                sentinel && mismatch,
+            )
+        }
         other => ProducerCell {
             scenario: other.to_string(),
             outcome: "unknown".to_string(),
@@ -2552,6 +2612,10 @@ fn run_producer_write(outbox: Option<&str>, ledger: Option<&str>) -> Result<Stri
     if let Some(r) = lap_bridge_dry_run(run.receipt.config.dry_run) {
         return Err(format!("refused: {}", r.slug()));
     }
+    let target_quest_id = run.receipt.target_quest_id;
+    if let Some(r) = lap_target_quest_id_ok(target_quest_id, target_quest_id) {
+        return Err(format!("refused: {}", r.slug()));
+    }
     let (command_id, _, _, _) = lap_run_identity(&run);
     let existing_ids: Vec<u64> = entries.iter().map(|e| e.command_id).collect();
     if let Some(r) = lap_duplicate_command(&existing_ids, command_id) {
@@ -2593,7 +2657,7 @@ fn run_producer_write(outbox: Option<&str>, ledger: Option<&str>) -> Result<Stri
         return Err(format!("refused: {}", r.slug()));
     }
     Ok(format!(
-        "live-actuator-producer-write: OK\n  artifact: {final_path}\n  emission_seq: {emission}\n  seq: {seq}\n  command_id: {command_id}\n  producer_head_after: {}\n  dry_run: true (artifact is NOT authorized for execution)\n",
+        "live-actuator-producer-write: OK\n  artifact: {final_path}\n  emission_seq: {emission}\n  seq: {seq}\n  command_id: {command_id}\n  target_quest_id: {target_quest_id}\n  producer_head_after: {}\n  dry_run: true (artifact is NOT authorized for execution)\n",
         entry.entry_hash
     ))
 }
@@ -2666,6 +2730,7 @@ mod producer_tests {
         assert_eq!(parsed.len(), 1);
         assert_eq!(parsed[0].entry_hash, e1.entry_hash);
         assert_eq!(parsed[0].command_id, e1.command_id);
+        assert_eq!(parsed[0].target_quest_id, e1.target_quest_id);
     }
 
     #[test]
@@ -2695,6 +2760,7 @@ mod producer_tests {
             0xDEAD,
             2,
             command_id ^ 0x01,
+            e1.target_quest_id,
             taskplan,
             evidence,
             state,
@@ -2892,5 +2958,59 @@ mod producer_tests {
         assert_eq!(artifacts.iter().filter(|n| n.ends_with(".json")).count(), 1);
         assert!(artifacts.iter().all(|n| !n.ends_with(".lap-tmp")));
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn target_quest_id_is_lifted_folded_and_round_trips() {
+        let run = producer_demo();
+        let artifact = run.artifact.expect("artifact");
+        let entry = run.ledger_entry.expect("entry");
+        // The demo plan targets quest 788; it is lifted verbatim to the artifact AND the
+        // ledger entry, copied from the minted controller-bridge receipt (never parsed).
+        assert_eq!(artifact.target_quest_id, 788);
+        assert_eq!(entry.target_quest_id, 788);
+        assert_eq!(
+            artifact.target_quest_id,
+            lap_source_run().receipt.target_quest_id
+        );
+        // The lifted value is folded into entry_hash: recomputing with a DIFFERENT
+        // target_quest_id yields a different hash.
+        let with_other = lap_entry_hash(
+            entry.seq,
+            entry.prev_entry_hash,
+            entry.emission_seq,
+            entry.command_id,
+            entry.target_quest_id + 1,
+            entry.taskplan_receipt_hash,
+            entry.evidence_receipt_hash,
+            entry.state_receipt_hash,
+            entry.artifact_hash,
+            &entry.decision,
+            "-",
+        );
+        assert_ne!(with_other, entry.entry_hash);
+        // And it survives the pipe-record round trip.
+        let parsed = lap_parse_ledger(&format!("{}\n", lap_entry_record(&entry))).expect("parses");
+        assert_eq!(parsed[0].target_quest_id, entry.target_quest_id);
+    }
+
+    #[test]
+    fn target_quest_id_guard_refuses_sentinel_and_mismatch() {
+        // Sentinel: a non-positive minted id (e.g. the refused-path 0) refuses.
+        assert_eq!(
+            lap_target_quest_id_ok(788, 0),
+            Some(ProducerRefusal::TargetQuestIdInvalid)
+        );
+        assert_eq!(
+            lap_target_quest_id_ok(-1, -1),
+            Some(ProducerRefusal::TargetQuestIdInvalid)
+        );
+        // Mismatch: a lifted value disagreeing with the minted receipt refuses.
+        assert_eq!(
+            lap_target_quest_id_ok(999_999, 788),
+            Some(ProducerRefusal::TargetQuestIdInvalid)
+        );
+        // A real, agreeing quest id passes (the production path).
+        assert!(lap_target_quest_id_ok(788, 788).is_none());
     }
 }

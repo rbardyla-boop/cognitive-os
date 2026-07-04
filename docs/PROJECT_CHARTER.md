@@ -3,6 +3,33 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-07-04-B — Lift target_quest_id into producer metadata (TARGET-QUEST-ID-PRODUCER-FIX-0)
+
+**Decision.** Lift `target_quest_id` to a first-class INERT top-level field on both
+`LiveActuatorEnvelopeArtifact` and `ProducerLedgerEntry`, so the client can key per-target
+`emission_seq` supersession on it without parsing nested producer internals. The value is COPIED from
+`run.receipt.target_quest_id` — a `pub i64` already minted on the CONTROLLER-BRIDGE-0
+`ControllerBridgeReceipt` (set from `plan.target_quest_id`) — never parsed from text, never inferred from
+`command_id`, and never authority (the client uses it only to partition its supersession ledger). It is
+folded into BOTH `artifact_hash` (explicitly, from the run receipt) and `entry_hash` (as a hash input), and
+carried as a durable column in the closed pipe ledger record (now 13 fields, re-derived by split + re-hash,
+never serde).
+
+**Scope.** Exactly 3 files: `main.rs` (the lift + fold + guard + matrix cell + 2 tests), this charter, and
+`release_check.sh` (pins). NO frozen-organ edit — `controller_bridge.rs` and the three organs stay
+byte-untouched; the value was already publicly reachable, so no accessor/export was needed (the MAP's
+scope verdict held: producer metadata lift, not an organ change).
+
+**Refusal (A3).** A new `target_quest_id_invalid_refused` variant fires when the minted id is the
+non-positive sentinel (`<= 0`, e.g. the refused-path 0) OR when the lifted top-level value disagrees with the
+minted receipt value. In production both are one value (single source of truth), so the `<= 0` branch is the
+live sentinel defense and the mismatch branch is a regression tripwire CONSTRUCTED in the matrix
+(`target_quest_id_invalid_refused` scenario builds both sub-cases), never unreachable production debris.
+
+**Boundary.** This lift does not execute anything, does not change controller authority, does not touch the
+client/live game/server. It only makes the artifact easier for the client to safely reject stale/superseded
+commands per target quest. Bin tests 13 → 15; `--lib` unit-count pin stays 744; P12 false / P13–P15 closed.
+
 ## DD-2026-07-04-A — Laptop-side dry-run envelope producer (LIVE-ACTUATOR-BRIDGE-0)
 
 **Decision.** Add the LIVE-ACTUATOR-BRIDGE-0 producer entirely in the `main.rs` SHELL (no new pure

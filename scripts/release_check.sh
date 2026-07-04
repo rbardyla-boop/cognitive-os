@@ -1547,7 +1547,7 @@ test "$(grep -c '#\[test\]' crates/cognitive-demo/src/controller_bridge.rs)" -eq
 # local ledger. Filesystem I/O is allowed HERE (the binary shell), but it writes DRY-RUN artifacts only and
 # must open NO socket, spawn NO process, drive NO input device, and touch NO model/training path. The pure
 # crate (controller_bridge.rs + the three frozen organs) stays byte-untouched; the producer adds ZERO lib tests
-# (the --lib unit-count pin above stays 744) and lives entirely in main.rs (13 bin tests, pinned below).
+# (the --lib unit-count pin above stays 744) and lives entirely in main.rs (15 bin tests, pinned below).
 # The five producer verbs stay wired in the I/O shell.
 grep -q '"live-actuator-producer-demo"' crates/cognitive-demo/src/main.rs
 grep -q '"live-actuator-producer-demo-verify"' crates/cognitive-demo/src/main.rs
@@ -1586,8 +1586,24 @@ grep -q 'lap_emission_seq_ok(' crates/cognitive-demo/src/main.rs
 grep -q 'lap_producer_head_ok(' crates/cognitive-demo/src/main.rs
 grep -q 'lap_artifact_absent(' crates/cognitive-demo/src/main.rs
 grep -q 'lap_write_ok(' crates/cognitive-demo/src/main.rs
+# TARGET-QUEST-ID-PRODUCER-FIX-0: target_quest_id is lifted from the minted controller-bridge receipt to an
+# INERT top-level field on BOTH the artifact and the ledger entry (the client keys per-target emission_seq
+# supersession on it). It is copied (never parsed from text, never authority), folded into both hashes, carried
+# as a durable ledger column, and its invalid/sentinel/mismatch refusal is matrix-constructed (A3).
+grep -q 'lap_target_quest_id_ok(' crates/cognitive-demo/src/main.rs
+# Declared on both serialized producer records (LiveActuatorEnvelopeArtifact + ProducerLedgerEntry) AND threaded
+# through the two hash fns (>= 4 `target_quest_id: i64,` sites: 2 struct fields + lap_entry_hash + lap_build_entry).
+test "$(grep -cE '^ *target_quest_id: i64,' crates/cognitive-demo/src/main.rs)" -ge 4
+# Folded into artifact_hash (from the run receipt) AND entry_hash (the lifted copy is hash-bound, cannot drift).
+grep -q 'h = lap_fnv_i64(h, run.receipt.target_quest_id);' crates/cognitive-demo/src/main.rs
+grep -q 'h = lap_fnv_i64(h, target_quest_id);' crates/cognitive-demo/src/main.rs
+# The durable pipe record carries the target_quest_id column.
+grep -q 'e.target_quest_id,' crates/cognitive-demo/src/main.rs
+# The invalid refusal exists and is a matrix scenario (constructed, not unreachable production debris).
+grep -q 'ProducerRefusal::TargetQuestIdInvalid' crates/cognitive-demo/src/main.rs
+grep -q '"target_quest_id_invalid_refused"' crates/cognitive-demo/src/main.rs
 # The producer bin-test count is pinned (these tests do NOT enter the --lib count above, which stays 744).
-test "$(grep -c '#\[test\]' crates/cognitive-demo/src/main.rs)" -eq 13
+test "$(grep -c '#\[test\]' crates/cognitive-demo/src/main.rs)" -eq 15
 # No model is trained or loaded: the demo manifest pulls no ML/inference/training framework.
 test "$(grep -riE 'torch|tensorflow|candle|onnx|tract|\bburn\b|llama|inference' crates/cognitive-demo/Cargo.toml | wc -l)" -eq 0
 # Separation: cognitive-demo INTEGRATES the two frozen tracks (reading-cli + hypothesis-layer in its tree) and
