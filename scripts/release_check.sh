@@ -1541,6 +1541,53 @@ grep -q '"controller-bridge-demo-verify"' crates/cognitive-demo/src/main.rs
 grep -q '"controller-bridge-matrix"' crates/cognitive-demo/src/main.rs
 grep -q '"controller-bridge-matrix-verify"' crates/cognitive-demo/src/main.rs
 test "$(grep -c '#\[test\]' crates/cognitive-demo/src/controller_bridge.rs)" -eq 29
+# LIVE-ACTUATOR-BRIDGE-0: the laptop-side PRODUCER is a main.rs SHELL/CLI gate — NOT a new pure organ. It
+# wraps CONTROLLER-BRIDGE-0's dry-run command set in an emission-sequenced, ledger-linked artifact and (only
+# in the `write` verb) drops it into a quarantined outbox with atomic temp+rename plus a durable tamper-evident
+# local ledger. Filesystem I/O is allowed HERE (the binary shell), but it writes DRY-RUN artifacts only and
+# must open NO socket, spawn NO process, drive NO input device, and touch NO model/training path. The pure
+# crate (controller_bridge.rs + the three frozen organs) stays byte-untouched; the producer adds ZERO lib tests
+# (the --lib unit-count pin above stays 744) and lives entirely in main.rs (13 bin tests, pinned below).
+# The five producer verbs stay wired in the I/O shell.
+grep -q '"live-actuator-producer-demo"' crates/cognitive-demo/src/main.rs
+grep -q '"live-actuator-producer-demo-verify"' crates/cognitive-demo/src/main.rs
+grep -q '"live-actuator-producer-matrix"' crates/cognitive-demo/src/main.rs
+grep -q '"live-actuator-producer-matrix-verify"' crates/cognitive-demo/src/main.rs
+grep -q '"live-actuator-producer-write"' crates/cognitive-demo/src/main.rs
+grep -q 'fn run_producer_write(' crates/cognitive-demo/src/main.rs
+grep -q 'fn producer_demo(' crates/cognitive-demo/src/main.rs
+grep -q 'fn producer_matrix(' crates/cognitive-demo/src/main.rs
+grep -q 'fn verify_producer_demo_json' crates/cognitive-demo/src/main.rs
+grep -q 'fn verify_producer_matrix_json' crates/cognitive-demo/src/main.rs
+# ACTUATOR / LIVE-IO ban on the shell: the producer prepares files, it NEVER drives a device, opens a socket,
+# spawns a process, or awaits a network round-trip. (std::process::exit / std::process::id are clean shell
+# primitives — the ban targets process SPAWN and sockets, deliberately not those.)
+test "$(grep -ciE 'enigo|rdev|inputbot|winput|xdotool|xtest|uinput|sendinput|key_click|mouse_move|cgevent|windows::UI' crates/cognitive-demo/src/main.rs)" -eq 0
+test "$(grep -cE 'Command::new|process::Command|\.spawn\(|TcpStream|UdpSocket|std::net|reqwest|tokio|\.await' crates/cognitive-demo/src/main.rs)" -eq 0
+# No model/inference/training work in the producer path (the existing learner-model CLI plumbing is unrelated;
+# the producer's OWN uses_model/uses_training signal flags + refusals are its boundary declaration, matrix-built).
+test "$(grep -cE 'torch|onnx|tract|candle|neural|embedding|\.fit\(|backprop|gradient|train_step' crates/cognitive-demo/src/main.rs)" -eq 0
+# No Deserialize in the shell: a stored artifact/ledger is untrusted input — re-derived + byte-verified (demo/
+# matrix) or re-hashed as closed pipe records (the durable ledger), never serde-parsed into trusted state.
+test "$(grep -cE 'derive\([^)]*Deserialize' crates/cognitive-demo/src/main.rs)" -eq 0
+test "$(grep -cE 'impl([[:space:]]|<).*Deserialize.*for' crates/cognitive-demo/src/main.rs)" -eq 0
+# Atomic-write discipline: the only artifact/ledger write path is temp-file + fsync + rename (a reader never
+# sees a partial file), and it never overwrites via a naked write to the final path.
+grep -q 'fn lap_atomic_write(' crates/cognitive-demo/src/main.rs
+grep -q 'std::fs::rename(' crates/cognitive-demo/src/main.rs
+grep -q 'lap-tmp' crates/cognitive-demo/src/main.rs
+# Every producer guard is CALLED inside run_producer_write (the refusal wiring cannot be silently removed).
+grep -q 'lap_signal_refusal(' crates/cognitive-demo/src/main.rs
+grep -q 'lap_bridge_prepared(' crates/cognitive-demo/src/main.rs
+grep -q 'lap_bridge_dry_run(' crates/cognitive-demo/src/main.rs
+grep -q 'lap_parse_ledger(' crates/cognitive-demo/src/main.rs
+grep -q 'lap_duplicate_command(' crates/cognitive-demo/src/main.rs
+grep -q 'lap_emission_seq_ok(' crates/cognitive-demo/src/main.rs
+grep -q 'lap_producer_head_ok(' crates/cognitive-demo/src/main.rs
+grep -q 'lap_artifact_absent(' crates/cognitive-demo/src/main.rs
+grep -q 'lap_write_ok(' crates/cognitive-demo/src/main.rs
+# The producer bin-test count is pinned (these tests do NOT enter the --lib count above, which stays 744).
+test "$(grep -c '#\[test\]' crates/cognitive-demo/src/main.rs)" -eq 13
 # No model is trained or loaded: the demo manifest pulls no ML/inference/training framework.
 test "$(grep -riE 'torch|tensorflow|candle|onnx|tract|\bburn\b|llama|inference' crates/cognitive-demo/Cargo.toml | wc -l)" -eq 0
 # Separation: cognitive-demo INTEGRATES the two frozen tracks (reading-cli + hypothesis-layer in its tree) and

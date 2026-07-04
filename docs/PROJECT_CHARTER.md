@@ -3,6 +3,51 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-07-04-A — Laptop-side dry-run envelope producer (LIVE-ACTUATOR-BRIDGE-0)
+
+**Decision.** Add the LIVE-ACTUATOR-BRIDGE-0 producer entirely in the `main.rs` SHELL (no new pure
+module; no lib edit): five operator-visible CLI verbs (`live-actuator-producer-demo`,
+`live-actuator-producer-demo-verify`, `live-actuator-producer-matrix`,
+`live-actuator-producer-matrix-verify`, `live-actuator-producer-write --outbox PATH --ledger PATH`). The
+producer wraps CONTROLLER-BRIDGE-0's dry-run command set (`controller_bridge_demo()`) in a
+`LiveActuatorEnvelopeArtifact { schema, emission_seq, producer_head_before, producer_head_after,
+controller_bridge_envelope, artifact_hash }` and records it in a durable, tamper-evident
+`ProducerLedgerEntry` chain (`seq`, `prev_entry_hash`, `emission_seq`, `command_id`, the three receipt
+anchors, `artifact_hash`, `decision`, `refusal`, `entry_hash`). The `write` verb is the ONLY filesystem
+path — allowed because this is the binary shell (`main.rs`), never the pure crate — and it drops the
+artifact into a quarantined outbox with **atomic temp-file + fsync + rename** (never overwriting a final
+artifact) and appends the ledger record the same way. It emits DRY-RUN artifacts only: it does not
+execute them, move the character, open a socket, spawn a process, drive an input device, authenticate
+approval, or arm a kill switch. Emission-ordering law: `emission_seq` starts at 1 for an empty ledger and
+strictly increments; the durable ledger is re-read as CLOSED pipe-delimited shell records (never
+serde-parsed — Serialize-not-Deserialize) and every entry is re-hashed, so a malformed record, a broken
+prev-hash chain, a sequence gap, an emission regression, a duplicate command, or a producer-head mismatch
+all refuse. This is where CONTROLLER-BRIDGE-0's deferred ordering discipline lands on the laptop side.
+Ledger-identity law (forced by the exclusions): the per-command `command_id` is private to
+CONTROLLER-BRIDGE-0 (`ControllerCommandEnvelope` has zero public fields — a load-bearing release lock —
+and `controller_bridge.rs` is out of scope), so the producer keys its ledger on the controller-bridge
+RUN's public `receipt_hash`, which folds every command's `command_id` + `envelope_hash` + `reissue_index`
+— a strict superset identity carrying the same property the per-command id was designed for (distinct
+across legitimate reissues, repeats only on a byte-identical re-emit). All 20 refusal variants are
+constructed in a reachable production (`write` verb) or matrix path (A3), including the byte-flip
+`serialized_live_actuator_producer_tamper`; the 21-scenario matrix (1 prepared + 2 ledger-append + 18
+refusals) plus a coverage test that also exercises the two write-only refusals pins them. Integer FNV
+fold, Serialize-not-Deserialize, no clock/entropy/network/process-spawn/input-device.
+
+**Scope / boundary.** Exactly 3 files — `main.rs` (shell producer + 5 verbs + 13 bin tests),
+`docs/PROJECT_CHARTER.md` (this entry), `scripts/release_check.sh` (the producer lock block: 5 verb pins,
+actuator/socket/process-spawn/input-device/model bans on `main.rs`, a Deserialize ban, the temp+rename
+discipline pins, all-9-guards-CALLED pins, and a `main.rs` #[test]==13 pin). The pure crate is byte
+UNTOUCHED — `controller_bridge.rs`, `wow_taskplan.rs`, `wow_state.rs`, `game_evidence.rs` and `lib.rs`
+carry ZERO edits; the producer adds no lib tests, so the crate-wide `--lib` unit-count pin stays **744**
+(the 13 producer tests are BINARY tests). No new pure module, no live-WoW / `wow_client_pilot.py` /
+`observe_server.py` / Action Bridge / addon / AzerothCore / controller / NN edits, no socket/server/client
+integration, no Cargo.toml/lock, no input-device call, no network, no process spawn, no live execution, no
+pathfinding, no model/embedding/training, no v0.1 retag. The producer writes dry-run artifacts only — the
+client-owned live actuator (real kill switch, single-shot approval, durable command ledger-gate, own
+distance cap, closed-typed result path) remains a SEPARATE gate on the client PC. P12
+`training_justified=false`; P13-P15 closed.
+
 ## DD-2026-07-03-E — Fixture-only dry-run command-envelope bridge (CONTROLLER-BRIDGE-0)
 
 **Decision.** Add `crates/cognitive-demo/src/controller_bridge.rs` plus four operator-visible CLI verbs

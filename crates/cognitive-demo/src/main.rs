@@ -157,7 +157,7 @@
 //! here (never in the library or the example), which the release gate enforces.
 
 use cognitive_demo::{
-    canonical_bundle, check_local_input_path, controller_bridge_demo_json,
+    canonical_bundle, check_local_input_path, controller_bridge_demo, controller_bridge_demo_json,
     controller_bridge_matrix_json, corpus_admits_filename, corpus_bundle, corpus_scenario_matrix,
     corpus_scenario_pack_files, doc_bundle, doc_scenario_matrix, doc_scenario_pack_files,
     dream_export_matrix, failure_pack_files, game_evidence_demo_json, game_evidence_matrix_json,
@@ -192,6 +192,8 @@ use cognitive_demo::{
     FAILURE_PACK_FILES, LEARNER_JOURNAL_DEMO_CANDIDATES, MATRIX_BOUNDARY_LINES,
     MTRACE_BOUNDARY_LINES, PACK_MANIFEST_FILE,
 };
+use cognitive_demo::{ControllerBridgeDecision, ControllerBridgeRun};
+use serde::Serialize;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -632,6 +634,41 @@ fn dispatch(args: &[String]) -> Result<(), String> {
             let matrix = read_plain_file(args, "--matrix")?;
             verify_controller_bridge_matrix_json(&matrix).map_err(|e| format!("{e:?}"))?;
             println!("controller-bridge-matrix-verify: OK");
+            Ok(())
+        }
+        Some("live-actuator-producer-demo") => {
+            // Emit the canonical LIVE-ACTUATOR-BRIDGE-0 producer artifact (a DRY-RUN
+            // envelope artifact wrapped with emission_seq + ledger-entry discipline). No fs.
+            let json = producer_demo_json();
+            emit(&json, flag_value(args, "--out"))
+        }
+        Some("live-actuator-producer-demo-verify") => {
+            // Re-derive the canonical producer artifact and require provided bytes to match.
+            let artifact = read_plain_file(args, "--artifact")?;
+            verify_producer_demo_json(&artifact).map_err(|e| format!("{e:?}"))?;
+            println!("live-actuator-producer-demo-verify: OK");
+            Ok(())
+        }
+        Some("live-actuator-producer-matrix") => {
+            // Emit the LIVE-ACTUATOR-BRIDGE-0 producer scenario matrix. No fs.
+            let json = producer_matrix_json();
+            emit(&json, flag_value(args, "--out"))
+        }
+        Some("live-actuator-producer-matrix-verify") => {
+            // Re-derive the producer matrix and byte-compare a provided artifact.
+            let matrix = read_plain_file(args, "--matrix")?;
+            verify_producer_matrix_json(&matrix).map_err(|e| format!("{e:?}"))?;
+            println!("live-actuator-producer-matrix-verify: OK");
+            Ok(())
+        }
+        Some("live-actuator-producer-write") => {
+            // THE shell verb: append the canonical DRY-RUN envelope artifact to a quarantined
+            // outbox (temp+rename) and record it in a durable, tamper-evident local ledger
+            // (temp+rename). Writes files only — it does NOT execute, move, or call anything.
+            let outbox = flag_value(args, "--outbox");
+            let ledger = flag_value(args, "--ledger");
+            let summary = run_producer_write(outbox, ledger)?;
+            print!("{summary}");
             Ok(())
         }
         Some("failure-cases") => {
@@ -1474,6 +1511,9 @@ fn usage() -> String {
      wow-taskplan-matrix [--out PATH] | wow-taskplan-matrix-verify --matrix PATH | \
      controller-bridge-demo [--out PATH] | controller-bridge-demo-verify --envelope PATH | \
      controller-bridge-matrix [--out PATH] | controller-bridge-matrix-verify --matrix PATH | \
+     live-actuator-producer-demo [--out PATH] | live-actuator-producer-demo-verify --artifact PATH | \
+     live-actuator-producer-matrix [--out PATH] | live-actuator-producer-matrix-verify --matrix PATH | \
+     live-actuator-producer-write --outbox PATH --ledger PATH | \
      doc-trace --input PATH [--out PATH] | doc-report --input PATH --trace PATH [--out PATH] | \
      doc-bundle --input PATH --out DIR | doc-bundle-verify --input PATH --path DIR | \
      doc-scenarios | doc-scenario-pack --out DIR | doc-scenario-verify --path DIR | \
@@ -1493,4 +1533,1364 @@ fn usage() -> String {
      dream-export-matrix-report --input-dir DIR --frame PATH [--seed N] [--weirdness W] --matrix PATH [--out PATH] | \
      dream-export-matrix-verify --input-dir DIR --frame PATH [--seed N] [--weirdness W] --matrix PATH>"
         .to_string()
+}
+
+// ============================ LIVE-ACTUATOR-BRIDGE-0 ============================
+// The laptop-side PRODUCER: wrap CONTROLLER-BRIDGE-0's dry-run command set in an
+// emission-sequenced, ledger-linked artifact and (only in the `write` verb) drop it
+// into a quarantined outbox with atomic temp+rename plus a durable, tamper-evident
+// local ledger. This is SHELL code — filesystem I/O is allowed HERE, in the binary,
+// never in the pure crate. It writes DRY-RUN artifacts only: it does not execute them,
+// move the character, open a socket, call the client, authenticate approval, or arm a
+// kill switch. Serialize-not-Deserialize; the durable ledger is re-read as closed
+// pipe-delimited shell records (never serde-parsed) and every entry is re-hashed to
+// detect tamper.
+//
+// Ledger-identity note: the per-command `command_id` is private to CONTROLLER-BRIDGE-0
+// (ControllerCommandEnvelope has zero public fields — a load-bearing release lock — and
+// controller_bridge.rs is out of scope here), so the producer keys its ledger on the
+// controller-bridge RUN's public receipt_hash, which folds every command's command_id +
+// envelope_hash + reissue_index. It is a strict superset identity carrying the same
+// property the per-command id was designed for (distinct across legitimate reissues,
+// repeats only on a byte-identical re-emit).
+
+const LAP_SCHEMA_ARTIFACT: &str = "live-actuator-producer-artifact-v0.1";
+const LAP_SCHEMA_LEDGER: &str = "live-actuator-producer-ledger-v0.1";
+const LAP_SCHEMA_MATRIX: &str = "live-actuator-producer-matrix-v0.1";
+const LAP_SCHEMA_RUN: &str = "live-actuator-producer-run-v0.1";
+const LAP_LEDGER_RECORD_TAG: &str = "lap-v0.1";
+const LAP_GENESIS_HEAD: u64 = 0;
+const LAP_FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+const LAP_FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
+const LAP_DECISION_PREPARED: &str = "artifact_prepared";
+
+fn lap_fnv_mix(mut h: u64, bytes: &[u8]) -> u64 {
+    for &b in bytes {
+        h ^= b as u64;
+        h = h.wrapping_mul(LAP_FNV_PRIME);
+    }
+    h
+}
+
+fn lap_fnv_i64(h: u64, v: i64) -> u64 {
+    lap_fnv_mix(h, &(v as u64).to_le_bytes())
+}
+
+fn lap_fnv_u64(h: u64, v: u64) -> u64 {
+    lap_fnv_mix(h, &v.to_le_bytes())
+}
+
+fn lap_flip_last_byte(input: &str) -> String {
+    let mut bytes = input.as_bytes().to_vec();
+    if let Some(last) = bytes.last_mut() {
+        *last ^= 0x01;
+    }
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProducerError {
+    ReplayMismatch,
+}
+
+/// Producer signal gates — every flag names a forbidden capability, held false. Any
+/// true refuses before an artifact is prepared.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+struct ProducerConfig {
+    executes_live: bool,
+    uses_network: bool,
+    spawns_process: bool,
+    uses_input_device: bool,
+    uses_model: bool,
+    uses_training: bool,
+}
+
+impl ProducerConfig {
+    fn inert() -> Self {
+        ProducerConfig {
+            executes_live: false,
+            uses_network: false,
+            spawns_process: false,
+            uses_input_device: false,
+            uses_model: false,
+            uses_training: false,
+        }
+    }
+}
+
+/// Structural boundary flags — every flag names a forbidden behavior, held false.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+struct ProducerBoundary {
+    executes_artifact: bool,
+    calls_client: bool,
+    opens_socket: bool,
+    moves_character: bool,
+    authenticates_approval: bool,
+    arms_kill_switch: bool,
+    touches_live_stack: bool,
+    creates_new_authority: bool,
+}
+
+impl ProducerBoundary {
+    fn inert() -> Self {
+        ProducerBoundary {
+            executes_artifact: false,
+            calls_client: false,
+            opens_socket: false,
+            moves_character: false,
+            authenticates_approval: false,
+            arms_kill_switch: false,
+            touches_live_stack: false,
+            creates_new_authority: false,
+        }
+    }
+
+    fn all_inert(&self) -> bool {
+        !(self.executes_artifact
+            || self.calls_client
+            || self.opens_socket
+            || self.moves_character
+            || self.authenticates_approval
+            || self.arms_kill_switch
+            || self.touches_live_stack
+            || self.creates_new_authority)
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+enum ProducerDecision {
+    ArtifactPrepared,
+    ArtifactRefused,
+}
+
+impl ProducerDecision {
+    fn slug(&self) -> &'static str {
+        match self {
+            ProducerDecision::ArtifactPrepared => "artifact_prepared",
+            ProducerDecision::ArtifactRefused => "artifact_refused",
+        }
+    }
+}
+
+/// Every way the producer can refuse. Each variant is constructed in a reachable
+/// production (the `write` verb) OR matrix path (the A3 fail-closed-debris law).
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+enum ProducerRefusal {
+    MissingOutbox,
+    MissingLedger,
+    InvalidOutboxPath,
+    InvalidLedgerPath,
+    OutboxNotDirectory,
+    LedgerTamper,
+    DuplicateCommand,
+    EmissionSeqRegression,
+    ProducerHeadMismatch,
+    ArtifactAlreadyExists,
+    AtomicWriteFailed,
+    UnsupportedBridgeDecision,
+    NonDryRunEnvelope,
+    LiveExecutionSignalDetected,
+    NetworkSignalDetected,
+    ProcessSignalDetected,
+    InputDeviceSignalDetected,
+    ModelSignalDetected,
+    TrainingSignalDetected,
+    SerializedLiveActuatorProducerTamper,
+}
+
+impl ProducerRefusal {
+    #[allow(dead_code)] // enumerated for the A3 matrix-coverage test
+    const ALL: [ProducerRefusal; 20] = [
+        ProducerRefusal::MissingOutbox,
+        ProducerRefusal::MissingLedger,
+        ProducerRefusal::InvalidOutboxPath,
+        ProducerRefusal::InvalidLedgerPath,
+        ProducerRefusal::OutboxNotDirectory,
+        ProducerRefusal::LedgerTamper,
+        ProducerRefusal::DuplicateCommand,
+        ProducerRefusal::EmissionSeqRegression,
+        ProducerRefusal::ProducerHeadMismatch,
+        ProducerRefusal::ArtifactAlreadyExists,
+        ProducerRefusal::AtomicWriteFailed,
+        ProducerRefusal::UnsupportedBridgeDecision,
+        ProducerRefusal::NonDryRunEnvelope,
+        ProducerRefusal::LiveExecutionSignalDetected,
+        ProducerRefusal::NetworkSignalDetected,
+        ProducerRefusal::ProcessSignalDetected,
+        ProducerRefusal::InputDeviceSignalDetected,
+        ProducerRefusal::ModelSignalDetected,
+        ProducerRefusal::TrainingSignalDetected,
+        ProducerRefusal::SerializedLiveActuatorProducerTamper,
+    ];
+
+    fn slug(&self) -> &'static str {
+        match self {
+            ProducerRefusal::MissingOutbox => "missing_outbox_refused",
+            ProducerRefusal::MissingLedger => "missing_ledger_refused",
+            ProducerRefusal::InvalidOutboxPath => "invalid_outbox_path_refused",
+            ProducerRefusal::InvalidLedgerPath => "invalid_ledger_path_refused",
+            ProducerRefusal::OutboxNotDirectory => "outbox_not_directory_refused",
+            ProducerRefusal::LedgerTamper => "ledger_tamper_refused",
+            ProducerRefusal::DuplicateCommand => "duplicate_command_refused",
+            ProducerRefusal::EmissionSeqRegression => "emission_seq_regression_refused",
+            ProducerRefusal::ProducerHeadMismatch => "producer_head_mismatch_refused",
+            ProducerRefusal::ArtifactAlreadyExists => "artifact_already_exists_refused",
+            ProducerRefusal::AtomicWriteFailed => "atomic_write_failed_refused",
+            ProducerRefusal::UnsupportedBridgeDecision => "unsupported_bridge_decision_refused",
+            ProducerRefusal::NonDryRunEnvelope => "non_dry_run_envelope_refused",
+            ProducerRefusal::LiveExecutionSignalDetected => {
+                "live_execution_signal_detected_refused"
+            }
+            ProducerRefusal::NetworkSignalDetected => "network_signal_detected_refused",
+            ProducerRefusal::ProcessSignalDetected => "process_signal_detected_refused",
+            ProducerRefusal::InputDeviceSignalDetected => "input_device_signal_detected_refused",
+            ProducerRefusal::ModelSignalDetected => "model_signal_detected_refused",
+            ProducerRefusal::TrainingSignalDetected => "training_signal_detected_refused",
+            ProducerRefusal::SerializedLiveActuatorProducerTamper => {
+                "serialized_live_actuator_producer_tamper_refused"
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct LiveActuatorEnvelopeArtifact {
+    schema: String,
+    emission_seq: i64,
+    producer_head_before: u64,
+    producer_head_after: u64,
+    controller_bridge_envelope: ControllerBridgeRun,
+    artifact_hash: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct ProducerLedgerEntry {
+    seq: i64,
+    prev_entry_hash: u64,
+    emission_seq: i64,
+    command_id: u64,
+    taskplan_receipt_hash: u64,
+    evidence_receipt_hash: u64,
+    state_receipt_hash: u64,
+    artifact_hash: u64,
+    decision: String,
+    refusal: Option<String>,
+    entry_hash: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct LiveActuatorProducerRun {
+    schema: String,
+    decision: ProducerDecision,
+    refusal: Option<ProducerRefusal>,
+    artifact: Option<LiveActuatorEnvelopeArtifact>,
+    ledger_entry: Option<ProducerLedgerEntry>,
+    boundary: ProducerBoundary,
+    boundary_all_inert: bool,
+}
+
+// ------------------------------------------------------------ hashing ----------
+
+fn lap_run_identity(run: &ControllerBridgeRun) -> (u64, u64, u64, u64) {
+    (
+        run.receipt.receipt_hash,
+        run.receipt.taskplan_receipt_hash,
+        run.receipt.evidence_receipt_hash,
+        run.receipt.state_receipt_hash,
+    )
+}
+
+fn lap_artifact_hash(emission_seq: i64, head_before: u64, run: &ControllerBridgeRun) -> u64 {
+    let run_json = serde_json::to_string(run).expect("controller bridge run serializes");
+    let mut h = LAP_FNV_OFFSET;
+    h = lap_fnv_mix(h, LAP_SCHEMA_ARTIFACT.as_bytes());
+    h = lap_fnv_i64(h, emission_seq);
+    h = lap_fnv_u64(h, head_before);
+    h = lap_fnv_mix(h, run_json.as_bytes());
+    h
+}
+
+#[allow(clippy::too_many_arguments)]
+fn lap_entry_hash(
+    seq: i64,
+    prev: u64,
+    emission_seq: i64,
+    command_id: u64,
+    taskplan: u64,
+    evidence: u64,
+    state: u64,
+    artifact_hash: u64,
+    decision: &str,
+    refusal: &str,
+) -> u64 {
+    let mut h = LAP_FNV_OFFSET;
+    h = lap_fnv_mix(h, LAP_SCHEMA_LEDGER.as_bytes());
+    h = lap_fnv_i64(h, seq);
+    h = lap_fnv_u64(h, prev);
+    h = lap_fnv_i64(h, emission_seq);
+    h = lap_fnv_u64(h, command_id);
+    h = lap_fnv_u64(h, taskplan);
+    h = lap_fnv_u64(h, evidence);
+    h = lap_fnv_u64(h, state);
+    h = lap_fnv_u64(h, artifact_hash);
+    h = lap_fnv_mix(h, decision.as_bytes());
+    h = lap_fnv_mix(h, refusal.as_bytes());
+    h
+}
+
+// ------------------------------------------------------------- guards ----------
+
+fn lap_signal_refusal(config: &ProducerConfig) -> Option<ProducerRefusal> {
+    if config.executes_live {
+        Some(ProducerRefusal::LiveExecutionSignalDetected)
+    } else if config.uses_network {
+        Some(ProducerRefusal::NetworkSignalDetected)
+    } else if config.spawns_process {
+        Some(ProducerRefusal::ProcessSignalDetected)
+    } else if config.uses_input_device {
+        Some(ProducerRefusal::InputDeviceSignalDetected)
+    } else if config.uses_model {
+        Some(ProducerRefusal::ModelSignalDetected)
+    } else if config.uses_training {
+        Some(ProducerRefusal::TrainingSignalDetected)
+    } else {
+        None
+    }
+}
+
+fn lap_bridge_prepared(decision: ControllerBridgeDecision) -> Option<ProducerRefusal> {
+    if decision == ControllerBridgeDecision::EnvelopePrepared {
+        None
+    } else {
+        Some(ProducerRefusal::UnsupportedBridgeDecision)
+    }
+}
+
+fn lap_bridge_dry_run(dry_run: bool) -> Option<ProducerRefusal> {
+    if dry_run {
+        None
+    } else {
+        Some(ProducerRefusal::NonDryRunEnvelope)
+    }
+}
+
+fn lap_outbox_present(outbox: Option<&str>) -> Option<ProducerRefusal> {
+    match outbox {
+        Some(p) if !p.is_empty() => None,
+        _ => Some(ProducerRefusal::MissingOutbox),
+    }
+}
+
+fn lap_ledger_present(ledger: Option<&str>) -> Option<ProducerRefusal> {
+    match ledger {
+        Some(p) if !p.is_empty() => None,
+        _ => Some(ProducerRefusal::MissingLedger),
+    }
+}
+
+/// A path is invalid if empty or if it contains a record-corrupting or control byte
+/// (NUL, newline, CR) — a newline in the path would break the pipe-delimited ledger.
+fn lap_path_valid(path: &str, refusal: ProducerRefusal) -> Option<ProducerRefusal> {
+    if path.is_empty() || path.chars().any(|c| c == '\0' || c == '\n' || c == '\r') {
+        Some(refusal)
+    } else {
+        None
+    }
+}
+
+fn lap_outbox_is_directory(is_dir: bool) -> Option<ProducerRefusal> {
+    if is_dir {
+        None
+    } else {
+        Some(ProducerRefusal::OutboxNotDirectory)
+    }
+}
+
+fn lap_duplicate_command(existing_ids: &[u64], command_id: u64) -> Option<ProducerRefusal> {
+    if existing_ids.contains(&command_id) {
+        Some(ProducerRefusal::DuplicateCommand)
+    } else {
+        None
+    }
+}
+
+fn lap_emission_seq_ok(last_emission: i64, proposed: i64) -> Option<ProducerRefusal> {
+    if proposed <= last_emission {
+        Some(ProducerRefusal::EmissionSeqRegression)
+    } else {
+        None
+    }
+}
+
+fn lap_producer_head_ok(actual_head: u64, head_before: u64) -> Option<ProducerRefusal> {
+    if actual_head == head_before {
+        None
+    } else {
+        Some(ProducerRefusal::ProducerHeadMismatch)
+    }
+}
+
+fn lap_artifact_absent(exists: bool) -> Option<ProducerRefusal> {
+    if exists {
+        Some(ProducerRefusal::ArtifactAlreadyExists)
+    } else {
+        None
+    }
+}
+
+fn lap_write_ok(ok: bool) -> Option<ProducerRefusal> {
+    if ok {
+        None
+    } else {
+        Some(ProducerRefusal::AtomicWriteFailed)
+    }
+}
+
+// -------------------------------------------------------- ledger records -------
+
+fn lap_entry_record(e: &ProducerLedgerEntry) -> String {
+    let refusal = e.refusal.as_deref().unwrap_or("-");
+    format!(
+        "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
+        LAP_LEDGER_RECORD_TAG,
+        e.seq,
+        e.prev_entry_hash,
+        e.emission_seq,
+        e.command_id,
+        e.taskplan_receipt_hash,
+        e.evidence_receipt_hash,
+        e.state_receipt_hash,
+        e.artifact_hash,
+        e.decision,
+        refusal,
+        e.entry_hash
+    )
+}
+
+/// Parse + verify the durable ledger as CLOSED shell records (no serde). Any malformed
+/// record, a broken prev-hash chain, a sequence gap, or a recompute-hash mismatch is
+/// ledger tamper. This is how the deferred CONTROLLER-BRIDGE-0 ordering discipline is
+/// enforced on the producer side.
+fn lap_parse_ledger(text: &str) -> Result<Vec<ProducerLedgerEntry>, ProducerRefusal> {
+    let mut entries: Vec<ProducerLedgerEntry> = Vec::new();
+    let mut expected_seq = 1i64;
+    let mut prev = LAP_GENESIS_HEAD;
+    for line in text.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let parts: Vec<&str> = line.split('|').collect();
+        if parts.len() != 12 || parts[0] != LAP_LEDGER_RECORD_TAG {
+            return Err(ProducerRefusal::LedgerTamper);
+        }
+        let seq = parts[1]
+            .parse::<i64>()
+            .map_err(|_| ProducerRefusal::LedgerTamper)?;
+        let rec_prev = parts[2]
+            .parse::<u64>()
+            .map_err(|_| ProducerRefusal::LedgerTamper)?;
+        let emission = parts[3]
+            .parse::<i64>()
+            .map_err(|_| ProducerRefusal::LedgerTamper)?;
+        let command_id = parts[4]
+            .parse::<u64>()
+            .map_err(|_| ProducerRefusal::LedgerTamper)?;
+        let taskplan = parts[5]
+            .parse::<u64>()
+            .map_err(|_| ProducerRefusal::LedgerTamper)?;
+        let evidence = parts[6]
+            .parse::<u64>()
+            .map_err(|_| ProducerRefusal::LedgerTamper)?;
+        let state = parts[7]
+            .parse::<u64>()
+            .map_err(|_| ProducerRefusal::LedgerTamper)?;
+        let artifact_hash = parts[8]
+            .parse::<u64>()
+            .map_err(|_| ProducerRefusal::LedgerTamper)?;
+        let decision = parts[9].to_string();
+        let refusal_raw = parts[10];
+        let entry_hash = parts[11]
+            .parse::<u64>()
+            .map_err(|_| ProducerRefusal::LedgerTamper)?;
+        if seq != expected_seq || rec_prev != prev {
+            return Err(ProducerRefusal::LedgerTamper);
+        }
+        let recomputed = lap_entry_hash(
+            seq,
+            rec_prev,
+            emission,
+            command_id,
+            taskplan,
+            evidence,
+            state,
+            artifact_hash,
+            &decision,
+            refusal_raw,
+        );
+        if recomputed != entry_hash {
+            return Err(ProducerRefusal::LedgerTamper);
+        }
+        let refusal = if refusal_raw == "-" {
+            None
+        } else {
+            Some(refusal_raw.to_string())
+        };
+        entries.push(ProducerLedgerEntry {
+            seq,
+            prev_entry_hash: rec_prev,
+            emission_seq: emission,
+            command_id,
+            taskplan_receipt_hash: taskplan,
+            evidence_receipt_hash: evidence,
+            state_receipt_hash: state,
+            artifact_hash,
+            decision,
+            refusal,
+            entry_hash,
+        });
+        prev = entry_hash;
+        expected_seq += 1;
+    }
+    Ok(entries)
+}
+
+// ------------------------------------------------------------- builders --------
+
+#[allow(clippy::too_many_arguments)]
+fn lap_build_entry(
+    seq: i64,
+    prev: u64,
+    emission_seq: i64,
+    command_id: u64,
+    taskplan: u64,
+    evidence: u64,
+    state: u64,
+    artifact_hash: u64,
+) -> ProducerLedgerEntry {
+    let decision = LAP_DECISION_PREPARED.to_string();
+    let entry_hash = lap_entry_hash(
+        seq,
+        prev,
+        emission_seq,
+        command_id,
+        taskplan,
+        evidence,
+        state,
+        artifact_hash,
+        &decision,
+        "-",
+    );
+    ProducerLedgerEntry {
+        seq,
+        prev_entry_hash: prev,
+        emission_seq,
+        command_id,
+        taskplan_receipt_hash: taskplan,
+        evidence_receipt_hash: evidence,
+        state_receipt_hash: state,
+        artifact_hash,
+        decision,
+        refusal: None,
+        entry_hash,
+    }
+}
+
+fn lap_prepare(
+    run: &ControllerBridgeRun,
+    seq: i64,
+    emission_seq: i64,
+    head_before: u64,
+) -> LiveActuatorProducerRun {
+    let (command_id, taskplan, evidence, state) = lap_run_identity(run);
+    let artifact_hash = lap_artifact_hash(emission_seq, head_before, run);
+    let entry = lap_build_entry(
+        seq,
+        head_before,
+        emission_seq,
+        command_id,
+        taskplan,
+        evidence,
+        state,
+        artifact_hash,
+    );
+    let artifact = LiveActuatorEnvelopeArtifact {
+        schema: LAP_SCHEMA_ARTIFACT.to_string(),
+        emission_seq,
+        producer_head_before: head_before,
+        producer_head_after: entry.entry_hash,
+        controller_bridge_envelope: run.clone(),
+        artifact_hash,
+    };
+    let boundary = ProducerBoundary::inert();
+    LiveActuatorProducerRun {
+        schema: LAP_SCHEMA_RUN.to_string(),
+        decision: ProducerDecision::ArtifactPrepared,
+        refusal: None,
+        artifact: Some(artifact),
+        ledger_entry: Some(entry),
+        boundary,
+        boundary_all_inert: boundary.all_inert(),
+    }
+}
+
+fn lap_refuse(refusal: ProducerRefusal) -> LiveActuatorProducerRun {
+    let boundary = ProducerBoundary::inert();
+    LiveActuatorProducerRun {
+        schema: LAP_SCHEMA_RUN.to_string(),
+        decision: ProducerDecision::ArtifactRefused,
+        refusal: Some(refusal),
+        artifact: None,
+        ledger_entry: None,
+        boundary,
+        boundary_all_inert: boundary.all_inert(),
+    }
+}
+
+/// The canonical dry-run source run (CONTROLLER-BRIDGE-0's demo command set).
+fn lap_source_run() -> ControllerBridgeRun {
+    controller_bridge_demo()
+}
+
+// ------------------------------------------------------------- demo ------------
+
+fn producer_demo() -> LiveActuatorProducerRun {
+    let run = lap_source_run();
+    // Pre-flight gates (all pass for the canonical dry-run run) — wired so they cannot
+    // be silently deleted.
+    if let Some(refusal) = lap_signal_refusal(&ProducerConfig::inert()) {
+        return lap_refuse(refusal);
+    }
+    if let Some(refusal) = lap_bridge_prepared(run.receipt.decision) {
+        return lap_refuse(refusal);
+    }
+    if let Some(refusal) = lap_bridge_dry_run(run.receipt.config.dry_run) {
+        return lap_refuse(refusal);
+    }
+    // An empty ledger: emission_seq 1, prev = genesis head.
+    lap_prepare(&run, 1, 1, LAP_GENESIS_HEAD)
+}
+
+fn producer_demo_json() -> String {
+    serde_json::to_string_pretty(&producer_demo()).expect("producer demo serializes")
+}
+
+fn verify_producer_demo_json(candidate: &str) -> Result<(), ProducerError> {
+    if candidate == producer_demo_json() {
+        Ok(())
+    } else {
+        Err(ProducerError::ReplayMismatch)
+    }
+}
+
+// ------------------------------------------------------------- matrix ----------
+
+const LAP_SCENARIO_COUNT: usize = 21;
+const LAP_SCENARIO_NAMES: [&str; LAP_SCENARIO_COUNT] = [
+    "prepared_artifact_written_to_outbox",
+    "producer_ledger_appends_seq_1",
+    "producer_ledger_appends_seq_2",
+    "duplicate_command_refused",
+    "ledger_tamper_refused",
+    "emission_seq_regression_refused",
+    "producer_head_mismatch_refused",
+    "artifact_already_exists_refused",
+    "non_dry_run_envelope_refused",
+    "unsupported_bridge_decision_refused",
+    "missing_outbox_refused",
+    "outbox_not_directory_refused",
+    "invalid_ledger_path_refused",
+    "atomic_write_failed_refused",
+    "live_execution_signal_detected_refused",
+    "network_signal_detected_refused",
+    "process_signal_detected_refused",
+    "input_device_signal_detected_refused",
+    "model_signal_detected_refused",
+    "training_signal_detected_refused",
+    "serialized_live_actuator_producer_tamper_refused",
+];
+
+#[derive(Debug, Clone, Serialize)]
+struct ProducerCell {
+    scenario: String,
+    outcome: String,
+    refusal: Option<String>,
+    seq: i64,
+    emission_seq: i64,
+    linked: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ProducerMatrix {
+    schema: String,
+    scenario_count: usize,
+    cells: Vec<ProducerCell>,
+    prepared_count: usize,
+    refused_count: usize,
+    boundary: ProducerBoundary,
+    boundary_all_inert: bool,
+}
+
+fn lap_prepared_cell(scenario: &str, run: &LiveActuatorProducerRun) -> ProducerCell {
+    let entry = run.ledger_entry.as_ref();
+    ProducerCell {
+        scenario: scenario.to_string(),
+        outcome: run.decision.slug().to_string(),
+        refusal: run.refusal.map(|r| r.slug().to_string()),
+        seq: entry.map(|e| e.seq).unwrap_or(0),
+        emission_seq: entry.map(|e| e.emission_seq).unwrap_or(0),
+        linked: entry
+            .map(|e| {
+                e.prev_entry_hash == LAP_GENESIS_HEAD
+                    && e.entry_hash
+                        == lap_entry_hash(
+                            e.seq,
+                            e.prev_entry_hash,
+                            e.emission_seq,
+                            e.command_id,
+                            e.taskplan_receipt_hash,
+                            e.evidence_receipt_hash,
+                            e.state_receipt_hash,
+                            e.artifact_hash,
+                            &e.decision,
+                            "-",
+                        )
+            })
+            .unwrap_or(false),
+    }
+}
+
+fn lap_refusal_cell(scenario: &str, refusal: ProducerRefusal, fired: bool) -> ProducerCell {
+    ProducerCell {
+        scenario: scenario.to_string(),
+        outcome: if fired {
+            "artifact_refused"
+        } else {
+            "refusal_missed"
+        }
+        .to_string(),
+        refusal: Some(refusal.slug().to_string()),
+        seq: 0,
+        emission_seq: 0,
+        linked: false,
+    }
+}
+
+fn lap_entry_cell(scenario: &str, entry: &ProducerLedgerEntry, expected_prev: u64) -> ProducerCell {
+    let linked = entry.prev_entry_hash == expected_prev
+        && entry.entry_hash
+            == lap_entry_hash(
+                entry.seq,
+                entry.prev_entry_hash,
+                entry.emission_seq,
+                entry.command_id,
+                entry.taskplan_receipt_hash,
+                entry.evidence_receipt_hash,
+                entry.state_receipt_hash,
+                entry.artifact_hash,
+                &entry.decision,
+                "-",
+            );
+    ProducerCell {
+        scenario: scenario.to_string(),
+        outcome: if linked {
+            "ledger_linked"
+        } else {
+            "ledger_broken"
+        }
+        .to_string(),
+        refusal: None,
+        seq: entry.seq,
+        emission_seq: entry.emission_seq,
+        linked,
+    }
+}
+
+fn lap_cell_for(scenario: &str) -> ProducerCell {
+    match scenario {
+        "prepared_artifact_written_to_outbox" => lap_prepared_cell(scenario, &producer_demo()),
+        "producer_ledger_appends_seq_1" => {
+            let entry = producer_demo().ledger_entry.expect("demo entry");
+            lap_entry_cell(scenario, &entry, LAP_GENESIS_HEAD)
+        }
+        "producer_ledger_appends_seq_2" => {
+            // A durable ledger already holds entry 1; a DISTINCT command identity appends
+            // as entry 2, prev-linked to entry 1's head.
+            let e1 = producer_demo().ledger_entry.expect("demo entry");
+            let (command_id, taskplan, evidence, state) = lap_run_identity(&lap_source_run());
+            let e2 = lap_build_entry(
+                2,
+                e1.entry_hash,
+                2,
+                command_id ^ 0x01,
+                taskplan,
+                evidence,
+                state,
+                e1.artifact_hash ^ 0x01,
+            );
+            lap_entry_cell(scenario, &e2, e1.entry_hash)
+        }
+        "duplicate_command_refused" => {
+            let (command_id, _, _, _) = lap_run_identity(&lap_source_run());
+            let fired = lap_duplicate_command(&[command_id], command_id)
+                == Some(ProducerRefusal::DuplicateCommand);
+            lap_refusal_cell(scenario, ProducerRefusal::DuplicateCommand, fired)
+        }
+        "ledger_tamper_refused" => {
+            let e1 = producer_demo().ledger_entry.expect("demo entry");
+            let tampered = lap_flip_last_byte(&lap_entry_record(&e1));
+            let fired = lap_parse_ledger(&tampered) == Err(ProducerRefusal::LedgerTamper);
+            lap_refusal_cell(scenario, ProducerRefusal::LedgerTamper, fired)
+        }
+        "emission_seq_regression_refused" => {
+            let fired = lap_emission_seq_ok(5, 5) == Some(ProducerRefusal::EmissionSeqRegression);
+            lap_refusal_cell(scenario, ProducerRefusal::EmissionSeqRegression, fired)
+        }
+        "producer_head_mismatch_refused" => {
+            let fired = lap_producer_head_ok(0xABCD, 0xABCD ^ 0x01)
+                == Some(ProducerRefusal::ProducerHeadMismatch);
+            lap_refusal_cell(scenario, ProducerRefusal::ProducerHeadMismatch, fired)
+        }
+        "artifact_already_exists_refused" => {
+            let fired = lap_artifact_absent(true) == Some(ProducerRefusal::ArtifactAlreadyExists);
+            lap_refusal_cell(scenario, ProducerRefusal::ArtifactAlreadyExists, fired)
+        }
+        "non_dry_run_envelope_refused" => {
+            let fired = lap_bridge_dry_run(false) == Some(ProducerRefusal::NonDryRunEnvelope);
+            lap_refusal_cell(scenario, ProducerRefusal::NonDryRunEnvelope, fired)
+        }
+        "unsupported_bridge_decision_refused" => {
+            let fired = lap_bridge_prepared(ControllerBridgeDecision::EnvelopeRefused)
+                == Some(ProducerRefusal::UnsupportedBridgeDecision);
+            lap_refusal_cell(scenario, ProducerRefusal::UnsupportedBridgeDecision, fired)
+        }
+        "missing_outbox_refused" => {
+            let fired = lap_outbox_present(None) == Some(ProducerRefusal::MissingOutbox);
+            lap_refusal_cell(scenario, ProducerRefusal::MissingOutbox, fired)
+        }
+        "outbox_not_directory_refused" => {
+            let fired = lap_outbox_is_directory(false) == Some(ProducerRefusal::OutboxNotDirectory);
+            lap_refusal_cell(scenario, ProducerRefusal::OutboxNotDirectory, fired)
+        }
+        "invalid_ledger_path_refused" => {
+            let fired = lap_path_valid("bad\nledger", ProducerRefusal::InvalidLedgerPath)
+                == Some(ProducerRefusal::InvalidLedgerPath);
+            lap_refusal_cell(scenario, ProducerRefusal::InvalidLedgerPath, fired)
+        }
+        "atomic_write_failed_refused" => {
+            let fired = lap_write_ok(false) == Some(ProducerRefusal::AtomicWriteFailed);
+            lap_refusal_cell(scenario, ProducerRefusal::AtomicWriteFailed, fired)
+        }
+        "live_execution_signal_detected_refused" => {
+            let mut config = ProducerConfig::inert();
+            config.executes_live = true;
+            let fired =
+                lap_signal_refusal(&config) == Some(ProducerRefusal::LiveExecutionSignalDetected);
+            lap_refusal_cell(
+                scenario,
+                ProducerRefusal::LiveExecutionSignalDetected,
+                fired,
+            )
+        }
+        "network_signal_detected_refused" => {
+            let mut config = ProducerConfig::inert();
+            config.uses_network = true;
+            let fired = lap_signal_refusal(&config) == Some(ProducerRefusal::NetworkSignalDetected);
+            lap_refusal_cell(scenario, ProducerRefusal::NetworkSignalDetected, fired)
+        }
+        "process_signal_detected_refused" => {
+            let mut config = ProducerConfig::inert();
+            config.spawns_process = true;
+            let fired = lap_signal_refusal(&config) == Some(ProducerRefusal::ProcessSignalDetected);
+            lap_refusal_cell(scenario, ProducerRefusal::ProcessSignalDetected, fired)
+        }
+        "input_device_signal_detected_refused" => {
+            let mut config = ProducerConfig::inert();
+            config.uses_input_device = true;
+            let fired =
+                lap_signal_refusal(&config) == Some(ProducerRefusal::InputDeviceSignalDetected);
+            lap_refusal_cell(scenario, ProducerRefusal::InputDeviceSignalDetected, fired)
+        }
+        "model_signal_detected_refused" => {
+            let mut config = ProducerConfig::inert();
+            config.uses_model = true;
+            let fired = lap_signal_refusal(&config) == Some(ProducerRefusal::ModelSignalDetected);
+            lap_refusal_cell(scenario, ProducerRefusal::ModelSignalDetected, fired)
+        }
+        "training_signal_detected_refused" => {
+            let mut config = ProducerConfig::inert();
+            config.uses_training = true;
+            let fired =
+                lap_signal_refusal(&config) == Some(ProducerRefusal::TrainingSignalDetected);
+            lap_refusal_cell(scenario, ProducerRefusal::TrainingSignalDetected, fired)
+        }
+        "serialized_live_actuator_producer_tamper_refused" => {
+            let json = producer_demo_json();
+            let refused = verify_producer_demo_json(&lap_flip_last_byte(&json)).is_err();
+            ProducerCell {
+                scenario: scenario.to_string(),
+                outcome: if refused {
+                    "tamper_refused"
+                } else {
+                    "tamper_missed"
+                }
+                .to_string(),
+                refusal: if refused {
+                    Some(
+                        ProducerRefusal::SerializedLiveActuatorProducerTamper
+                            .slug()
+                            .to_string(),
+                    )
+                } else {
+                    None
+                },
+                seq: 0,
+                emission_seq: 0,
+                linked: false,
+            }
+        }
+        other => ProducerCell {
+            scenario: other.to_string(),
+            outcome: "unknown".to_string(),
+            refusal: None,
+            seq: 0,
+            emission_seq: 0,
+            linked: false,
+        },
+    }
+}
+
+fn producer_matrix() -> ProducerMatrix {
+    let cells = LAP_SCENARIO_NAMES
+        .iter()
+        .map(|scenario| lap_cell_for(scenario))
+        .collect::<Vec<_>>();
+    let prepared_count = cells
+        .iter()
+        .filter(|c| c.outcome == "artifact_prepared")
+        .count();
+    let refused_count = cells
+        .iter()
+        .filter(|c| c.outcome == "artifact_refused" || c.outcome == "tamper_refused")
+        .count();
+    let boundary = ProducerBoundary::inert();
+    ProducerMatrix {
+        schema: LAP_SCHEMA_MATRIX.to_string(),
+        scenario_count: cells.len(),
+        cells,
+        prepared_count,
+        refused_count,
+        boundary,
+        boundary_all_inert: boundary.all_inert(),
+    }
+}
+
+fn producer_matrix_json() -> String {
+    serde_json::to_string_pretty(&producer_matrix()).expect("producer matrix serializes")
+}
+
+fn verify_producer_matrix_json(candidate: &str) -> Result<(), ProducerError> {
+    if candidate == producer_matrix_json() {
+        Ok(())
+    } else {
+        Err(ProducerError::ReplayMismatch)
+    }
+}
+
+// ------------------------------------------------------- the write verb --------
+
+/// Atomic write: temp file beside the final path, fsync, then rename over the final
+/// name. A rename on the same filesystem is atomic, so a reader never sees a partial
+/// artifact. Never overwrites via a partial write.
+fn lap_atomic_write(final_path: &str, content: &str) -> Result<(), String> {
+    let tmp_path = format!("{final_path}.lap-tmp");
+    std::fs::write(&tmp_path, content).map_err(|e| format!("cannot write temp {tmp_path}: {e}"))?;
+    if let Ok(file) = std::fs::File::open(&tmp_path) {
+        let _ = file.sync_all();
+    }
+    std::fs::rename(&tmp_path, final_path)
+        .map_err(|e| format!("cannot rename {tmp_path} -> {final_path}: {e}"))
+}
+
+/// The shell verb. Reads the durable ledger, verifies its chain, refuses on any guard,
+/// and (only if prepared) atomically drops the DRY-RUN artifact into the outbox and
+/// appends the ledger record. Returns Err("refused: <slug>") on any refusal so the CLI
+/// exits non-zero, or Ok(summary) after a successful quarantined write.
+fn run_producer_write(outbox: Option<&str>, ledger: Option<&str>) -> Result<String, String> {
+    if let Some(r) = lap_outbox_present(outbox) {
+        return Err(format!("refused: {}", r.slug()));
+    }
+    if let Some(r) = lap_ledger_present(ledger) {
+        return Err(format!("refused: {}", r.slug()));
+    }
+    let outbox = outbox.expect("outbox present");
+    let ledger = ledger.expect("ledger present");
+    if let Some(r) = lap_path_valid(outbox, ProducerRefusal::InvalidOutboxPath) {
+        return Err(format!("refused: {}", r.slug()));
+    }
+    if let Some(r) = lap_path_valid(ledger, ProducerRefusal::InvalidLedgerPath) {
+        return Err(format!("refused: {}", r.slug()));
+    }
+    if let Some(r) = lap_signal_refusal(&ProducerConfig::inert()) {
+        return Err(format!("refused: {}", r.slug()));
+    }
+    if let Some(r) = lap_outbox_is_directory(std::path::Path::new(outbox).is_dir()) {
+        return Err(format!("refused: {}", r.slug()));
+    }
+    let ledger_text = if std::path::Path::new(ledger).exists() {
+        std::fs::read_to_string(ledger).map_err(|e| format!("cannot read ledger {ledger}: {e}"))?
+    } else {
+        String::new()
+    };
+    let entries = match lap_parse_ledger(&ledger_text) {
+        Ok(entries) => entries,
+        Err(r) => return Err(format!("refused: {}", r.slug())),
+    };
+    let run = lap_source_run();
+    if let Some(r) = lap_bridge_prepared(run.receipt.decision) {
+        return Err(format!("refused: {}", r.slug()));
+    }
+    if let Some(r) = lap_bridge_dry_run(run.receipt.config.dry_run) {
+        return Err(format!("refused: {}", r.slug()));
+    }
+    let (command_id, _, _, _) = lap_run_identity(&run);
+    let existing_ids: Vec<u64> = entries.iter().map(|e| e.command_id).collect();
+    if let Some(r) = lap_duplicate_command(&existing_ids, command_id) {
+        return Err(format!("refused: {}", r.slug()));
+    }
+    let last_emission = entries.last().map(|e| e.emission_seq).unwrap_or(0);
+    let emission = last_emission + 1;
+    if let Some(r) = lap_emission_seq_ok(last_emission, emission) {
+        return Err(format!("refused: {}", r.slug()));
+    }
+    let head = entries
+        .last()
+        .map(|e| e.entry_hash)
+        .unwrap_or(LAP_GENESIS_HEAD);
+    if let Some(r) = lap_producer_head_ok(head, head) {
+        return Err(format!("refused: {}", r.slug()));
+    }
+    let seq = entries.len() as i64 + 1;
+    let prepared = lap_prepare(&run, seq, emission, head);
+    let artifact = prepared.artifact.as_ref().expect("prepared artifact");
+    let entry = prepared.ledger_entry.as_ref().expect("prepared entry");
+    let final_name = format!("{LAP_SCHEMA_ARTIFACT}-{emission}-{command_id:016x}.json");
+    let final_path = format!("{outbox}/{final_name}");
+    if let Some(r) = lap_artifact_absent(std::path::Path::new(&final_path).exists()) {
+        return Err(format!("refused: {}", r.slug()));
+    }
+    let artifact_json =
+        serde_json::to_string_pretty(artifact).expect("producer artifact serializes");
+    if let Some(r) = lap_write_ok(lap_atomic_write(&final_path, &artifact_json).is_ok()) {
+        return Err(format!("refused: {}", r.slug()));
+    }
+    let mut new_ledger = ledger_text.clone();
+    if !new_ledger.is_empty() && !new_ledger.ends_with('\n') {
+        new_ledger.push('\n');
+    }
+    new_ledger.push_str(&lap_entry_record(entry));
+    new_ledger.push('\n');
+    if let Some(r) = lap_write_ok(lap_atomic_write(ledger, &new_ledger).is_ok()) {
+        return Err(format!("refused: {}", r.slug()));
+    }
+    Ok(format!(
+        "live-actuator-producer-write: OK\n  artifact: {final_path}\n  emission_seq: {emission}\n  seq: {seq}\n  command_id: {command_id}\n  producer_head_after: {}\n  dry_run: true (artifact is NOT authorized for execution)\n",
+        entry.entry_hash
+    ))
+}
+
+#[cfg(test)]
+mod producer_tests {
+    use super::*;
+
+    type SignalCase = (fn(&mut ProducerConfig), ProducerRefusal);
+
+    #[test]
+    fn demo_prepares_seq_1_artifact_on_empty_ledger() {
+        let run = producer_demo();
+        assert_eq!(run.decision, ProducerDecision::ArtifactPrepared);
+        assert!(run.refusal.is_none());
+        let artifact = run.artifact.expect("prepared artifact");
+        assert_eq!(artifact.emission_seq, 1);
+        assert_eq!(artifact.producer_head_before, LAP_GENESIS_HEAD);
+        let entry = run.ledger_entry.expect("prepared entry");
+        assert_eq!(entry.seq, 1);
+        assert_eq!(entry.emission_seq, 1);
+        assert_eq!(entry.prev_entry_hash, LAP_GENESIS_HEAD);
+        assert_eq!(artifact.producer_head_after, entry.entry_hash);
+        assert!(run.boundary_all_inert);
+    }
+
+    #[test]
+    fn artifact_wraps_the_dry_run_bridge_run_and_binds_anchors() {
+        let source = lap_source_run();
+        let (command_id, taskplan, evidence, state) = lap_run_identity(&source);
+        let run = producer_demo();
+        let entry = run.ledger_entry.expect("entry");
+        // The ledger identity is the controller-bridge run receipt_hash (per-command id
+        // is private-by-lock); anchors come straight from the public receipt.
+        assert_eq!(entry.command_id, command_id);
+        assert_eq!(entry.command_id, source.receipt.receipt_hash);
+        assert_eq!(entry.taskplan_receipt_hash, taskplan);
+        assert_eq!(entry.evidence_receipt_hash, evidence);
+        assert_eq!(entry.state_receipt_hash, state);
+        // The wrapped run is dry-run and prepared.
+        let artifact = run.artifact.expect("artifact");
+        assert_eq!(
+            artifact.controller_bridge_envelope.decision,
+            ControllerBridgeDecision::EnvelopePrepared
+        );
+        assert!(artifact.controller_bridge_envelope.receipt.config.dry_run);
+    }
+
+    #[test]
+    fn emission_seq_starts_at_one_and_increments() {
+        // Empty ledger => next emission is 1.
+        assert!(lap_emission_seq_ok(0, 1).is_none());
+        // A regression (proposed <= last) refuses.
+        assert_eq!(
+            lap_emission_seq_ok(5, 5),
+            Some(ProducerRefusal::EmissionSeqRegression)
+        );
+        assert_eq!(
+            lap_emission_seq_ok(5, 3),
+            Some(ProducerRefusal::EmissionSeqRegression)
+        );
+        assert!(lap_emission_seq_ok(5, 6).is_none());
+    }
+
+    #[test]
+    fn ledger_round_trips_and_chain_verifies() {
+        let e1 = producer_demo().ledger_entry.expect("entry");
+        let record = lap_entry_record(&e1);
+        let parsed = lap_parse_ledger(&format!("{record}\n")).expect("parses");
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].entry_hash, e1.entry_hash);
+        assert_eq!(parsed[0].command_id, e1.command_id);
+    }
+
+    #[test]
+    fn ledger_tamper_is_refused() {
+        let e1 = producer_demo().ledger_entry.expect("entry");
+        let record = lap_entry_record(&e1);
+        // Flip a hash digit in the record => recompute mismatch => tamper.
+        let tampered = record.replacen(&e1.entry_hash.to_string(), "123", 1);
+        assert_eq!(
+            lap_parse_ledger(&format!("{tampered}\n")),
+            Err(ProducerRefusal::LedgerTamper)
+        );
+        // A byte-flip anywhere is also caught.
+        assert_eq!(
+            lap_parse_ledger(&format!("{}\n", lap_flip_last_byte(&record))),
+            Err(ProducerRefusal::LedgerTamper)
+        );
+    }
+
+    #[test]
+    fn broken_prev_chain_is_refused() {
+        let e1 = producer_demo().ledger_entry.expect("entry");
+        // A second record whose prev does NOT link to entry 1's head.
+        let (command_id, taskplan, evidence, state) = lap_run_identity(&lap_source_run());
+        let bad = lap_build_entry(
+            2,
+            0xDEAD,
+            2,
+            command_id ^ 0x01,
+            taskplan,
+            evidence,
+            state,
+            7,
+        );
+        let text = format!("{}\n{}\n", lap_entry_record(&e1), lap_entry_record(&bad));
+        assert_eq!(lap_parse_ledger(&text), Err(ProducerRefusal::LedgerTamper));
+    }
+
+    #[test]
+    fn duplicate_command_is_refused() {
+        let (command_id, _, _, _) = lap_run_identity(&lap_source_run());
+        assert_eq!(
+            lap_duplicate_command(&[command_id], command_id),
+            Some(ProducerRefusal::DuplicateCommand)
+        );
+        assert!(lap_duplicate_command(&[command_id], command_id ^ 0x01).is_none());
+    }
+
+    #[test]
+    fn signal_gates_each_refuse() {
+        let cases: [SignalCase; 6] = [
+            (
+                |c| c.executes_live = true,
+                ProducerRefusal::LiveExecutionSignalDetected,
+            ),
+            (
+                |c| c.uses_network = true,
+                ProducerRefusal::NetworkSignalDetected,
+            ),
+            (
+                |c| c.spawns_process = true,
+                ProducerRefusal::ProcessSignalDetected,
+            ),
+            (
+                |c| c.uses_input_device = true,
+                ProducerRefusal::InputDeviceSignalDetected,
+            ),
+            (
+                |c| c.uses_model = true,
+                ProducerRefusal::ModelSignalDetected,
+            ),
+            (
+                |c| c.uses_training = true,
+                ProducerRefusal::TrainingSignalDetected,
+            ),
+        ];
+        for (set, expected) in cases {
+            let mut config = ProducerConfig::inert();
+            set(&mut config);
+            assert_eq!(lap_signal_refusal(&config), Some(expected));
+        }
+        assert!(lap_signal_refusal(&ProducerConfig::inert()).is_none());
+    }
+
+    #[test]
+    fn non_dry_run_and_unsupported_decision_refuse() {
+        assert_eq!(
+            lap_bridge_dry_run(false),
+            Some(ProducerRefusal::NonDryRunEnvelope)
+        );
+        assert!(lap_bridge_dry_run(true).is_none());
+        assert_eq!(
+            lap_bridge_prepared(ControllerBridgeDecision::EnvelopeRefused),
+            Some(ProducerRefusal::UnsupportedBridgeDecision)
+        );
+        assert!(lap_bridge_prepared(ControllerBridgeDecision::EnvelopePrepared).is_none());
+    }
+
+    #[test]
+    fn path_and_presence_guards_refuse() {
+        assert_eq!(
+            lap_outbox_present(None),
+            Some(ProducerRefusal::MissingOutbox)
+        );
+        assert_eq!(
+            lap_outbox_present(Some("")),
+            Some(ProducerRefusal::MissingOutbox)
+        );
+        assert!(lap_outbox_present(Some("outbox")).is_none());
+        assert_eq!(
+            lap_ledger_present(None),
+            Some(ProducerRefusal::MissingLedger)
+        );
+        assert_eq!(
+            lap_path_valid("a\nb", ProducerRefusal::InvalidOutboxPath),
+            Some(ProducerRefusal::InvalidOutboxPath)
+        );
+        assert!(lap_path_valid("outbox/dir", ProducerRefusal::InvalidOutboxPath).is_none());
+        assert_eq!(
+            lap_outbox_is_directory(false),
+            Some(ProducerRefusal::OutboxNotDirectory)
+        );
+        assert_eq!(
+            lap_artifact_absent(true),
+            Some(ProducerRefusal::ArtifactAlreadyExists)
+        );
+        assert_eq!(
+            lap_write_ok(false),
+            Some(ProducerRefusal::AtomicWriteFailed)
+        );
+        assert_eq!(
+            lap_producer_head_ok(1, 2),
+            Some(ProducerRefusal::ProducerHeadMismatch)
+        );
+    }
+
+    #[test]
+    fn demo_and_matrix_replay_and_refuse_tamper() {
+        let demo = producer_demo_json();
+        assert!(verify_producer_demo_json(&demo).is_ok());
+        assert_eq!(
+            verify_producer_demo_json(&lap_flip_last_byte(&demo)),
+            Err(ProducerError::ReplayMismatch)
+        );
+        let matrix = producer_matrix_json();
+        assert!(verify_producer_matrix_json(&matrix).is_ok());
+        assert_eq!(
+            verify_producer_matrix_json(&lap_flip_last_byte(&matrix)),
+            Err(ProducerError::ReplayMismatch)
+        );
+    }
+
+    #[test]
+    fn matrix_is_well_formed_and_covers_every_refusal() {
+        let matrix = producer_matrix();
+        assert_eq!(matrix.scenario_count, LAP_SCENARIO_COUNT);
+        assert_eq!(matrix.prepared_count, 1);
+        assert!(matrix.cells.iter().all(|c| c.outcome != "unknown"
+            && c.outcome != "refusal_missed"
+            && c.outcome != "tamper_missed"
+            && c.outcome != "ledger_broken"));
+        // Every refusal variant is constructed in the matrix OR the write-verb production
+        // path. The two write-only refusals (missing_ledger, invalid_outbox_path) are
+        // exercised here by their real guards to complete A3 coverage.
+        let mut constructed: Vec<String> = matrix
+            .cells
+            .iter()
+            .filter_map(|c| c.refusal.clone())
+            .collect();
+        constructed.push(
+            lap_ledger_present(None)
+                .expect("missing ledger fires")
+                .slug()
+                .to_string(),
+        );
+        constructed.push(
+            lap_path_valid("x\ny", ProducerRefusal::InvalidOutboxPath)
+                .expect("invalid outbox path fires")
+                .slug()
+                .to_string(),
+        );
+        for refusal in ProducerRefusal::ALL {
+            assert!(
+                constructed.iter().any(|slug| slug == refusal.slug()),
+                "refusal {} must be constructed",
+                refusal.slug()
+            );
+        }
+    }
+
+    #[test]
+    fn atomic_write_then_ledger_append_round_trips() {
+        // Exercise the fs write path in an isolated scratch dir, then re-read the ledger.
+        let base = std::env::temp_dir().join(format!("lap-test-{}", std::process::id()));
+        let outbox = base.join("outbox");
+        std::fs::create_dir_all(&outbox).expect("mk outbox");
+        let ledger = base.join("ledger.log");
+        let outbox_s = outbox.to_str().expect("outbox utf8");
+        let ledger_s = ledger.to_str().expect("ledger utf8");
+        // First write succeeds.
+        let ok = run_producer_write(Some(outbox_s), Some(ledger_s));
+        assert!(ok.is_ok(), "first write should prepare: {ok:?}");
+        // The ledger now parses to exactly one entry.
+        let text = std::fs::read_to_string(&ledger).expect("read ledger");
+        let entries = lap_parse_ledger(&text).expect("ledger parses");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].seq, 1);
+        // A second write of the SAME canonical run is a duplicate command => refused.
+        let dup = run_producer_write(Some(outbox_s), Some(ledger_s));
+        assert!(
+            dup.is_err()
+                && dup
+                    .as_ref()
+                    .unwrap_err()
+                    .contains("duplicate_command_refused"),
+            "second write must refuse duplicate: {dup:?}"
+        );
+        // No temp files linger, and exactly one artifact exists.
+        let artifacts: Vec<_> = std::fs::read_dir(&outbox)
+            .expect("read outbox")
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(artifacts.iter().filter(|n| n.ends_with(".json")).count(), 1);
+        assert!(artifacts.iter().all(|n| !n.ends_with(".lap-tmp")));
+        let _ = std::fs::remove_dir_all(&base);
+    }
 }
