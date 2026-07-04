@@ -433,6 +433,18 @@ pub use wow_taskplan::{
     WOW_TASKPLAN_SCENARIO_COUNT, WOW_TASKPLAN_SCENARIO_NAMES,
 };
 
+mod controller_bridge;
+pub use controller_bridge::{
+    controller_bridge_demo, controller_bridge_demo_json, controller_bridge_demo_request,
+    controller_bridge_matrix, controller_bridge_matrix_json, run_controller_bridge,
+    verify_controller_bridge_demo_json, verify_controller_bridge_matrix_json,
+    ControllerBridgeBoundary, ControllerBridgeCell, ControllerBridgeConfig,
+    ControllerBridgeDecision, ControllerBridgeError, ControllerBridgeMatrix,
+    ControllerBridgeReceipt, ControllerBridgeRefusal, ControllerBridgeRequest, ControllerBridgeRun,
+    ControllerCommandEnvelope, ControllerCommandParameters, CONTROLLER_BRIDGE_BOUNDARY_LINES,
+    CONTROLLER_BRIDGE_SCENARIO_COUNT, CONTROLLER_BRIDGE_SCENARIO_NAMES,
+};
+
 /// What can go wrong building the end-to-end trace. Every failure is explicit; nothing is
 /// silently coerced or fabricated. The first three wrap a frozen-crate error; the last two
 /// are INT-0's own provenance invariants (a trace that did not start from a verified receipt,

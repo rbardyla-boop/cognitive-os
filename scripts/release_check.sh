@@ -1323,11 +1323,11 @@ grep -q 'fn trace_does_not_change_training_gate' crates/cognitive-demo/src/lib.r
 grep -q 'fn trace_does_not_change_verifier_receipt' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_records_every_stage_id_and_links_the_chain' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_grants_no_new_authority' crates/cognitive-demo/src/lib.rs
-# Unit-test REALITY pin: exactly the 715 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
+# Unit-test REALITY pin: exactly the 744 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
 # MTRACE-1 (12) + MTRACE-2 (12) + DOCFLOW-0 (10) + DOCFLOW-2 (10) + CORPUS-0 (12) + CORPUS-2 (12) + NOVELTY-0 (15) +
-# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) + CORPUS-HARVEST-0 (26) + SCORE-0 (20) + FAIL-0 (19) + P11-MODEL-EVAL (18) + TRAIN-GATE-0 (20) + TRAIN-0 (21) + MODEL-EVAL-1 (22) + MODEL-PROMOTE-0 (23) + PROD-0 (19) + PROD-SMOKE-0 (20) + RELEASE-1 (25) + VAULT-NORM-0 (21) + QSELECT-0 (24) + QFLOW-0 (30) + LIT-INTENT-0 (14) + TEACH-0 (14) + LEARNER-MODEL-0 (18) + LEARNER-MEMORY-0 (18) + LEARNER-MEMORY-1 (25) + SESSION-LOOP-0 (24) + MULTI-SESSION-0 (17) + GAME-EVIDENCE-0 (22) + WOW-STATE-0 (27) + WOW-TASKPLAN-0 (22) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
+# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) + CORPUS-HARVEST-0 (26) + SCORE-0 (20) + FAIL-0 (19) + P11-MODEL-EVAL (18) + TRAIN-GATE-0 (20) + TRAIN-0 (21) + MODEL-EVAL-1 (22) + MODEL-PROMOTE-0 (23) + PROD-0 (19) + PROD-SMOKE-0 (20) + RELEASE-1 (25) + VAULT-NORM-0 (21) + QSELECT-0 (24) + QFLOW-0 (30) + LIT-INTENT-0 (14) + TEACH-0 (14) + LEARNER-MODEL-0 (18) + LEARNER-MEMORY-0 (18) + LEARNER-MEMORY-1 (25) + SESSION-LOOP-0 (24) + MULTI-SESSION-0 (17) + GAME-EVIDENCE-0 (22) + WOW-STATE-0 (27) + WOW-TASKPLAN-0 (22) + CONTROLLER-BRIDGE-0 (29) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
 _int0_unit="$(cargo test --offline --lib --manifest-path crates/cognitive-demo/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 715
+test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 744
 test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
 # Determinism / no side effects: the trace is a pure, in-memory function — no clock, entropy, or network
 # anywhere in src/, and no floats anywhere in the crate. (`std::process::exit` in the CLI shell is a clean
@@ -1458,6 +1458,89 @@ grep -q '"wow-taskplan-matrix"' crates/cognitive-demo/src/main.rs
 grep -q '"wow-taskplan-matrix-verify"' crates/cognitive-demo/src/main.rs
 test "$(grep -c '#\[test\]' crates/cognitive-demo/src/wow_taskplan.rs)" -eq 22
 grep -q 'pub fn run_wow_taskplan(' crates/cognitive-demo/src/wow_taskplan.rs
+# CONTROLLER-BRIDGE-0: the FIRST execution-adjacent rung — a fixture-only, dry-run command-envelope
+# bridge from WOW-TASKPLAN-0 to a quarantined actuator boundary. This gate's safety cannot rest on the
+# serialized declaration booleans (dry_run/operator_approved/kill_switch_armed): in a Serialize-not-
+# Deserialize crate a serialized bool carries no authority, so the guarantees below are STRUCTURAL and
+# enforced HERE, in the same commit that introduces the module. Same per-module purity pins as the two
+# organs it folds, PLUS crate-wide-recursive Deserialize + fs scans (the per-file scans above name each
+# file literally and would NOT cover a new module), an actuator/input-injection import ban (so
+# "dry-run only" is enforced, not merely prose), a closed-parameter + anti-routing + untrusted-body ban,
+# a private-envelope-fields pin, and an anti-authority-input pin (no pub fn accepts a caller-supplied
+# plan/run/envelope — provenance is minted internally via run_wow_taskplan). Deferred live-bridge refusals
+# (stale_plan / loop_attempt / session_motion_budget) are intentionally ABSENT — an unreachable fixture
+# refusal would be A3 debris.
+test -f crates/cognitive-demo/src/controller_bridge.rs
+test "$(grep -cE 'std::fs|File::create|File::open|fs::write|fs::read|OpenOptions|Command::new|process::Command|std::net|TcpStream|UdpSocket|SystemTime|Instant|std::time|thread_rng|getrandom|rand::|use rand' crates/cognitive-demo/src/controller_bridge.rs)" -eq 0
+test "$(grep -cE 'derive\([^)]*Deserialize' crates/cognitive-demo/src/controller_bridge.rs)" -eq 0
+test "$(grep -cE 'impl([[:space:]]|<).*Deserialize.*for' crates/cognitive-demo/src/controller_bridge.rs)" -eq 0
+# Crate-wide recursive Deserialize scan: NO cognitive-demo source module may derive or hand-write a
+# Deserialize (a stored artifact is untrusted input, byte-verified against the re-derived canonical, never
+# parsed). The per-file scans above are literal-named; this recursive scan closes the new-module gap so a
+# Deserialize on any executable-adjacent envelope fails closed.
+test "$(grep -rcE 'derive\([^)]*Deserialize|impl([[:space:]]|<).*Deserialize.*for' crates/cognitive-demo/src | grep -vE ':0$' | wc -l)" -eq 0
+# Crate-wide recursive fs scan for the CORE library modules (lib.rs + main.rs shell own all file I/O):
+# no controller-adjacent module may touch the filesystem, so a dry-run envelope can never depend on disk.
+test "$(grep -cE 'std::fs|File::create|File::open|fs::write|fs::read|OpenOptions' crates/cognitive-demo/src/controller_bridge.rs)" -eq 0
+# No nondeterministic hasher: the fold is the hand-rolled FNV only; DefaultHasher/RandomState are seeded
+# and would make the command id / receipt nondeterministic.
+test "$(grep -cE 'DefaultHasher|RandomState|BuildHasher' crates/cognitive-demo/src/controller_bridge.rs)" -eq 0
+# Actuator / input-injection import ban: NO OS input or windowing actuator may be imported — the bridge
+# emits dry-run envelopes, it never drives a device. This makes "dry-run only" a structural invariant.
+test "$(grep -ciE 'enigo|rdev|inputbot|winput|xdotool|xtest|uinput|sendinput|key_click|mouse_move|cgevent|libc::|windows::UI|std::process' crates/cognitive-demo/src/controller_bridge.rs)" -eq 0
+# No unsafe, and no model/inference/training import (the config flags uses_model/uses_training and their
+# refusals are deliberately NOT matched — they are the bridge's own boundary declarations).
+test "$(grep -cE '\bunsafe\b' crates/cognitive-demo/src/controller_bridge.rs)" -eq 0
+test "$(grep -cE 'learner_model|torch|onnx|neural|inference|embedding|tensor' crates/cognitive-demo/src/controller_bridge.rs)" -eq 0
+# Anti-routing lock: no coordinate/route math tokens, no coordinate-field steering reads (the nav command
+# copies WOW-STATE's bearing/distance verbatim through the plan, never recomputed).
+test "$(grep -cE 'atan2|isqrt|cordic|waypoint|path_to|route_to' crates/cognitive-demo/src/controller_bridge.rs)" -eq 0
+test "$(grep -oE '[a-zA-Z_]*coordinate_path' crates/cognitive-demo/src/controller_bridge.rs | wc -l)" -eq 0
+test "$(grep -cE '\.x_cy|\.y_cy|centroid' crates/cognitive-demo/src/controller_bridge.rs)" -eq 0
+# Untrusted-text lock: the bridge binds evidence identity by body_hash only and NEVER reads a document
+# body; a bare `.body` read is the inherited prompt-injection risk. (`.body_hash`/`.evidence_body_hash`
+# have a word char after `body`, so they do not match `\.body\b`.)
+test "$(grep -cE '\.body\b' crates/cognitive-demo/src/controller_bridge.rs)" -eq 0
+# Closed-parameter lock: the command parameter is the closed typed enum ControllerCommandParameters —
+# there is no string/map/json/value parameter channel. The enum exists; no serde_json Value rides in.
+grep -q 'pub enum ControllerCommandParameters' crates/cognitive-demo/src/controller_bridge.rs
+test "$(grep -cE 'serde_json::Value|HashMap|BTreeMap|parameters:[[:space:]]*String' crates/cognitive-demo/src/controller_bridge.rs)" -eq 0
+# No executable evidence_stable_id: the attacker-shaped string is dropped from the envelope; only
+# evidence_body_hash rides. The token evidence_stable_id must not appear in the bridge at all.
+test "$(grep -cE 'evidence_stable_id' crates/cognitive-demo/src/controller_bridge.rs)" -eq 0
+# Command-id is state-INDEPENDENT: the derivation folds plan identity + reissue index; the per-tick
+# state_receipt_hash must NOT be an argument to derive_command_id.
+grep -q 'fn derive_command_id(' crates/cognitive-demo/src/controller_bridge.rs
+test "$(sed -n '/fn derive_command_id(/,/^}/p' crates/cognitive-demo/src/controller_bridge.rs | grep -cE 'state_receipt_hash|state_hash')" -eq 0
+# Private-envelope-fields pin: ControllerCommandEnvelope is constructor-minted only — zero pub fields, so
+# no external caller can forge or mutate a command (the CognitiveTrace pattern).
+test "$(awk '/pub struct ControllerCommandEnvelope \{/{f=1;next} f&&/^\}/{f=0} f&&/pub /{c++} END{print c+0}' crates/cognitive-demo/src/controller_bridge.rs)" -eq 0
+# Anti-authority-input pin: provenance is minted internally (run_controller_bridge calls run_wow_taskplan);
+# no `pub fn` line names a caller-supplied plan/run/envelope authority type as a parameter.
+grep -q 'pub fn run_controller_bridge(' crates/cognitive-demo/src/controller_bridge.rs
+grep -q 'run_wow_taskplan(' crates/cognitive-demo/src/controller_bridge.rs
+grep -q 'evidence_obs: &\[GameEvidenceObservation\]' crates/cognitive-demo/src/controller_bridge.rs
+test "$(grep -E 'pub fn' crates/cognitive-demo/src/controller_bridge.rs | grep -cE 'WowTaskPlanRun|ControllerCommandEnvelope|&WowTaskPlan[^a-zA-Z_]')" -eq 0
+# Every wired guard is CALLED inside run_controller_bridge (linkage cannot be silently removed).
+grep -q 'signal_refusal(&bridge_config)' crates/cognitive-demo/src/controller_bridge.rs
+grep -q 'declaration_refusal(&bridge_config)' crates/cognitive-demo/src/controller_bridge.rs
+grep -q 'plan_decision_supported(' crates/cognitive-demo/src/controller_bridge.rs
+grep -q 'anchors_present(' crates/cognitive-demo/src/controller_bridge.rs
+grep -q 'classify_command_action(' crates/cognitive-demo/src/controller_bridge.rs
+grep -q 'command_action_is_emittable(' crates/cognitive-demo/src/controller_bridge.rs
+grep -q 'at_most_one_nav_command(' crates/cognitive-demo/src/controller_bridge.rs
+grep -q 'command_is_state_linked(' crates/cognitive-demo/src/controller_bridge.rs
+grep -q 'anchors_match_plan(' crates/cognitive-demo/src/controller_bridge.rs
+grep -q 'control_params_ok(' crates/cognitive-demo/src/controller_bridge.rs
+grep -q 'nav_params_match(' crates/cognitive-demo/src/controller_bridge.rs
+grep -q 'verify_controller_bridge_demo_json' crates/cognitive-demo/src/controller_bridge.rs
+grep -q 'verify_controller_bridge_matrix_json' crates/cognitive-demo/src/controller_bridge.rs
+# The four controller-bridge CLI verbs stay wired in the I/O shell.
+grep -q '"controller-bridge-demo"' crates/cognitive-demo/src/main.rs
+grep -q '"controller-bridge-demo-verify"' crates/cognitive-demo/src/main.rs
+grep -q '"controller-bridge-matrix"' crates/cognitive-demo/src/main.rs
+grep -q '"controller-bridge-matrix-verify"' crates/cognitive-demo/src/main.rs
+test "$(grep -c '#\[test\]' crates/cognitive-demo/src/controller_bridge.rs)" -eq 29
 # No model is trained or loaded: the demo manifest pulls no ML/inference/training framework.
 test "$(grep -riE 'torch|tensorflow|candle|onnx|tract|\bburn\b|llama|inference' crates/cognitive-demo/Cargo.toml | wc -l)" -eq 0
 # Separation: cognitive-demo INTEGRATES the two frozen tracks (reading-cli + hypothesis-layer in its tree) and

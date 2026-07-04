@@ -3,6 +3,57 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-07-03-E — Fixture-only dry-run command-envelope bridge (CONTROLLER-BRIDGE-0)
+
+**Decision.** Add `crates/cognitive-demo/src/controller_bridge.rs` plus four operator-visible CLI verbs
+(`controller-bridge-demo`, `controller-bridge-demo-verify`, `controller-bridge-matrix`,
+`controller-bridge-matrix-verify`): the FIRST execution-adjacent rung of the WOW-SANDBOX-0 ladder, above
+WOW-TASKPLAN-0. `run_controller_bridge` takes raw GAME-EVIDENCE and raw WOW-STATE observations, runs
+WOW-TASKPLAN-0 internally (which runs the two frozen organs — genuine minted provenance, never a
+caller-supplied plan/run/envelope), and translates the bounded plan into a bounded set of DRY-RUN
+command envelopes: one per plan step, each carrying a closed typed parameter, every upstream receipt
+anchor, and a state-independent command id. It is a translation, never authority — it does not execute a
+command, call the controller, move the character, touch the live stack, parse untrusted text into
+commands, pathfind, or run a model. Declaration-not-authority law (load-bearing): `dry_run`,
+`operator_approved`, and `kill_switch_armed` are FAIL-CLOSED DECLARATIONS — a false declaration refuses,
+a true declaration is a required precondition, NOT authorization. The pure crate holds no clock, entropy,
+identity, or signature, so it cannot authenticate an operator or arm a kill line; those controls live in
+the (separate, later) live actuator, which must re-check real approval and a real kill line
+independently and must never treat a passing envelope, a matching hash, or `dry_run=false` as a
+go-command. Closed-parameter law: a command parameter is the closed typed enum
+`ControllerCommandParameters` (`MoveTowardBearing{bearing_millideg,distance_cy}` or `None`) — no
+string/map/free-form channel, so no untrusted body slice or attacker-shaped name rides into a command;
+`evidence_stable_id` is dropped from the executable envelope, which carries `evidence_body_hash` for
+linkage. Command-identity law: `derive_command_id` folds plan identity (`evidence_body_hash` +
+`target_quest_id` + action slug) and an explicit `reissue_index` — never the per-tick
+`state_receipt_hash` — so legitimate reissues stay countable and distinct instead of repeating only when
+the character is stuck. Durable replay/supersession and a cumulative motion budget need cross-call
+sequence the pure crate cannot compute, so `stale_plan`/`loop_attempt`/`session_motion_budget` refusals
+are DEFERRED to the live bridge (which should reuse the `learner_journal` seq/prev-pointer chain), not
+constructed here as unreachable A3 debris. Anti-routing law: the one navigation command re-emits
+WOW-STATE's bearing/distance verbatim through the plan; the bridge performs no geometry and emits at
+most ONE navigation command. All 21 refusal variants are constructed in reachable production/matrix
+paths, including the byte-flip `serialized_controller_bridge_tamper` (A3); the 27-scenario matrix (1
+prepared + 21 refusals + 4 control-linkage cells + 1 pairwise-distinct-id cell) pins them, and a
+matrix-coverage test asserts every variant is constructed. Float-free integer fold,
+Serialize-not-Deserialize, no fs/net/process/clock/entropy.
+
+**Scope / boundary.** Cognitive-demo only: `controller_bridge.rs`, `lib.rs`, `main.rs`, this charter
+entry, and `release_check.sh` (unit-count pin 715→744, per-module purity pins, four verb pins, and a
+FULL structural lock block the pin-only-regresses lesson makes load-bearing for this control-adjacent
+module — crate-wide-recursive Deserialize + fs scans that the literal-named per-file scans would miss, an
+actuator/input-injection import ban so "dry-run only" is structural not prose, `unsafe`/`DefaultHasher`
+bans, a closed-parameter + no-`evidence_stable_id` lock, a state-independent-`command_id` lock, a
+private-envelope-fields pin, an anti-authority-input pin — no `pub fn` accepts a caller-supplied
+plan/run/envelope — every wired guard asserted CALLED in `run_controller_bridge`, plus intactness pins on
+the folded rungs). Zero edits to the three frozen organs (`wow_taskplan.rs`, `wow_state.rs`,
+`game_evidence.rs`), the learning stack, the reading substrate, or any live WoW code (no
+`wow_client_pilot.py`, `observe_server.py`, AzerothCore, Action Bridge, addon, controller, or NN); no
+socket/server/client integration, no Cargo.toml/lock. The bridge emits dry-run envelopes only — it does
+not execute live commands, authenticate an operator, arm a kill switch, call the controller, touch the
+live stack, parse untrusted text into commands, pathfind, or train/run a model — no model/embedding/
+training, no v0.1 retag. P12 `training_justified=false`; P13-P15 closed.
+
 ## DD-2026-07-03-D — Fixture-first receipt-linked task-plan proposal (WOW-TASKPLAN-0)
 
 **Decision.** Add `crates/cognitive-demo/src/wow_taskplan.rs` plus four operator-visible CLI verbs

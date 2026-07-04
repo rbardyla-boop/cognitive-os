@@ -54,6 +54,10 @@
 //!   cognitive-demo wow-taskplan-demo-verify --plan PATH         # re-derive the plan and refuse tamper
 //!   cognitive-demo wow-taskplan-matrix [--out PATH]             # emit the WOW-TASKPLAN-0 scenario matrix
 //!   cognitive-demo wow-taskplan-matrix-verify --matrix PATH     # re-derive the matrix and refuse tamper
+//!   cognitive-demo controller-bridge-demo [--out PATH]          # emit the canonical CONTROLLER-BRIDGE-0 dry-run envelope set
+//!   cognitive-demo controller-bridge-demo-verify --envelope PATH # re-derive the envelope set and refuse tamper
+//!   cognitive-demo controller-bridge-matrix [--out PATH]        # emit the CONTROLLER-BRIDGE-0 scenario matrix
+//!   cognitive-demo controller-bridge-matrix-verify --matrix PATH # re-derive the matrix and refuse tamper
 //!   cognitive-demo doc-trace        --input PATH [--out PATH] # trace a LOCAL operator document (verify-first)
 //!   cognitive-demo doc-report       --input PATH --trace PATH # render the doc report (re-derive + refuse tamper)
 //!   cognitive-demo doc-bundle       --input PATH --out DIR    # repro bundle over the operator document
@@ -153,22 +157,23 @@
 //! here (never in the library or the example), which the release gate enforces.
 
 use cognitive_demo::{
-    canonical_bundle, check_local_input_path, corpus_admits_filename, corpus_bundle,
-    corpus_scenario_matrix, corpus_scenario_pack_files, doc_bundle, doc_scenario_matrix,
-    doc_scenario_pack_files, dream_export_matrix, failure_pack_files, game_evidence_demo_json,
-    game_evidence_matrix_json, learner_journal_append_at, learner_journal_demo_json,
-    learner_journal_json_at, learner_journal_matrix_json, learner_journal_state_json,
-    learner_memory_demo_json, learner_memory_matrix_json, learner_model_demo_json,
-    learner_model_matrix_json, learning_arc_demo_json, learning_arc_matrix_json,
-    learning_session_demo_json, learning_session_matrix_json, list_corpus_scenarios,
-    list_doc_scenarios, list_dream_export_scenarios, list_failure_cases, list_questions,
-    list_scenarios, literature_intent_demo_json, literature_intent_matrix_json,
-    resolved_path_within, run_ask, run_corpus_report, run_corpus_trace, run_doc_report,
-    run_doc_trace, run_dream_export, run_dream_export_matrix_report,
-    run_dream_export_matrix_verify, run_dream_export_replay, run_dream_export_report,
-    run_novelty_packet, run_novelty_replay, run_novelty_report, run_replay, run_report, run_trace,
-    scenario_bundle, scenario_matrix, scenario_matrix_report, scenario_pack_manifest,
-    teach_map_demo_json, teach_map_matrix_json, verify_bundle, verify_corpus_bundle,
+    canonical_bundle, check_local_input_path, controller_bridge_demo_json,
+    controller_bridge_matrix_json, corpus_admits_filename, corpus_bundle, corpus_scenario_matrix,
+    corpus_scenario_pack_files, doc_bundle, doc_scenario_matrix, doc_scenario_pack_files,
+    dream_export_matrix, failure_pack_files, game_evidence_demo_json, game_evidence_matrix_json,
+    learner_journal_append_at, learner_journal_demo_json, learner_journal_json_at,
+    learner_journal_matrix_json, learner_journal_state_json, learner_memory_demo_json,
+    learner_memory_matrix_json, learner_model_demo_json, learner_model_matrix_json,
+    learning_arc_demo_json, learning_arc_matrix_json, learning_session_demo_json,
+    learning_session_matrix_json, list_corpus_scenarios, list_doc_scenarios,
+    list_dream_export_scenarios, list_failure_cases, list_questions, list_scenarios,
+    literature_intent_demo_json, literature_intent_matrix_json, resolved_path_within, run_ask,
+    run_corpus_report, run_corpus_trace, run_doc_report, run_doc_trace, run_dream_export,
+    run_dream_export_matrix_report, run_dream_export_matrix_verify, run_dream_export_replay,
+    run_dream_export_report, run_novelty_packet, run_novelty_replay, run_novelty_report,
+    run_replay, run_report, run_trace, scenario_bundle, scenario_matrix, scenario_matrix_report,
+    scenario_pack_manifest, teach_map_demo_json, teach_map_matrix_json, verify_bundle,
+    verify_controller_bridge_demo_json, verify_controller_bridge_matrix_json, verify_corpus_bundle,
     verify_corpus_scenario_pack, verify_doc_bundle, verify_doc_scenario_pack, verify_failure_pack,
     verify_game_evidence_demo_json, verify_game_evidence_matrix_json,
     verify_learner_journal_demo_json, verify_learner_journal_matrix_json,
@@ -603,6 +608,30 @@ fn dispatch(args: &[String]) -> Result<(), String> {
             let matrix = read_plain_file(args, "--matrix")?;
             verify_wow_taskplan_matrix_json(&matrix).map_err(|e| format!("{e:?}"))?;
             println!("wow-taskplan-matrix-verify: OK");
+            Ok(())
+        }
+        Some("controller-bridge-demo") => {
+            // Emit the canonical CONTROLLER-BRIDGE-0 dry-run command envelope set.
+            let json = controller_bridge_demo_json();
+            emit(&json, flag_value(args, "--out"))
+        }
+        Some("controller-bridge-demo-verify") => {
+            // Re-derive the canonical envelope set and require provided bytes to match.
+            let plan = read_plain_file(args, "--envelope")?;
+            verify_controller_bridge_demo_json(&plan).map_err(|e| format!("{e:?}"))?;
+            println!("controller-bridge-demo-verify: OK");
+            Ok(())
+        }
+        Some("controller-bridge-matrix") => {
+            // Emit the CONTROLLER-BRIDGE-0 scenario matrix.
+            let json = controller_bridge_matrix_json();
+            emit(&json, flag_value(args, "--out"))
+        }
+        Some("controller-bridge-matrix-verify") => {
+            // Re-derive the CONTROLLER-BRIDGE-0 matrix and byte-compare a provided artifact.
+            let matrix = read_plain_file(args, "--matrix")?;
+            verify_controller_bridge_matrix_json(&matrix).map_err(|e| format!("{e:?}"))?;
+            println!("controller-bridge-matrix-verify: OK");
             Ok(())
         }
         Some("failure-cases") => {
@@ -1443,6 +1472,8 @@ fn usage() -> String {
      wow-state-matrix [--out PATH] | wow-state-matrix-verify --matrix PATH | \
      wow-taskplan-demo [--out PATH] | wow-taskplan-demo-verify --plan PATH | \
      wow-taskplan-matrix [--out PATH] | wow-taskplan-matrix-verify --matrix PATH | \
+     controller-bridge-demo [--out PATH] | controller-bridge-demo-verify --envelope PATH | \
+     controller-bridge-matrix [--out PATH] | controller-bridge-matrix-verify --matrix PATH | \
      doc-trace --input PATH [--out PATH] | doc-report --input PATH --trace PATH [--out PATH] | \
      doc-bundle --input PATH --out DIR | doc-bundle-verify --input PATH --path DIR | \
      doc-scenarios | doc-scenario-pack --out DIR | doc-scenario-verify --path DIR | \
