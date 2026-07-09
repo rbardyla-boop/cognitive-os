@@ -1323,11 +1323,11 @@ grep -q 'fn trace_does_not_change_training_gate' crates/cognitive-demo/src/lib.r
 grep -q 'fn trace_does_not_change_verifier_receipt' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_records_every_stage_id_and_links_the_chain' crates/cognitive-demo/src/lib.rs
 grep -q 'fn trace_grants_no_new_authority' crates/cognitive-demo/src/lib.rs
-# Unit-test REALITY pin: exactly the 772 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
+# Unit-test REALITY pin: exactly the 776 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
 # MTRACE-1 (12) + MTRACE-2 (12) + DOCFLOW-0 (10) + DOCFLOW-2 (10) + CORPUS-0 (12) + CORPUS-2 (12) + NOVELTY-0 (15) +
-# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) + CORPUS-HARVEST-0 (26) + SCORE-0 (20) + FAIL-0 (19) + P11-MODEL-EVAL (18) + TRAIN-GATE-0 (20) + TRAIN-0 (21) + MODEL-EVAL-1 (22) + MODEL-PROMOTE-0 (23) + PROD-0 (19) + PROD-SMOKE-0 (20) + RELEASE-1 (25) + VAULT-NORM-0 (21) + QSELECT-0 (24) + QFLOW-0 (30) + LIT-INTENT-0 (14) + TEACH-0 (14) + LEARNER-MODEL-0 (18) + LEARNER-MEMORY-0 (18) + LEARNER-MEMORY-1 (25) + SESSION-LOOP-0 (24) + MULTI-SESSION-0 (17) + GAME-EVIDENCE-0 (22) + WOW-STATE-0 (27) + WOW-TASKPLAN-0 (22) + CONTROLLER-BRIDGE-0 (29) + CONVERSE-0 (28) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
+# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) + CORPUS-HARVEST-0 (26) + SCORE-0 (20) + FAIL-0 (19) + P11-MODEL-EVAL (18) + TRAIN-GATE-0 (20) + TRAIN-0 (21) + MODEL-EVAL-1 (22) + MODEL-PROMOTE-0 (23) + PROD-0 (19) + PROD-SMOKE-0 (20) + RELEASE-1 (25) + VAULT-NORM-0 (21) + QSELECT-0 (24) + QFLOW-0 (30) + LIT-INTENT-0 (14) + TEACH-0 (14) + LEARNER-MODEL-0 (18) + LEARNER-MEMORY-0 (18) + LEARNER-MEMORY-1 (25) + SESSION-LOOP-0 (24) + MULTI-SESSION-0 (17) + GAME-EVIDENCE-0 (22) + WOW-STATE-0 (27) + WOW-TASKPLAN-0 (22) + CONTROLLER-BRIDGE-0 (29) + CONVERSE-0 (28) + VAULT-NORM-CLEANUP (4) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
 _int0_unit="$(cargo test --offline --lib --manifest-path crates/cognitive-demo/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 772
+test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 776
 test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
 # Determinism / no side effects: the trace is a pure, in-memory function — no clock, entropy, or network
 # anywhere in src/, and no floats anywhere in the crate. (`std::process::exit` in the CLI shell is a clean
@@ -5726,7 +5726,11 @@ for _vt in 'fn rule_set_has_sixteen_named_rules' \
            'fn normalization_eliminates_markup_pollution' \
            'fn grounding_safety_preserved_zero_false_grounded_both_ways' \
            'fn over_split_is_measured_not_assumed' \
-           'fn matrix_json_re_derives_and_refuses_tampering'; do
+           'fn matrix_json_re_derives_and_refuses_tampering' \
+           'fn single_asterisk_italic_is_stripped' \
+           'fn path_wikilink_shows_display_tail_not_raw_path' \
+           'fn plain_and_aliased_wikilinks_are_unchanged_by_the_tail_rule' \
+           'fn intraword_underscore_token_survives_emphasis_strip'; do
   grep -qF "$_vt" "$_VN"
 done
 

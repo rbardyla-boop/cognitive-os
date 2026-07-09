@@ -3,6 +3,31 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-07-09-A — Markdown normalization cleanup (VAULT-NORM-CLEANUP)
+
+**Decision.** Under explicit operator authorization, re-open the VAULT-NORM-0 organ
+(`vault_norm.rs`) for a bounded input-fidelity improvement observed on real vault notes: (1) strip
+single-asterisk `*italic*` emphasis (previously only `**bold**`/`__bold__` were removed), and (2)
+render a path-style wikilink by its display TAIL with a trailing `.md` dropped, so
+`[[Memory/Literature/Note.md]]` normalizes to `Note` instead of the raw vault path. Both are pure
+markup deletion / display selection — the normalizer still INVENTS no text and never rewrites token
+bytes.
+
+**Scope.** `vault_norm.rs` (`unwrap_inline` only + 4 new unit tests), `release_check.sh` (the 4 new
+test names + the `--lib` count 772 → 776), and this charter. NO other frozen organ touched; no
+change to `NORM_RULE_COUNT` (16) or `NORM_FIXTURE_COUNT` (22) — the rules `emphasis_strip` /
+`wikilink_unwrap` were sharpened, not added.
+
+**Zero cascade (verified).** No committed fixture uses a single-`*` italic or a path/`.md`
+wikilink, so `normalization_matrix_json()` is byte-identical and every QFLOW assertion
+(`[[Note A]]` → "Note A", `**bold**` stripped) is unchanged; the full suite regressed nothing
+(776 pass). The survival invariant is preserved and re-pinned: intraword `drive_scout.py` still
+survives verbatim under the new emphasis rule (single `_` is deliberately left intact — only
+asterisks and `__` are stripped).
+
+**Boundary.** Still input-fidelity only, not "better reading"; `NORM_EDITS_SUBSTRATE=false`; no
+Deserialize, no floats, no splitter redefinition; no retag. P12 false / P13–P15 closed.
+
 ## DD-2026-07-08-A — Verifier-grounded multi-turn conversation (CONVERSE-0)
 
 **Decision.** Add CONVERSE-0, the multi-turn conversation surface that COMPOSES the already-verified

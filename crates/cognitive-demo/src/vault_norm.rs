@@ -67,8 +67,10 @@ pub const NORM_BOUNDARY_LINES: [&str; 8] = [
 // ---------------------------------------------------------------------------
 
 /// Unwrap inline Markdown on one line. Deterministic, no semantics, pure string
-/// scanning (no regex dependency). `![alt](u)`->dropped, `[[A|B]]`->B, `[[A]]`->A,
-/// `[t](u)`->t, `` `code` ``->code, emphasis `** __` removed.
+/// scanning (no regex dependency). `![alt](u)`->dropped, `[[A|B]]`->B,
+/// `[[dir/Note.md]]`->Note (display tail, trailing `.md` dropped), `[[A]]`->A,
+/// `[t](u)`->t, `` `code` ``->code, asterisk emphasis `*` / `**` and `__` removed
+/// (single `_` is kept so intraword tokens like `drive_scout.py` survive verbatim).
 fn unwrap_inline(line: &str) -> String {
     let mut s = line.to_string();
     // images first: ![alt](url) -> ""
@@ -79,14 +81,22 @@ fn unwrap_inline(line: &str) -> String {
             break;
         }
     }
-    // wikilinks [[Target|Alias]] / [[Target]] -> alias or target
+    // wikilinks [[Target|Alias]] -> Alias (verbatim); [[Target]] -> the note's
+    // display tail (last path segment, trailing ".md" dropped) so a path-style link
+    // like [[Memory/Literature/Note.md]] reads as "Note", not the raw vault path.
     while let Some(open) = s.find("[[") {
         let Some(rel_close) = s[open..].find("]]") else {
             break;
         };
         let close = open + rel_close;
         let inner = &s[open + 2..close];
-        let text = inner.rsplit('|').next().unwrap_or(inner).to_string();
+        let text = match inner.rsplit_once('|') {
+            Some((_, alias)) => alias.to_string(),
+            None => {
+                let tail = inner.rsplit('/').next().unwrap_or(inner);
+                tail.strip_suffix(".md").unwrap_or(tail).to_string()
+            }
+        };
         s.replace_range(open..close + 2, &text);
     }
     // markdown links [text](url) -> text
@@ -103,7 +113,9 @@ fn unwrap_inline(line: &str) -> String {
         s.replace_range(open..close + 1, &text);
     }
     s = s.replace('`', "");
-    s = s.replace("**", "").replace("__", "");
+    // Strip asterisk emphasis (both *italic* and **bold**) and double-underscore bold.
+    // Single underscores are left intact so intraword tokens (drive_scout.py) survive.
+    s = s.replace('*', "").replace("__", "");
     s
 }
 
@@ -653,6 +665,44 @@ mod tests {
         assert!(out.contains("Note A"));
         assert!(out.contains("alias"));
         assert!(out.contains("text"));
+    }
+
+    #[test]
+    fn single_asterisk_italic_is_stripped() {
+        // The residue seen over real vault notes: single-* emphasis survived. It is
+        // now stripped (markup only; the words are untouched).
+        let out = normalize_markdown("This is a *passive monitoring stance* today.");
+        assert!(!out.contains('*'));
+        assert!(out.contains("passive monitoring stance"));
+    }
+
+    #[test]
+    fn path_wikilink_shows_display_tail_not_raw_path() {
+        // A path-style wikilink reads as the note's tail, with the .md dropped.
+        let out = normalize_markdown("See [[Memory/Literature/2605.22166v2.md]] for context.");
+        assert!(out.contains("2605.22166v2"));
+        assert!(!out.contains("Memory/Literature"));
+        assert!(!out.contains(".md]]"));
+        assert!(!out.contains("[["));
+    }
+
+    #[test]
+    fn plain_and_aliased_wikilinks_are_unchanged_by_the_tail_rule() {
+        // Single-segment and aliased links must keep their old behavior (QFLOW relies
+        // on [[Note A]] -> "Note A").
+        let out = normalize_markdown("See [[Note A]] and [[Other|alias]] here.");
+        assert!(out.contains("Note A"));
+        assert!(out.contains("alias"));
+        assert!(!out.contains("Other"));
+    }
+
+    #[test]
+    fn intraword_underscore_token_survives_emphasis_strip() {
+        // The red line under the new emphasis rule: a single-underscore intraword
+        // token must NOT be mangled (drive_scout.py stays verbatim).
+        let out = normalize_markdown("Edit drive_scout.py and set __BOLD__ off.");
+        assert!(out.contains("drive_scout.py"));
+        assert!(!out.contains("__"));
     }
 
     #[test]
