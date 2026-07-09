@@ -40,6 +40,7 @@
 //!   cognitive-demo converse-matrix-verify --matrix PATH        # re-derive the matrix and refuse tamper
 //!   cognitive-demo converse-run --input-dir DIR --script PATH [--out PATH]  # converse over a LOCAL .txt vault (grounded-or-refused per turn)
 //!   cognitive-demo converse-run-verify --input-dir DIR --script PATH --transcript PATH  # re-derive the transcript and refuse tamper
+//!   cognitive-demo converse-repl --input-dir DIR               # interactive grounded conversation with a LOCAL .txt vault
 //!   cognitive-demo learning-session-demo [--out PATH]          # emit the canonical SESSION-LOOP-0 run
 //!   cognitive-demo learning-session-demo-verify --session PATH # re-derive the session run and refuse tamper
 //!   cognitive-demo learning-session-matrix [--out PATH]        # emit the SESSION-LOOP-0 scenario matrix
@@ -175,8 +176,8 @@ use cognitive_demo::{
     learning_session_demo_json, learning_session_matrix_json, list_corpus_scenarios,
     list_doc_scenarios, list_dream_export_scenarios, list_failure_cases, list_questions,
     list_scenarios, literature_intent_demo_json, literature_intent_matrix_json,
-    resolved_path_within, run_ask, run_corpus_report, run_corpus_trace, run_doc_report,
-    run_doc_trace, run_dream_export, run_dream_export_matrix_report,
+    resolved_path_within, run_ask, run_conversation_default, run_corpus_report, run_corpus_trace,
+    run_doc_report, run_doc_trace, run_dream_export, run_dream_export_matrix_report,
     run_dream_export_matrix_verify, run_dream_export_replay, run_dream_export_report,
     run_novelty_packet, run_novelty_replay, run_novelty_report, run_replay, run_report, run_trace,
     scenario_bundle, scenario_matrix, scenario_matrix_report, scenario_pack_manifest,
@@ -193,12 +194,13 @@ use cognitive_demo::{
     verify_scenario_matrix, verify_scenario_pack, verify_teach_map_demo_json,
     verify_teach_map_matrix_json, verify_wow_state_demo_json, verify_wow_state_matrix_json,
     verify_wow_taskplan_demo_json, verify_wow_taskplan_matrix_json, wow_state_demo_json,
-    wow_state_matrix_json, wow_taskplan_demo_json, wow_taskplan_matrix_json, ConverseConfig,
-    LearnerJournalConsent, Scenario, BUNDLE_BOUNDARY_LINES, BUNDLE_FILES, CORPUS_BOUNDARY_LINES,
-    CORPUS_BUNDLE_FILES, CORPUS_SCENARIO_BOUNDARY_LINES, CORPUS_SCENARIO_PACK_FILES,
-    DOC_BOUNDARY_LINES, DOC_SCENARIO_BOUNDARY_LINES, DOC_SCENARIO_PACK_FILES,
-    FAILURE_BOUNDARY_LINES, FAILURE_PACK_FILES, LEARNER_JOURNAL_DEMO_CANDIDATES,
-    MATRIX_BOUNDARY_LINES, MTRACE_BOUNDARY_LINES, PACK_MANIFEST_FILE,
+    wow_state_matrix_json, wow_taskplan_demo_json, wow_taskplan_matrix_json, ConversationTurnInput,
+    ConversationTurnRecord, ConverseConfig, LearnerJournalConsent, Scenario, TurnScope,
+    BUNDLE_BOUNDARY_LINES, BUNDLE_FILES, CORPUS_BOUNDARY_LINES, CORPUS_BUNDLE_FILES,
+    CORPUS_SCENARIO_BOUNDARY_LINES, CORPUS_SCENARIO_PACK_FILES, DOC_BOUNDARY_LINES,
+    DOC_SCENARIO_BOUNDARY_LINES, DOC_SCENARIO_PACK_FILES, FAILURE_BOUNDARY_LINES,
+    FAILURE_PACK_FILES, LEARNER_JOURNAL_DEMO_CANDIDATES, MATRIX_BOUNDARY_LINES, MAX_TURNS,
+    MTRACE_BOUNDARY_LINES, PACK_MANIFEST_FILE,
 };
 use cognitive_demo::{ControllerBridgeDecision, ControllerBridgeRun};
 use serde::Serialize;
@@ -554,6 +556,15 @@ fn dispatch(args: &[String]) -> Result<(), String> {
                         .to_string(),
                 )
             }
+        }
+        Some("converse-repl") => {
+            // Interactive front door: read a LOCAL `.txt` vault (confined), then read
+            // questions from stdin one line at a time, answering each from the operator's
+            // own notes (grounded-or-refused). Scope is a closed prefix lookup (default
+            // whole vault); each line appends a turn and the whole conversation is
+            // re-derived deterministically, so context carries exactly as in converse-run.
+            let vault = read_local_corpus(args)?;
+            run_converse_repl(&vault)
         }
         Some("learning-session-demo") => {
             // Emit the canonical SESSION-LOOP-0 run: the full six-stage spine
@@ -1215,6 +1226,117 @@ fn flag_value<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
         .map(String::as_str)
 }
 
+/// Map a CONVERSE-0 REPL line to a (scope, question) pair. The scope is a CLOSED prefix
+/// lookup — the leading `prior:` / `context:` (and their canonical long forms) select a
+/// narrower scope; anything else searches the WHOLE vault. This is a fixed token lookup,
+/// NOT inference of the question's meaning: the words never route.
+fn repl_scope_and_question(line: &str) -> (TurnScope, String) {
+    const PREFIXES: [(&str, TurnScope); 6] = [
+        ("prior:", TurnScope::PriorAnswer),
+        ("prior_answer:", TurnScope::PriorAnswer),
+        ("context:", TurnScope::ConversationSoFar),
+        ("conversation_so_far:", TurnScope::ConversationSoFar),
+        ("all:", TurnScope::WholeVault),
+        ("whole_vault:", TurnScope::WholeVault),
+    ];
+    for (prefix, scope) in PREFIXES {
+        if let Some(rest) = line.strip_prefix(prefix) {
+            return (scope, rest.trim().to_string());
+        }
+    }
+    (TurnScope::WholeVault, line.to_string())
+}
+
+/// Print one REPL turn: the verbatim grounded answer plus its cited documents, or an
+/// honest refusal. The answer text is lifted from the frozen verifier's packet — the
+/// REPL composes no prose.
+fn print_repl_turn(turn: &ConversationTurnRecord) {
+    match &turn.answer_summary {
+        Some(summary) => {
+            let mut docs: Vec<&str> = summary
+                .sources
+                .iter()
+                .map(|s| s.document_name.as_str())
+                .collect();
+            docs.dedup();
+            docs.sort_unstable();
+            docs.dedup();
+            println!("{}", summary.answer_text);
+            println!("  — grounded in: {}", docs.join(", "));
+        }
+        None => {
+            println!(
+                "I can't ground that in your notes ({}).",
+                turn.refusal.map(|r| r.slug()).unwrap_or("refused")
+            );
+        }
+    }
+}
+
+/// The interactive CONVERSE-0 loop. Reads questions from stdin over a FIXED confined
+/// vault, appending each as a turn and re-deriving the whole conversation (deterministic,
+/// so context carries exactly as in `converse-run`). All I/O lives here in the shell; the
+/// engine stays pure. Answers are grounded-or-refused — never generated.
+fn run_converse_repl(vault: &[(String, String)]) -> Result<(), String> {
+    use std::io::Write;
+    if vault.is_empty() {
+        return Err("converse-repl: refused (no .txt documents in --input-dir)".to_string());
+    }
+    let stdin = std::io::stdin();
+    let mut script: Vec<ConversationTurnInput> = Vec::new();
+    println!(
+        "converse-repl — grounded conversation with your notes ({} documents).",
+        vault.len()
+    );
+    println!("Ask a question to search the WHOLE vault. Prefix a line to narrow it:");
+    println!("  prior: <question>     search only the last answer's document(s)");
+    println!("  context: <question>   search every document answered so far");
+    println!("Answers are verbatim from your notes, or an honest refusal. Type :quit to exit.");
+    loop {
+        print!("\n> ");
+        std::io::stdout().flush().ok();
+        let mut line = String::new();
+        let read = stdin
+            .read_line(&mut line)
+            .map_err(|e| format!("converse-repl: cannot read input: {e}"))?;
+        if read == 0 {
+            break; // EOF
+        }
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if trimmed == ":quit" || trimmed == ":q" {
+            break;
+        }
+        if script.len() >= MAX_TURNS {
+            println!(
+                "(reached the {MAX_TURNS}-turn limit for one conversation — restart to continue)"
+            );
+            break;
+        }
+        let (scope, question) = repl_scope_and_question(trimmed);
+        if question.is_empty() {
+            println!("(empty question ignored)");
+            continue;
+        }
+        script.push(ConversationTurnInput::new(question, scope));
+        let transcript = run_conversation_default(vault, &script);
+        match transcript.turns.last() {
+            Some(turn) => print_repl_turn(turn),
+            None => {
+                println!(
+                    "converse-repl: refused ({})",
+                    transcript.refusal.map(|r| r.slug()).unwrap_or("refused")
+                );
+                break;
+            }
+        }
+    }
+    println!("\nconverse-repl: done.");
+    Ok(())
+}
+
 /// Write each (name, content) bundle file into `dir` (created if needed) with EXACT bytes, so every
 /// file re-reads and re-derives byte-identically. This is the bundle command's only side effect.
 fn write_bundle(dir: &str, files: &[(&str, String)]) -> Result<(), String> {
@@ -1572,6 +1694,7 @@ fn usage() -> String {
      converse-matrix [--out PATH] | converse-matrix-verify --matrix PATH | \
      converse-run --input-dir DIR --script PATH [--out PATH] | \
      converse-run-verify --input-dir DIR --script PATH --transcript PATH | \
+     converse-repl --input-dir DIR | \
      learning-session-demo [--out PATH] | learning-session-demo-verify --session PATH | \
      learning-session-matrix [--out PATH] | learning-session-matrix-verify --matrix PATH | \
      learning-arc-demo [--out PATH] | learning-arc-demo-verify --arc PATH | \

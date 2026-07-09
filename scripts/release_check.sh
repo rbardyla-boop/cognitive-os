@@ -1580,13 +1580,18 @@ grep -q 'pub fn conversation_turns_are_chain_linked(' crates/cognitive-demo/src/
 grep -q 'pub fn parse_script(' crates/cognitive-demo/src/converse.rs
 grep -q 'verify_converse_demo_json' crates/cognitive-demo/src/converse.rs
 grep -q 'verify_converse_matrix_json' crates/cognitive-demo/src/converse.rs
-# The six converse CLI verbs stay wired in the I/O shell.
+# The seven converse CLI verbs stay wired in the I/O shell.
 grep -q '"converse-demo"' crates/cognitive-demo/src/main.rs
 grep -q '"converse-demo-verify"' crates/cognitive-demo/src/main.rs
 grep -q '"converse-matrix"' crates/cognitive-demo/src/main.rs
 grep -q '"converse-matrix-verify"' crates/cognitive-demo/src/main.rs
 grep -q '"converse-run"' crates/cognitive-demo/src/main.rs
 grep -q '"converse-run-verify"' crates/cognitive-demo/src/main.rs
+grep -q '"converse-repl"' crates/cognitive-demo/src/main.rs
+# The REPL routes scope by a CLOSED prefix lookup, never by inferring the question's meaning
+# (repl_scope_and_question is a fixed token table); it composes no prose (prints the packet answer).
+grep -q 'fn repl_scope_and_question(' crates/cognitive-demo/src/main.rs
+grep -q 'fn run_converse_repl(' crates/cognitive-demo/src/main.rs
 # The converse test count is pinned (a gutted/deleted test drops both this and the --lib count above).
 test "$(grep -c '#\[test\]' crates/cognitive-demo/src/converse.rs)" -eq 28
 # CONVERSE-0 determinism smoke: converse-run over a LOCAL .txt vault + operator script is a pure function
@@ -1613,6 +1618,12 @@ case "$_conv_verify_out" in *'converse-run-verify: OK'*) : ;; *) rm -rf "$_conv_
 printf 'this line has no tab\n' > "$_conv_dir/bad.txt"
 ./target/debug/cognitive-demo converse-run --input-dir "$_conv_rel/vault" --script "$_conv_rel/bad.txt" --out "$_conv_dir/bad.json" >/dev/null 2>&1 || { rm -rf "$_conv_dir"; exit 1; }
 grep -qF '"refusal": "ScriptParseRefused"' "$_conv_dir/bad.json" || { rm -rf "$_conv_dir"; exit 1; }
+# converse-repl smoke: piped questions answer from the vault, the `prior:` prefix carries context to
+# the last answer's document, and an ungroundable question is honestly refused (grounded-or-refused).
+_conv_repl_out="$(printf 'bridge\nprior: status\nprior: xylophone\n:quit\n' | ./target/debug/cognitive-demo converse-repl --input-dir "$_conv_rel/vault" 2>/dev/null)" || { rm -rf "$_conv_dir"; exit 1; }
+case "$_conv_repl_out" in *'The bridge is open today.'*) : ;; *) rm -rf "$_conv_dir"; exit 1 ;; esac
+case "$_conv_repl_out" in *'The status is green.'*) : ;; *) rm -rf "$_conv_dir"; exit 1 ;; esac
+case "$_conv_repl_out" in *"I can't ground that in your notes"*) : ;; *) rm -rf "$_conv_dir"; exit 1 ;; esac
 rm -rf "$_conv_dir"
 # LIVE-ACTUATOR-BRIDGE-0: the laptop-side PRODUCER is a main.rs SHELL/CLI gate — NOT a new pure organ. It
 # wraps CONTROLLER-BRIDGE-0's dry-run command set in an emission-sequenced, ledger-linked artifact and (only
