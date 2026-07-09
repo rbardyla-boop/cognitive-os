@@ -1717,7 +1717,8 @@ test "$(grep -ciE 'enigo|rdev|inputbot|winput|xdotool|xtest|uinput|sendinput|key
 test "$(grep -cE 'Command::new|process::Command|\.spawn\(|TcpStream|UdpSocket|std::net|reqwest|tokio|\.await' crates/cognitive-demo/src/main.rs)" -eq 0
 # No model/inference/training work in the producer path (the existing learner-model CLI plumbing is unrelated;
 # the producer's OWN uses_model/uses_training signal flags + refusals are its boundary declaration, matrix-built).
-test "$(grep -cE 'torch|onnx|tract|candle|neural|embedding|\.fit\(|backprop|gradient|train_step' crates/cognitive-demo/src/main.rs)" -eq 0
+# `\btract\b` (not bare `tract`) bans the ML crate `tract` without a false hit on a future `extract`/`ExtractClaim`.
+test "$(grep -cE 'torch|onnx|\btract\b|candle|neural|embedding|\.fit\(|backprop|gradient|train_step' crates/cognitive-demo/src/main.rs)" -eq 0
 # No Deserialize in the shell: a stored artifact/ledger is untrusted input — re-derived + byte-verified (demo/
 # matrix) or re-hashed as closed pipe records (the durable ledger), never serde-parsed into trusted state.
 test "$(grep -cE 'derive\([^)]*Deserialize' crates/cognitive-demo/src/main.rs)" -eq 0
