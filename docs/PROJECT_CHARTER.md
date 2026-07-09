@@ -3,6 +3,58 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-07-08-A — Verifier-grounded multi-turn conversation (CONVERSE-0)
+
+**Decision.** Add CONVERSE-0, the multi-turn conversation surface that COMPOSES the already-verified
+QFLOW-0 answerer (`run_query_default`) across turns WITHOUT adding a model, learned scoring, training,
+prose generation, or any semantic reasoning. A new pure module `converse.rs` holds the whole engine:
+a closed `TurnScope` enum (`WholeVault` / `PriorAnswer` / `ConversationSoFar`), typed
+`ConversationTurnInput { question, scope }`, a hash-linked `ConversationTranscript` of
+`ConversationTurnRecord`s, the `ConversationFocus` carry state, `resolve_scope`, `run_conversation`,
+the strict `parse_script`, the FNV turn/transcript chain, `conversation_turns_are_chain_linked`, the
+canonical demo, and the 19-scenario coverage matrix. Each answering turn IS a QFLOW verifier-authorized
+evidence packet (answer text = the frozen verifier's verbatim join of verified spans); an ungroundable
+turn is an honest typed refusal. CONVERSE adds NO grounding of its own — QFLOW's frozen verifier stays
+the sole grounding authority.
+
+**Context carry (the crux), zero semantics.** Turn N uses turns 1..N-1 by TWO moves that carry no
+meaning: (1) scope is DECLARED in the input, never parsed from the question's words ("tell me more about
+that" is expressed as `scope: PriorAnswer`; the engine never interprets "that"/"it"/"more"); (2) the
+carried focus is a POINTER SET of document NAMES cited by prior VERIFIED answers, resolved by set
+membership over the FIXED vault in vault order — never by matching question words to content. An empty
+`PriorAnswer`/`ConversationSoFar` focus REFUSES (`NoPriorAnswer`/`NoConversationContext`); it never
+silently widens to the whole vault (that would be guessing). `document_name` is the ONLY carry key —
+`span_id`/`document_id` are positional and rebased on every scoped corpus rebuild, so they ride only as
+inert provenance. The vault is bound once via a `vault_snapshot_hash` that folds each doc's name AND
+content AND count/order, folded into the genesis head; a same-name content edit is caught by
+`VaultBindingMismatch`.
+
+**Scope.** 5 files: NEW `converse.rs` (pure, float-free, Serialize-but-NOT-Deserialize, 28 lib tests);
+`lib.rs` (`mod converse` + re-exports, no `Deserialize`, `CognitiveTrace` untouched); `main.rs` SHELL
+(six verbs — `converse-demo`, `converse-demo-verify`, `converse-matrix`, `converse-matrix-verify`,
+`converse-run --input-dir DIR --script PATH`, `converse-run-verify` — reusing the confined
+`read_local_corpus` + `read_local_file` readers with ZERO new filesystem code); this charter; and
+`release_check.sh` (pins). NO frozen-organ edit — `query_flow.rs` / `query_select.rs` / `vault_norm.rs`
+and the four game organs stay byte-untouched (reused only). The `converse-run` vault is confined `.txt`
+notes (the pinned `read_local_corpus` admits `.txt` only, unchanged).
+
+**Error vs refusal split (A3).** Mirroring the codebase pattern, `ConverseError::ReplayMismatch` is the
+byte-compare verify path's error (`verify_converse_demo_json` / `verify_converse_matrix_json`), DISTINCT
+from the 17-variant `ConverseRefusal`. Every `ConverseRefusal::ALL` variant is CONSTRUCTED in a reachable
+production or matrix path — including both `TurnChainTamper` trigger sites (per-turn recompute AND
+root count/head mismatch), and `SerializedTranscriptTamper` + `VaultBindingMismatch`, which are produced
+by PURE functions the matrix constructs (never only by the shell verify path). The copied chain walk
+DELIBERATELY OMITS the duplicate-entry step: repeat questions are legitimate and `seq` makes every turn
+hash distinct, so a duplicate-turn refusal would be dead/wrong A3 debris.
+
+**Boundary.** CONVERSE runs no model/training/tokenizer/semantic path; generates/paraphrases/invents no
+prose; adds no grounding authority; uses no floats/filesystem/network/clock/randomness in the pure
+module (fs is confined to the `main.rs` shell); derives no `Deserialize`; does not mutate the vault across
+turns; does not retag v0.1. Bounds: `MAX_TURNS = 64`, `MAX_QUESTION_LEN = 512`. `--lib` unit-count pin
+744 → 772; bin `#[test]` pin stays 15; P12 false / P13–P15 closed. This is the finish-line capability of
+the reads → understands → grows → **converses** goal: an AI that holds a conversation that is accurate,
+where "accurate" is STRUCTURAL — grounded-or-refused every turn, cited, and byte-exact replayable.
+
 ## DD-2026-07-04-B — Lift target_quest_id into producer metadata (TARGET-QUEST-ID-PRODUCER-FIX-0)
 
 **Decision.** Lift `target_quest_id` to a first-class INERT top-level field on both

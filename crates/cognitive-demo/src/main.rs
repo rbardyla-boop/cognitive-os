@@ -34,6 +34,12 @@
 //!   cognitive-demo learner-journal-matrix [--out PATH]         # emit the LEARNER-MEMORY-1 scenario matrix
 //!   cognitive-demo learner-journal-matrix-verify --matrix PATH # re-derive the matrix and refuse tamper
 //!   cognitive-demo learner-journal-append --journal PATH --consent-operator S --consent-scope S  # consented append
+//!   cognitive-demo converse-demo [--out PATH]                  # emit the canonical CONVERSE-0 multi-turn transcript
+//!   cognitive-demo converse-demo-verify --transcript PATH      # re-derive the transcript and refuse tamper
+//!   cognitive-demo converse-matrix [--out PATH]                # emit the CONVERSE-0 scenario matrix
+//!   cognitive-demo converse-matrix-verify --matrix PATH        # re-derive the matrix and refuse tamper
+//!   cognitive-demo converse-run --input-dir DIR --script PATH [--out PATH]  # converse over a LOCAL .txt vault (grounded-or-refused per turn)
+//!   cognitive-demo converse-run-verify --input-dir DIR --script PATH --transcript PATH  # re-derive the transcript and refuse tamper
 //!   cognitive-demo learning-session-demo [--out PATH]          # emit the canonical SESSION-LOOP-0 run
 //!   cognitive-demo learning-session-demo-verify --session PATH # re-derive the session run and refuse tamper
 //!   cognitive-demo learning-session-matrix [--out PATH]        # emit the SESSION-LOOP-0 scenario matrix
@@ -158,24 +164,26 @@
 
 use cognitive_demo::{
     canonical_bundle, check_local_input_path, controller_bridge_demo, controller_bridge_demo_json,
-    controller_bridge_matrix_json, corpus_admits_filename, corpus_bundle, corpus_scenario_matrix,
-    corpus_scenario_pack_files, doc_bundle, doc_scenario_matrix, doc_scenario_pack_files,
-    dream_export_matrix, failure_pack_files, game_evidence_demo_json, game_evidence_matrix_json,
-    learner_journal_append_at, learner_journal_demo_json, learner_journal_json_at,
-    learner_journal_matrix_json, learner_journal_state_json, learner_memory_demo_json,
-    learner_memory_matrix_json, learner_model_demo_json, learner_model_matrix_json,
-    learning_arc_demo_json, learning_arc_matrix_json, learning_session_demo_json,
-    learning_session_matrix_json, list_corpus_scenarios, list_doc_scenarios,
-    list_dream_export_scenarios, list_failure_cases, list_questions, list_scenarios,
-    literature_intent_demo_json, literature_intent_matrix_json, resolved_path_within, run_ask,
-    run_corpus_report, run_corpus_trace, run_doc_report, run_doc_trace, run_dream_export,
-    run_dream_export_matrix_report, run_dream_export_matrix_verify, run_dream_export_replay,
-    run_dream_export_report, run_novelty_packet, run_novelty_replay, run_novelty_report,
-    run_replay, run_report, run_trace, scenario_bundle, scenario_matrix, scenario_matrix_report,
-    scenario_pack_manifest, teach_map_demo_json, teach_map_matrix_json, verify_bundle,
-    verify_controller_bridge_demo_json, verify_controller_bridge_matrix_json, verify_corpus_bundle,
-    verify_corpus_scenario_pack, verify_doc_bundle, verify_doc_scenario_pack, verify_failure_pack,
-    verify_game_evidence_demo_json, verify_game_evidence_matrix_json,
+    controller_bridge_matrix_json, converse_demo_json, converse_matrix_json,
+    converse_run_from_text, converse_transcript_json, corpus_admits_filename, corpus_bundle,
+    corpus_scenario_matrix, corpus_scenario_pack_files, doc_bundle, doc_scenario_matrix,
+    doc_scenario_pack_files, dream_export_matrix, failure_pack_files, game_evidence_demo_json,
+    game_evidence_matrix_json, learner_journal_append_at, learner_journal_demo_json,
+    learner_journal_json_at, learner_journal_matrix_json, learner_journal_state_json,
+    learner_memory_demo_json, learner_memory_matrix_json, learner_model_demo_json,
+    learner_model_matrix_json, learning_arc_demo_json, learning_arc_matrix_json,
+    learning_session_demo_json, learning_session_matrix_json, list_corpus_scenarios,
+    list_doc_scenarios, list_dream_export_scenarios, list_failure_cases, list_questions,
+    list_scenarios, literature_intent_demo_json, literature_intent_matrix_json,
+    resolved_path_within, run_ask, run_corpus_report, run_corpus_trace, run_doc_report,
+    run_doc_trace, run_dream_export, run_dream_export_matrix_report,
+    run_dream_export_matrix_verify, run_dream_export_replay, run_dream_export_report,
+    run_novelty_packet, run_novelty_replay, run_novelty_report, run_replay, run_report, run_trace,
+    scenario_bundle, scenario_matrix, scenario_matrix_report, scenario_pack_manifest,
+    teach_map_demo_json, teach_map_matrix_json, verify_bundle, verify_controller_bridge_demo_json,
+    verify_controller_bridge_matrix_json, verify_converse_demo_json, verify_converse_matrix_json,
+    verify_corpus_bundle, verify_corpus_scenario_pack, verify_doc_bundle, verify_doc_scenario_pack,
+    verify_failure_pack, verify_game_evidence_demo_json, verify_game_evidence_matrix_json,
     verify_learner_journal_demo_json, verify_learner_journal_matrix_json,
     verify_learner_memory_demo_json, verify_learner_memory_matrix_json,
     verify_learner_model_demo_json, verify_learner_model_matrix_json,
@@ -185,12 +193,12 @@ use cognitive_demo::{
     verify_scenario_matrix, verify_scenario_pack, verify_teach_map_demo_json,
     verify_teach_map_matrix_json, verify_wow_state_demo_json, verify_wow_state_matrix_json,
     verify_wow_taskplan_demo_json, verify_wow_taskplan_matrix_json, wow_state_demo_json,
-    wow_state_matrix_json, wow_taskplan_demo_json, wow_taskplan_matrix_json, LearnerJournalConsent,
-    Scenario, BUNDLE_BOUNDARY_LINES, BUNDLE_FILES, CORPUS_BOUNDARY_LINES, CORPUS_BUNDLE_FILES,
-    CORPUS_SCENARIO_BOUNDARY_LINES, CORPUS_SCENARIO_PACK_FILES, DOC_BOUNDARY_LINES,
-    DOC_SCENARIO_BOUNDARY_LINES, DOC_SCENARIO_PACK_FILES, FAILURE_BOUNDARY_LINES,
-    FAILURE_PACK_FILES, LEARNER_JOURNAL_DEMO_CANDIDATES, MATRIX_BOUNDARY_LINES,
-    MTRACE_BOUNDARY_LINES, PACK_MANIFEST_FILE,
+    wow_state_matrix_json, wow_taskplan_demo_json, wow_taskplan_matrix_json, ConverseConfig,
+    LearnerJournalConsent, Scenario, BUNDLE_BOUNDARY_LINES, BUNDLE_FILES, CORPUS_BOUNDARY_LINES,
+    CORPUS_BUNDLE_FILES, CORPUS_SCENARIO_BOUNDARY_LINES, CORPUS_SCENARIO_PACK_FILES,
+    DOC_BOUNDARY_LINES, DOC_SCENARIO_BOUNDARY_LINES, DOC_SCENARIO_PACK_FILES,
+    FAILURE_BOUNDARY_LINES, FAILURE_PACK_FILES, LEARNER_JOURNAL_DEMO_CANDIDATES,
+    MATRIX_BOUNDARY_LINES, MTRACE_BOUNDARY_LINES, PACK_MANIFEST_FILE,
 };
 use cognitive_demo::{ControllerBridgeDecision, ControllerBridgeRun};
 use serde::Serialize;
@@ -484,6 +492,67 @@ fn dispatch(args: &[String]) -> Result<(), String> {
                     "learner-journal-append: refused ({})",
                     run.refusal.map(|r| r.slug()).unwrap_or("unknown")
                 )),
+            }
+        }
+        Some("converse-demo") => {
+            // Emit the canonical CONVERSE-0 transcript: a multi-turn conversation over a
+            // baked vault + script where every answering turn is a QFLOW verified evidence
+            // packet and an ungroundable turn is an honest typed refusal.
+            let json = converse_demo_json();
+            emit(&json, flag_value(args, "--out"))
+        }
+        Some("converse-demo-verify") => {
+            // Re-derive the canonical transcript and require provided bytes to match.
+            let transcript = read_plain_file(args, "--transcript")?;
+            verify_converse_demo_json(&transcript).map_err(|e| format!("{e:?}"))?;
+            println!("converse-demo-verify: OK");
+            Ok(())
+        }
+        Some("converse-matrix") => {
+            // Emit the CONVERSE-0 scenario matrix: one clean conversation plus every refusal.
+            let json = converse_matrix_json();
+            emit(&json, flag_value(args, "--out"))
+        }
+        Some("converse-matrix-verify") => {
+            // Re-derive the CONVERSE-0 matrix and byte-compare a provided artifact.
+            let matrix = read_plain_file(args, "--matrix")?;
+            verify_converse_matrix_json(&matrix).map_err(|e| format!("{e:?}"))?;
+            println!("converse-matrix-verify: OK");
+            Ok(())
+        }
+        Some("converse-run") => {
+            // The real surface: read a LOCAL `.txt` vault (confined via read_local_corpus)
+            // plus an operator script file (confined via read_local_file), strict-parse the
+            // script, run the pure engine, and emit the transcript. No Deserialize — a
+            // malformed script becomes a refused transcript (ScriptParseRefused). Each line
+            // of the script is `SCOPE<TAB>question` (SCOPE in whole_vault | prior_answer |
+            // conversation_so_far). The library stays pure; all file I/O is here in the shell.
+            let vault = read_local_corpus(args)?;
+            let script = read_local_file(args, "--script")?;
+            let transcript =
+                converse_run_from_text(&script, &vault, ConverseConfig::default_config());
+            emit(
+                &converse_transcript_json(&transcript),
+                flag_value(args, "--out"),
+            )
+        }
+        Some("converse-run-verify") => {
+            // Re-run the engine over the SAME vault + script and byte-compare the supplied
+            // transcript (untrusted input; re-derived + byte-verified, never parsed).
+            let vault = read_local_corpus(args)?;
+            let script = read_local_file(args, "--script")?;
+            let supplied = read_plain_file(args, "--transcript")?;
+            let transcript =
+                converse_run_from_text(&script, &vault, ConverseConfig::default_config());
+            if converse_transcript_json(&transcript) == supplied {
+                println!("converse-run-verify: OK");
+                Ok(())
+            } else {
+                Err(
+                    "converse-run-verify: refused (transcript does not byte-match the \
+                     re-derived canonical: ReplayMismatch)"
+                        .to_string(),
+                )
             }
         }
         Some("learning-session-demo") => {
@@ -1499,6 +1568,10 @@ fn usage() -> String {
      learner-journal-demo [--out PATH] | learner-journal-demo-verify --journal PATH | \
      learner-journal-matrix [--out PATH] | learner-journal-matrix-verify --matrix PATH | \
      learner-journal-append --journal PATH --consent-operator S --consent-scope S | \
+     converse-demo [--out PATH] | converse-demo-verify --transcript PATH | \
+     converse-matrix [--out PATH] | converse-matrix-verify --matrix PATH | \
+     converse-run --input-dir DIR --script PATH [--out PATH] | \
+     converse-run-verify --input-dir DIR --script PATH --transcript PATH | \
      learning-session-demo [--out PATH] | learning-session-demo-verify --session PATH | \
      learning-session-matrix [--out PATH] | learning-session-matrix-verify --matrix PATH | \
      learning-arc-demo [--out PATH] | learning-arc-demo-verify --arc PATH | \

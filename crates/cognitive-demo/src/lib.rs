@@ -372,6 +372,19 @@ pub use learner_journal::{
     LEARNER_JOURNAL_SCENARIO_COUNT, LEARNER_JOURNAL_SCENARIO_NAMES,
 };
 
+mod converse;
+pub use converse::{
+    conversation_turns_are_chain_linked, converse_demo, converse_demo_json, converse_demo_script,
+    converse_demo_vault, converse_matrix, converse_matrix_json, converse_run_from_text,
+    converse_transcript_json, parse_script, run_conversation, run_conversation_default,
+    transcript_binds_vault, verify_converse_demo_json, verify_converse_matrix_json,
+    ConversationDecision, ConversationTranscript, ConversationTurnDecision, ConversationTurnInput,
+    ConversationTurnRecord, ConverseBoundary, ConverseCell, ConverseConfig, ConverseError,
+    ConverseMatrix, ConverseRefusal, TurnAnswerSummary, TurnScope, TurnSource,
+    CONVERSE_BOUNDARY_LINES, CONVERSE_SCENARIO_COUNT, CONVERSE_SCENARIO_NAMES, MAX_QUESTION_LEN,
+    MAX_TURNS,
+};
+
 mod learning_session;
 pub use learning_session::{
     learning_session_demo, learning_session_demo_json, learning_session_demo_request,
