@@ -1325,9 +1325,9 @@ grep -q 'fn trace_records_every_stage_id_and_links_the_chain' crates/cognitive-d
 grep -q 'fn trace_grants_no_new_authority' crates/cognitive-demo/src/lib.rs
 # Unit-test REALITY pin: exactly the 776 = INT-0 (12) + INT-1 (8) + INT-2 (12) + INT-3 (12) + MTRACE-0 (12) +
 # MTRACE-1 (12) + MTRACE-2 (12) + DOCFLOW-0 (10) + DOCFLOW-2 (10) + CORPUS-0 (12) + CORPUS-2 (12) + NOVELTY-0 (15) +
-# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) + CORPUS-HARVEST-0 (26) + SCORE-0 (20) + FAIL-0 (19) + P11-MODEL-EVAL (18) + TRAIN-GATE-0 (20) + TRAIN-0 (21) + MODEL-EVAL-1 (22) + MODEL-PROMOTE-0 (23) + PROD-0 (19) + PROD-SMOKE-0 (20) + RELEASE-1 (25) + VAULT-NORM-0 (21) + QSELECT-0 (24) + QFLOW-0 (30) + LIT-INTENT-0 (14) + TEACH-0 (14) + LEARNER-MODEL-0 (18) + LEARNER-MEMORY-0 (18) + LEARNER-MEMORY-1 (25) + SESSION-LOOP-0 (24) + MULTI-SESSION-0 (17) + GAME-EVIDENCE-0 (22) + WOW-STATE-0 (27) + WOW-TASKPLAN-0 (22) + CONTROLLER-BRIDGE-0 (29) + CONVERSE-0 (28) + VAULT-NORM-CLEANUP (4) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
+# DREAM-EXPORT-0 (13) + DREAM-EXPORT-2 (15) + HORIZON-0 (23) + HORIZON-2 (16) + CORPUS-HARVEST-0 (26) + SCORE-0 (20) + FAIL-0 (19) + P11-MODEL-EVAL (18) + TRAIN-GATE-0 (20) + TRAIN-0 (21) + MODEL-EVAL-1 (22) + MODEL-PROMOTE-0 (23) + PROD-0 (19) + PROD-SMOKE-0 (20) + RELEASE-1 (25) + VAULT-NORM-0 (21) + QSELECT-0 (24) + QFLOW-0 (30) + LIT-INTENT-0 (14) + TEACH-0 (14) + LEARNER-MODEL-0 (18) + LEARNER-MEMORY-0 (18) + LEARNER-MEMORY-1 (25) + SESSION-LOOP-0 (24) + MULTI-SESSION-0 (17) + GAME-EVIDENCE-0 (22) + WOW-STATE-0 (27) + WOW-TASKPLAN-0 (22) + CONTROLLER-BRIDGE-0 (29) + CONVERSE-0 (28) + VAULT-NORM-CLEANUP (4) + PANORAMA-0 (18) tests pass, zero ignored (so gutting/disabling one is caught, independent of the channels below).
 _int0_unit="$(cargo test --offline --lib --manifest-path crates/cognitive-demo/Cargo.toml 2>/dev/null)"
-test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 776
+test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')" -eq 794
 test "$(printf '%s\n' "$_int0_unit" | grep -oE '[0-9]+ ignored' | grep -oE '[0-9]+')" -eq 0
 # Determinism / no side effects: the trace is a pure, in-memory function — no clock, entropy, or network
 # anywhere in src/, and no floats anywhere in the crate. (`std::process::exit` in the CLI shell is a clean
@@ -1625,6 +1625,73 @@ case "$_conv_repl_out" in *'The bridge is open today.'*) : ;; *) rm -rf "$_conv_
 case "$_conv_repl_out" in *'The status is green.'*) : ;; *) rm -rf "$_conv_dir"; exit 1 ;; esac
 case "$_conv_repl_out" in *"I can't ground that in your notes"*) : ;; *) rm -rf "$_conv_dir"; exit 1 ;; esac
 rm -rf "$_conv_dir"
+# PANORAMA-0: the per-note BREADTH answerer is a pure module that COMPOSES the FROZEN query_select selector
+# and the FROZEN reading_substrate execute+verify — it never re-scores spans or re-implements grounding. It
+# guarantees each eligible note contributes its best span and UNIONs the frozen selector's OWN candidates
+# (a span-set SUPERSET of QFLOW, never a within-note depth regression), emits in reading order, and
+# re-authorizes the assembled multi-span answer through the UNMODIFIED frozen verifier (emit only if passed).
+test -f crates/cognitive-demo/src/query_panorama.rs
+# Per-file PURITY pin (REQUIRED — the fs/net/time/entropy scan earlier covers only lib.rs + examples, so a
+# NEW literal-named module escapes it): the pure module touches NO fs/socket/clock/entropy.
+test "$(grep -cE 'std::fs|File::create|File::open|fs::write|fs::read|OpenOptions|Command::new|process::Command|std::net|TcpStream|UdpSocket|SystemTime|Instant|std::time|thread_rng|getrandom|rand::|use rand' crates/cognitive-demo/src/query_panorama.rs)" -eq 0
+test "$(grep -cE 'derive\([^)]*Deserialize' crates/cognitive-demo/src/query_panorama.rs)" -eq 0
+test "$(grep -cE 'impl([[:space:]]|<).*Deserialize.*for' crates/cognitive-demo/src/query_panorama.rs)" -eq 0
+# Float-free even in comments (the crate-wide scan enforces it too; pin the new module explicitly).
+test "$(grep -cE '\bf32\b|\bf64\b' crates/cognitive-demo/src/query_panorama.rs)" -eq 0
+# PANORAMA composes the FROZEN selector + verifier (never re-implements scoring or grounding), and reuses
+# the frozen selector's OWN public receipt (scores + candidates) rather than duplicating any private const.
+grep -q 'select_default(' crates/cognitive-demo/src/query_panorama.rs
+grep -q 'execute(corpus, question, &trace)' crates/cognitive-demo/src/query_panorama.rs
+grep -q 'verify(corpus, &run)' crates/cognitive-demo/src/query_panorama.rs
+grep -q 'run.receipt.scores' crates/cognitive-demo/src/query_panorama.rs
+grep -q 'run.receipt.candidates' crates/cognitive-demo/src/query_panorama.rs
+# No model/semantics path: deterministic, never interprets meaning; every boundary flag is sourced from the
+# single `const PANORAMA_USES_MODEL: bool = false`.
+grep -q 'const PANORAMA_USES_MODEL: bool = false;' crates/cognitive-demo/src/query_panorama.rs
+# ML-crate/model-token ban. `\btract\b` (not bare `tract`) so the ML crate `tract` stays banned WITHOUT a
+# false hit on `ExtractClaim`/`extract` — the frozen reading_substrate trace API this module composes.
+test "$(grep -cE 'torch|onnx|\btract\b|candle|neural|inference|embedding|tokenizer|softmax|logits|\.fit\(|backprop|gradient' crates/cognitive-demo/src/query_panorama.rs)" -eq 0
+# The Serialize-not-Deserialize replay error is DISTINCT from the refusal taxonomy; the fail-closed-only
+# refusals are A3-reachable (the matrix coverage test proves it; the --lib count catches a gutted test).
+grep -q 'enum PanoramaError' crates/cognitive-demo/src/query_panorama.rs
+grep -q 'PanoramaRefusal::CombinedVerificationFailed' crates/cognitive-demo/src/query_panorama.rs
+grep -q 'PanoramaRefusal::NonDeterministicChosenOrder' crates/cognitive-demo/src/query_panorama.rs
+grep -q 'PanoramaRefusal::VaultBindingMismatch' crates/cognitive-demo/src/query_panorama.rs
+grep -q 'PanoramaRefusal::SerializedFlowTamper' crates/cognitive-demo/src/query_panorama.rs
+# Entry points + scenario matrix stay wired.
+grep -q 'pub fn answer_panorama(' crates/cognitive-demo/src/query_panorama.rs
+grep -q 'pub fn panorama_binds_vault(' crates/cognitive-demo/src/query_panorama.rs
+grep -q 'verify_panorama_demo_json' crates/cognitive-demo/src/query_panorama.rs
+grep -q 'verify_panorama_matrix_json' crates/cognitive-demo/src/query_panorama.rs
+grep -q 'PANORAMA_SCENARIO_NAMES: \[&str; 12\]' crates/cognitive-demo/src/query_panorama.rs
+# The six panorama CLI verbs stay wired in the I/O shell.
+grep -q '"panorama-demo"' crates/cognitive-demo/src/main.rs
+grep -q '"panorama-demo-verify"' crates/cognitive-demo/src/main.rs
+grep -q '"panorama-matrix"' crates/cognitive-demo/src/main.rs
+grep -q '"panorama-matrix-verify"' crates/cognitive-demo/src/main.rs
+grep -q '"panorama-run"' crates/cognitive-demo/src/main.rs
+grep -q '"panorama-run-verify"' crates/cognitive-demo/src/main.rs
+# The panorama test count is pinned (a gutted/deleted test drops both this and the --lib count above).
+test "$(grep -c '#\[test\]' crates/cognitive-demo/src/query_panorama.rs)" -eq 18
+# PANORAMA-0 breadth + determinism smoke: panorama-run over a LOCAL .txt vault is a pure function of
+# (vault, question); two runs are byte-identical; the answer SURFACES a note the frozen top-N would drop
+# (BREADTH), and panorama-run-verify accepts the re-derived flow; an absent term is REFUSED, never guessed.
+_pano_dir="$(mktemp -d "$PWD/target/.panorama_gate.XXXXXX")"
+_pano_rel="target/$(basename "$_pano_dir")"
+mkdir -p "$_pano_dir/vault"
+printf 'The bridge is open. The bridge is safe. The bridge was inspected.' > "$_pano_dir/vault/bridge.txt"
+printf 'The bridge connects the north road.' > "$_pano_dir/vault/link.txt"
+printf 'The weather is calm today.' > "$_pano_dir/vault/weather.txt"
+./target/debug/cognitive-demo panorama-run --input-dir "$_pano_rel/vault" --question "bridge" --out "$_pano_dir/run1.json" >/dev/null 2>&1 || { rm -rf "$_pano_dir"; exit 1; }
+./target/debug/cognitive-demo panorama-run --input-dir "$_pano_rel/vault" --question "bridge" --out "$_pano_dir/run2.json" >/dev/null 2>&1 || { rm -rf "$_pano_dir"; exit 1; }
+if ! cmp -s "$_pano_dir/run1.json" "$_pano_dir/run2.json"; then rm -rf "$_pano_dir"; exit 1; fi
+grep -qF '"decision": "PanoramaAnswered"' "$_pano_dir/run1.json" || { rm -rf "$_pano_dir"; exit 1; }
+grep -qF '"document_name": "link.txt"' "$_pano_dir/run1.json" || { rm -rf "$_pano_dir"; exit 1; }
+_pano_verify_out="$(./target/debug/cognitive-demo panorama-run-verify --input-dir "$_pano_rel/vault" --question "bridge" --flow "$_pano_dir/run1.json" 2>/dev/null)" || { rm -rf "$_pano_dir"; exit 1; }
+case "$_pano_verify_out" in *'panorama-run-verify: OK'*) : ;; *) rm -rf "$_pano_dir"; exit 1 ;; esac
+./target/debug/cognitive-demo panorama-run --input-dir "$_pano_rel/vault" --question "xylophone" --out "$_pano_dir/miss.json" >/dev/null 2>&1 || { rm -rf "$_pano_dir"; exit 1; }
+grep -qF '"refusal": "SelectionRefused"' "$_pano_dir/miss.json" || { rm -rf "$_pano_dir"; exit 1; }
+rm -rf "$_pano_dir"
 # LIVE-ACTUATOR-BRIDGE-0: the laptop-side PRODUCER is a main.rs SHELL/CLI gate — NOT a new pure organ. It
 # wraps CONTROLLER-BRIDGE-0's dry-run command set in an emission-sequenced, ledger-linked artifact and (only
 # in the `write` verb) drops it into a quarantined outbox with atomic temp+rename plus a durable tamper-evident

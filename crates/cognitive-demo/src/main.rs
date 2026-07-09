@@ -41,6 +41,12 @@
 //!   cognitive-demo converse-run --input-dir DIR --script PATH [--out PATH]  # converse over a LOCAL .txt vault (grounded-or-refused per turn)
 //!   cognitive-demo converse-run-verify --input-dir DIR --script PATH --transcript PATH  # re-derive the transcript and refuse tamper
 //!   cognitive-demo converse-repl --input-dir DIR               # interactive grounded conversation with a LOCAL .txt vault
+//!   cognitive-demo panorama-demo [--out PATH]                  # emit the canonical PANORAMA-0 per-note breadth flow
+//!   cognitive-demo panorama-demo-verify --flow PATH            # re-derive the flow and refuse tamper
+//!   cognitive-demo panorama-matrix [--out PATH]                # emit the PANORAMA-0 scenario matrix
+//!   cognitive-demo panorama-matrix-verify --matrix PATH        # re-derive the matrix and refuse tamper
+//!   cognitive-demo panorama-run --input-dir DIR --question TEXT [--out PATH]  # breadth answer over a LOCAL .txt vault (grounded-or-refused)
+//!   cognitive-demo panorama-run-verify --input-dir DIR --question TEXT --flow PATH  # re-derive the flow and refuse tamper
 //!   cognitive-demo learning-session-demo [--out PATH]          # emit the canonical SESSION-LOOP-0 run
 //!   cognitive-demo learning-session-demo-verify --session PATH # re-derive the session run and refuse tamper
 //!   cognitive-demo learning-session-matrix [--out PATH]        # emit the SESSION-LOOP-0 scenario matrix
@@ -164,37 +170,39 @@
 //! here (never in the library or the example), which the release gate enforces.
 
 use cognitive_demo::{
-    canonical_bundle, check_local_input_path, controller_bridge_demo, controller_bridge_demo_json,
-    controller_bridge_matrix_json, converse_demo_json, converse_matrix_json,
-    converse_run_from_text, converse_transcript_json, corpus_admits_filename, corpus_bundle,
-    corpus_scenario_matrix, corpus_scenario_pack_files, doc_bundle, doc_scenario_matrix,
-    doc_scenario_pack_files, dream_export_matrix, failure_pack_files, game_evidence_demo_json,
-    game_evidence_matrix_json, learner_journal_append_at, learner_journal_demo_json,
-    learner_journal_json_at, learner_journal_matrix_json, learner_journal_state_json,
-    learner_memory_demo_json, learner_memory_matrix_json, learner_model_demo_json,
-    learner_model_matrix_json, learning_arc_demo_json, learning_arc_matrix_json,
-    learning_session_demo_json, learning_session_matrix_json, list_corpus_scenarios,
-    list_doc_scenarios, list_dream_export_scenarios, list_failure_cases, list_questions,
-    list_scenarios, literature_intent_demo_json, literature_intent_matrix_json,
-    resolved_path_within, run_ask, run_conversation_default, run_corpus_report, run_corpus_trace,
-    run_doc_report, run_doc_trace, run_dream_export, run_dream_export_matrix_report,
-    run_dream_export_matrix_verify, run_dream_export_replay, run_dream_export_report,
-    run_novelty_packet, run_novelty_replay, run_novelty_report, run_replay, run_report, run_trace,
-    scenario_bundle, scenario_matrix, scenario_matrix_report, scenario_pack_manifest,
-    teach_map_demo_json, teach_map_matrix_json, verify_bundle, verify_controller_bridge_demo_json,
-    verify_controller_bridge_matrix_json, verify_converse_demo_json, verify_converse_matrix_json,
-    verify_corpus_bundle, verify_corpus_scenario_pack, verify_doc_bundle, verify_doc_scenario_pack,
-    verify_failure_pack, verify_game_evidence_demo_json, verify_game_evidence_matrix_json,
+    answer_panorama_default, canonical_bundle, check_local_input_path, controller_bridge_demo,
+    controller_bridge_demo_json, controller_bridge_matrix_json, converse_demo_json,
+    converse_matrix_json, converse_run_from_text, converse_transcript_json, corpus_admits_filename,
+    corpus_bundle, corpus_scenario_matrix, corpus_scenario_pack_files, doc_bundle,
+    doc_scenario_matrix, doc_scenario_pack_files, dream_export_matrix, failure_pack_files,
+    game_evidence_demo_json, game_evidence_matrix_json, learner_journal_append_at,
+    learner_journal_demo_json, learner_journal_json_at, learner_journal_matrix_json,
+    learner_journal_state_json, learner_memory_demo_json, learner_memory_matrix_json,
+    learner_model_demo_json, learner_model_matrix_json, learning_arc_demo_json,
+    learning_arc_matrix_json, learning_session_demo_json, learning_session_matrix_json,
+    list_corpus_scenarios, list_doc_scenarios, list_dream_export_scenarios, list_failure_cases,
+    list_questions, list_scenarios, literature_intent_demo_json, literature_intent_matrix_json,
+    panorama_demo_json, panorama_flow_json, panorama_matrix_json, resolved_path_within, run_ask,
+    run_conversation_default, run_corpus_report, run_corpus_trace, run_doc_report, run_doc_trace,
+    run_dream_export, run_dream_export_matrix_report, run_dream_export_matrix_verify,
+    run_dream_export_replay, run_dream_export_report, run_novelty_packet, run_novelty_replay,
+    run_novelty_report, run_replay, run_report, run_trace, scenario_bundle, scenario_matrix,
+    scenario_matrix_report, scenario_pack_manifest, teach_map_demo_json, teach_map_matrix_json,
+    verify_bundle, verify_controller_bridge_demo_json, verify_controller_bridge_matrix_json,
+    verify_converse_demo_json, verify_converse_matrix_json, verify_corpus_bundle,
+    verify_corpus_scenario_pack, verify_doc_bundle, verify_doc_scenario_pack, verify_failure_pack,
+    verify_game_evidence_demo_json, verify_game_evidence_matrix_json,
     verify_learner_journal_demo_json, verify_learner_journal_matrix_json,
     verify_learner_memory_demo_json, verify_learner_memory_matrix_json,
     verify_learner_model_demo_json, verify_learner_model_matrix_json,
     verify_learning_arc_demo_json, verify_learning_arc_matrix_json,
     verify_learning_session_demo_json, verify_learning_session_matrix_json,
     verify_literature_intent_demo_json, verify_literature_intent_matrix_json,
-    verify_scenario_matrix, verify_scenario_pack, verify_teach_map_demo_json,
-    verify_teach_map_matrix_json, verify_wow_state_demo_json, verify_wow_state_matrix_json,
-    verify_wow_taskplan_demo_json, verify_wow_taskplan_matrix_json, wow_state_demo_json,
-    wow_state_matrix_json, wow_taskplan_demo_json, wow_taskplan_matrix_json, ConversationTurnInput,
+    verify_panorama_demo_json, verify_panorama_matrix_json, verify_scenario_matrix,
+    verify_scenario_pack, verify_teach_map_demo_json, verify_teach_map_matrix_json,
+    verify_wow_state_demo_json, verify_wow_state_matrix_json, verify_wow_taskplan_demo_json,
+    verify_wow_taskplan_matrix_json, wow_state_demo_json, wow_state_matrix_json,
+    wow_taskplan_demo_json, wow_taskplan_matrix_json, ConversationTurnInput,
     ConversationTurnRecord, ConverseConfig, LearnerJournalConsent, Scenario, TurnScope,
     BUNDLE_BOUNDARY_LINES, BUNDLE_FILES, CORPUS_BOUNDARY_LINES, CORPUS_BUNDLE_FILES,
     CORPUS_SCENARIO_BOUNDARY_LINES, CORPUS_SCENARIO_PACK_FILES, DOC_BOUNDARY_LINES,
@@ -565,6 +573,62 @@ fn dispatch(args: &[String]) -> Result<(), String> {
             // re-derived deterministically, so context carries exactly as in converse-run.
             let vault = read_local_corpus(args)?;
             run_converse_repl(&vault)
+        }
+        Some("panorama-demo") => {
+            // Emit the canonical PANORAMA-0 flow: a per-note BREADTH answer over a baked
+            // multi-note vault where the frozen top-N would fill from one dense note and
+            // drop another that PANORAMA surfaces via its per-note guarantee.
+            let json = panorama_demo_json();
+            emit(&json, flag_value(args, "--out"))
+        }
+        Some("panorama-demo-verify") => {
+            // Re-derive the canonical flow and require provided bytes to match.
+            let flow = read_plain_file(args, "--flow")?;
+            verify_panorama_demo_json(&flow).map_err(|e| format!("{e:?}"))?;
+            println!("panorama-demo-verify: OK");
+            Ok(())
+        }
+        Some("panorama-matrix") => {
+            // Emit the PANORAMA-0 scenario matrix: one clean answer plus every refusal.
+            let json = panorama_matrix_json();
+            emit(&json, flag_value(args, "--out"))
+        }
+        Some("panorama-matrix-verify") => {
+            // Re-derive the PANORAMA-0 matrix and byte-compare a provided artifact.
+            let matrix = read_plain_file(args, "--matrix")?;
+            verify_panorama_matrix_json(&matrix).map_err(|e| format!("{e:?}"))?;
+            println!("panorama-matrix-verify: OK");
+            Ok(())
+        }
+        Some("panorama-run") => {
+            // The real surface: read a LOCAL `.txt` vault (confined via read_local_corpus)
+            // plus a --question, run the pure breadth answerer, and emit the flow. The
+            // library stays pure; all file I/O is here in the shell. No Deserialize — a
+            // non-answerable question becomes a typed refusal, never a guess.
+            let documents = read_local_corpus(args)?;
+            let question =
+                flag_value(args, "--question").ok_or("this command requires --question <text>")?;
+            let flow = answer_panorama_default(&documents, question);
+            emit(&panorama_flow_json(&flow), flag_value(args, "--out"))
+        }
+        Some("panorama-run-verify") => {
+            // Re-run the engine over the SAME vault + question and byte-compare the supplied
+            // flow (untrusted input; re-derived + byte-verified, never parsed).
+            let documents = read_local_corpus(args)?;
+            let question =
+                flag_value(args, "--question").ok_or("this command requires --question <text>")?;
+            let supplied = read_plain_file(args, "--flow")?;
+            let flow = answer_panorama_default(&documents, question);
+            if panorama_flow_json(&flow) == supplied {
+                println!("panorama-run-verify: OK");
+                Ok(())
+            } else {
+                Err(
+                    "panorama-run-verify: refused (flow does not byte-match the re-derived \
+                     canonical: ReplayMismatch)"
+                        .to_string(),
+                )
+            }
         }
         Some("learning-session-demo") => {
             // Emit the canonical SESSION-LOOP-0 run: the full six-stage spine

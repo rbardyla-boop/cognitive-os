@@ -385,6 +385,15 @@ pub use converse::{
     MAX_TURNS,
 };
 
+mod query_panorama;
+pub use query_panorama::{
+    answer_panorama, answer_panorama_default, panorama_binds_vault, panorama_demo,
+    panorama_demo_json, panorama_demo_question, panorama_demo_vault, panorama_flow_json,
+    panorama_matrix, panorama_matrix_json, verify_panorama_demo_json, verify_panorama_matrix_json,
+    PanoramaBoundary, PanoramaCell, PanoramaConfig, PanoramaDecision, PanoramaError, PanoramaFlow,
+    PanoramaMatrix, PanoramaRefusal, PanoramaSpan,
+};
+
 mod learning_session;
 pub use learning_session::{
     learning_session_demo, learning_session_demo_json, learning_session_demo_request,

@@ -3,6 +3,45 @@
 Significant architectural decisions for the Cognitive OS prototype. Newest first. Each entry
 links to the canonical artifact that records the decision in full.
 
+## DD-2026-07-09-B — Per-note breadth answerer (PANORAMA-0)
+
+**Decision.** Deepen the no-model answerer (the "be the model, not need a model" direction) with a NEW
+pure module `query_panorama.rs` that fixes the frozen answerer's silent multi-note truncation. Today
+`query_select::build_candidates` keeps the GLOBAL top-3 spans by lexical score with no per-document cap
+(`DEFAULT_MAX_CANDIDATES=3`), so a question whose true answer spans several notes returns fragments of the
+single densest note, joined in score-descending (scrambled) order. PANORAMA-0 runs the FROZEN
+`select_default` once, harvests its PUBLIC receipt (`scores` + `candidates`), guarantees each eligible
+note contributes its best span (breadth) UNIONed with the selector's OWN candidates (a span-set SUPERSET
+of QFLOW — never a within-note depth regression), emits in READING order (document, span), and
+re-authorizes the assembled multi-span answer through the UNMODIFIED `reading_substrate::execute`+`verify`
+(emit only if `report.passed`). It COMPOSES the frozen organs and edits NONE of them.
+
+**Boundary (honest).** PANORAMA-0 invents no relevance — it reuses the frozen scorer's own ordering, runs
+no model, trains nothing. Its worst case is a broader-but-less-focused answer, never a false-grounded or
+inverted one. It is NOT byte-identical to `run_query_default` (QFLOW joins in score order, PANORAMA in
+reading order — a deliberate scramble-fix); the verifiable property is span-set SUPERSET. A CERTIFY-shaped
+answer asserts verbatim provenance + lexical relevance of each span, NOT the composite's internal
+consistency — two notes with contradictory verbatim sentences can both be admitted (the same exposure
+QFLOW's top-N already carries, amplified by breadth); detecting contradiction needs meaning, which is
+forbidden. It does not fix the synonym/negation/acronym gaps (a lexically-non-overlapping note stays
+invisible), and the note budget is hard-capped for A3.
+
+**Provenance.** Designed via a scout→design→synth workflow, then an adversarial skeptic pass returned
+GO-WITH-FIXES; the four fixes are folded in: (1) span-set superset via the selector's own candidates
+(not one-span-per-note, which regressed single-note depth); (2) dropped the `check_packet_integrity`
+reshape (it forced a frozen organ's private authority literal and was circular) — authority stays with
+`execute`+`verify`; (3) overflow-safe `u128` integer precision floor (float-free); (4) a GENUINELY
+guard-driven `CombinedVerificationFailed` matrix cell (a faulted claim through the frozen verifier), not a
+hardcoded refusal. The skeptic's fresh-context panel was blocked by a session limit, so the pass ran in
+the main context; the load-bearing fix (superset) is a proven code fact, verified by the differential
+unit tests.
+
+**Scope.** NEW `query_panorama.rs` (18 unit tests) + `lib.rs` registration + six `main.rs` SHELL verbs
+(`panorama-demo`/`-verify`, `panorama-matrix`/`-verify`, `panorama-run`/`-verify`) + `release_check.sh`
+(PANORAMA-0 pin block incl. the REQUIRED per-file purity pin, `--lib` count 776 → 794, six verb greps,
+scenario_count 12, `#[test]` 18, and a breadth+determinism+refusal smoke) + this charter. NO frozen organ
+touched; bin `#[test]` count stays 15. Canonical artifact: the `panorama0-map` memory.
+
 ## DD-2026-07-09-A — Markdown normalization cleanup (VAULT-NORM-CLEANUP)
 
 **Decision.** Under explicit operator authorization, re-open the VAULT-NORM-0 organ
