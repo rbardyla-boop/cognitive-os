@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.cognitive-os/schemas/integrations/llam_learned_action_command.schema.json",
+  "title": "CIP LLAM Learned Preview ActionCommand",
+  "description": "A proposal-only Cognitive OS command for one content-pinned local LLAM model.",
+  "allOf": [
+    {
+      "$ref": "../cip/envelope.schema.json"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "header": {
+          "$ref": "llam_action_command.schema.json#/allOf/1/properties/header"
+        },
+        "epistemics": {
+          "$ref": "llam_action_command.schema.json#/allOf/1/properties/epistemics"
+        },
+        "permissions": {
+          "$ref": "llam_action_command.schema.json#/allOf/1/properties/permissions"
+        },
+        "payload": {
+          "type": "object",
+          "required": [
+            "contract_version",
+            "intent",
+            "repository",
+            "runtime",
+            "allowed_scope",
+            "operation",
+            "execution_mode",
+            "approval_policy",
+            "proposer",
+            "model",
+            "artifact_policy",
+            "timeout_ms"
+          ],
+          "properties": {
+            "contract_version": {
+              "const": "cip-llam-learned-bridge/v0.2"
+            },
+            "intent": {
+              "$ref": "llam_action_command.schema.json#/allOf/1/properties/payload/properties/intent"
+            },
+            "repository": {
+              "$ref": "llam_action_command.schema.json#/allOf/1/properties/payload/properties/repository"
+            },
+            "runtime": {
+              "$ref": "llam_action_command.schema.json#/allOf/1/properties/payload/properties/runtime"
+            },
+            "allowed_scope": {
+              "$ref": "llam_action_command.schema.json#/allOf/1/properties/payload/properties/allowed_scope"
+            },
+            "operation": {
+              "$ref": "llam_action_command.schema.json#/allOf/1/properties/payload/properties/operation"
+            },
+            "execution_mode": {
+              "const": "preview"
+            },
+            "approval_policy": {
+              "const": "human_required"
+            },
+            "proposer": {
+              "const": "learned"
+            },
+            "model": {
+              "$ref": "#/$defs/learnedModelPin"
+            },
+            "artifact_policy": {
+              "const": "external_only"
+            },
+            "timeout_ms": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 120000
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "learnedModelPin": {
+      "type": "object",
+      "required": [
+        "model_id",
+        "base_model_id",
+        "base_model_revision",
+        "base_model_tree_sha256",
+        "adapter_tree_sha256",
+        "learn_package_tree_sha256",
+        "environment_manifest_sha256",
+        "decode_mode",
+        "seed",
+        "max_new_tokens"
+      ],
+      "properties": {
+        "model_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._+@/-]+$"
+        },
+        "base_model_id": {
+          "const": "Qwen/Qwen2.5-0.5B-Instruct"
+        },
+        "base_model_revision": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "base_model_tree_sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "adapter_tree_sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "learn_package_tree_sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "environment_manifest_sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "decode_mode": {
+          "const": "greedy"
+        },
+        "seed": {
+          "const": 1234
+        },
+        "max_new_tokens": {
+          "const": 512
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

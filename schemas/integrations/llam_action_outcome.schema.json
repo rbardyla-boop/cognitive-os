@@ -1,0 +1,275 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.cognitive-os/schemas/integrations/llam_action_outcome.schema.json",
+  "title": "CIP LLAM Preview ActionOutcome",
+  "description": "An inert Cognitive OS observation derived from a LLAM preview. It cannot represent approval or apply.",
+  "allOf": [
+    {
+      "$ref": "../cip/envelope.schema.json"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "header": {
+          "type": "object",
+          "properties": {
+            "packet_type": {
+              "const": "ActionOutcome"
+            },
+            "source_engine": {
+              "const": "llam-control-plane"
+            },
+            "target_engine": {
+              "const": "cognitive-os"
+            }
+          }
+        },
+        "epistemics": {
+          "type": "object",
+          "properties": {
+            "confidence": {
+              "const": 1.0
+            },
+            "uncertainty_type": {
+              "const": "simulation_result"
+            },
+            "epistemic_license": {
+              "const": "hypothesis_only"
+            },
+            "contradictions": {
+              "maxItems": 0
+            }
+          }
+        },
+        "permissions": {
+          "type": "object",
+          "properties": {
+            "allowed_use": {
+              "minItems": 2,
+              "maxItems": 2,
+              "prefixItems": [
+                {
+                  "const": "human_explanation"
+                },
+                {
+                  "const": "contradiction_detection"
+                }
+              ],
+              "items": false
+            },
+            "forbidden_use": {
+              "minItems": 5,
+              "maxItems": 5,
+              "prefixItems": [
+                {
+                  "const": "direct_action"
+                },
+                {
+                  "const": "memory_consolidation"
+                },
+                {
+                  "const": "safety_certification"
+                },
+                {
+                  "const": "human_approved_promotion"
+                },
+                {
+                  "const": "rule_revision"
+                }
+              ],
+              "items": false
+            }
+          }
+        },
+        "payload": {
+          "type": "object",
+          "required": [
+            "contract_version",
+            "command_packet_id",
+            "disposition",
+            "repository",
+            "dry_run_performed",
+            "mutated_target",
+            "llam",
+            "artifacts",
+            "errors",
+            "replayable"
+          ],
+          "properties": {
+            "contract_version": {
+              "const": "cip-llam-bridge/v0.1"
+            },
+            "command_packet_id": {
+              "type": "string",
+              "pattern": "^P_[A-Za-z0-9_-]+$"
+            },
+            "disposition": {
+              "type": "string",
+              "enum": [
+                "disabled",
+                "unavailable",
+                "unsupported",
+                "blocked",
+                "needs_human",
+                "failed",
+                "timed_out"
+              ]
+            },
+            "repository": {
+              "type": "object",
+              "required": [
+                "repo_id",
+                "git_sha",
+                "language"
+              ],
+              "properties": {
+                "repo_id": {
+                  "type": "string"
+                },
+                "git_sha": {
+                  "type": "string"
+                },
+                "language": {
+                  "const": "python"
+                }
+              },
+              "additionalProperties": false
+            },
+            "dry_run_performed": {
+              "type": "boolean"
+            },
+            "mutated_target": {
+              "const": false
+            },
+            "llam": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "schema_version",
+                    "runtime_id",
+                    "package_tree_sha256",
+                    "trace_id",
+                    "receipt_id",
+                    "verifier_id",
+                    "overall_verdict",
+                    "checks_run"
+                  ],
+                  "properties": {
+                    "schema_version": {
+                      "type": "string",
+                      "pattern": "^llam-ir/"
+                    },
+                    "runtime_id": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9._+@-]+$"
+                    },
+                    "package_tree_sha256": {
+                      "type": "string",
+                      "pattern": "^sha256:[0-9a-f]{64}$"
+                    },
+                    "trace_id": {
+                      "type": "string",
+                      "pattern": "^sha256:[0-9a-f]{64}$"
+                    },
+                    "receipt_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^sha256:[0-9a-f]{64}$"
+                    },
+                    "verifier_id": {
+                      "type": "string"
+                    },
+                    "overall_verdict": {
+                      "type": "string",
+                      "enum": [
+                        "block",
+                        "needs_human"
+                      ]
+                    },
+                    "checks_run": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "action_id",
+                          "command",
+                          "exit_code"
+                        ],
+                        "properties": {
+                          "action_id": {
+                            "type": "string"
+                          },
+                          "command": {
+                            "type": "string"
+                          },
+                          "exit_code": {
+                            "type": "integer"
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "artifacts": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "run_id",
+                    "locator",
+                    "trace_sha256"
+                  ],
+                  "properties": {
+                    "run_id": {
+                      "type": "string",
+                      "pattern": "^run_[0-9a-f]{24}$"
+                    },
+                    "locator": {
+                      "type": "string",
+                      "pattern": "^runs/run_[0-9a-f]{24}$"
+                    },
+                    "trace_sha256": {
+                      "type": "string",
+                      "pattern": "^sha256:[0-9a-f]{64}$"
+                    },
+                    "receipt_sha256": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^sha256:[0-9a-f]{64}$"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "errors": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "replayable": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

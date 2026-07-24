@@ -113,6 +113,61 @@ Core operations:
 
 Given any action packet, QA should be able to follow the shared `trace_id` and packet provenance back through the plan, retrieval result, retrieval request, and original intent.
 
+## External LLAM Preview Boundary
+
+The optional LLAM integration uses CIP as the process boundary rather than
+embedding Python action logic in the Rust engine:
+
+```text
+CIP ActionCommand -> Foundry transport -> LLAM trace/dry-run/verify
+                  <- CIP ActionOutcome <-
+```
+
+The v0.1 bridge contracts are:
+
+- `schemas/integrations/llam_action_command.schema.json`
+- `schemas/integrations/llam_action_outcome.schema.json`
+
+The separately versioned learned-action preview contracts are:
+
+- `schemas/integrations/llam_learned_action_command.schema.json`
+- `schemas/integrations/llam_learned_action_outcome.schema.json`
+
+They permit Python docstring and single-symbol-rename previews only. Commands
+are `hypothesis_only`, allow `sandbox_testing`, require a clean git snapshot,
+pin the target SHA plus the LLAM executable and installed package-tree hashes,
+and require human approval. Outcomes are inert observations: their vocabulary
+has no `approved`, `applied`, or `done` state, and permissions forbid direct
+action, memory consolidation, and safety certification.
+
+Foundry invokes only `trace --proposer rule --require-approval` and
+`verify-run`, with network disabled, the target read-only, and artifacts outside
+the repository. Cognitive OS may explain or contradict-check the outcome; it
+must not treat a preview as execution, evidence, or memory authority.
+
+The v0.2 learned contract substitutes only `--proposer learned`. It binds the
+base-model snapshot, adapter, learn package, environment-manifest file, greedy
+seed, and generation ceiling; Foundry requires explicit GPU bindings and
+offline model loading. It does not widen operations, permissions, dispositions,
+or ordinary Cognitive OS/Foundry entry points. Learned output remains a
+hypothesis behind the same hard verifier and human boundary.
+
+The separate complete-canary evidence contract is:
+
+- `schemas/integrations/llam_complete_episode.schema.json`
+
+It is not a new CIP action packet and does not widen either preview bridge. An
+external harness may use one verified episode to exercise signed LLAM apply on
+a disposable clone, bind exact pre/post images and an independent verdict, and
+then delete the clone. The artifact is fixed as `synthetic_canary`, retains all
+hard authorities outside the model, and is never eligible for evidence,
+memory, training, merge, or production completion. A future human-reviewed
+contract requires a new version and production trust policy; changing a canary
+field is not promotion.
+
+The staged ownership and rollout gates are recorded in
+[`../docs/LLAM_INTEGRATION_PATH.md`](../docs/LLAM_INTEGRATION_PATH.md).
+
 ## Attention And Budget
 
 System modes:

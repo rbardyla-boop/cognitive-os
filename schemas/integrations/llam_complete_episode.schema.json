@@ -1,0 +1,270 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cognitive-os.local/schemas/integrations/llam_complete_episode.schema.json",
+  "title": "Unified Cognitive OS / LLAM Complete Canary Episode",
+  "description": "A signed apply and independent verdict produced only on a disposable clone. Synthetic canaries are never training-eligible.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "episode_id",
+    "schema_version",
+    "source_preview",
+    "plan",
+    "approval",
+    "apply",
+    "independent_verdict",
+    "head_targets",
+    "model_authority",
+    "training_license",
+    "full_model_ready",
+    "audit_metadata"
+  ],
+  "properties": {
+    "episode_id": { "$ref": "#/$defs/sha256" },
+    "schema_version": { "const": "unified-cognitive-llam-complete-episode/v0.1" },
+    "source_preview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cognitive_episode",
+        "cognitive_episode_sha256",
+        "llam_trace",
+        "llam_trace_sha256"
+      ],
+      "properties": {
+        "cognitive_episode": { "type": "object" },
+        "cognitive_episode_sha256": { "$ref": "#/$defs/sha256" },
+        "llam_trace": { "type": "object" },
+        "llam_trace_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "plan": { "$ref": "#/$defs/plan" },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "decision_class",
+        "approval_request",
+        "ledger_entry",
+        "operator_public_key_hex",
+        "operator_public_key_fingerprint"
+      ],
+      "properties": {
+        "decision_class": { "const": "synthetic_canary" },
+        "approval_request": { "type": "object" },
+        "ledger_entry": { "type": "object" },
+        "operator_public_key_hex": { "$ref": "#/$defs/public_key" },
+        "operator_public_key_fingerprint": { "$ref": "#/$defs/fingerprint" }
+      }
+    },
+    "apply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target_class",
+        "normal_checkout_mutated",
+        "runtime",
+        "stable_receipt",
+        "pre_tree_sha256",
+        "post_tree_sha256",
+        "changed_paths",
+        "file_evidence"
+      ],
+      "properties": {
+        "target_class": { "const": "disposable_clone" },
+        "normal_checkout_mutated": { "const": false },
+        "runtime": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["runtime_id", "executable_sha256", "package_tree_sha256"],
+          "properties": {
+            "runtime_id": { "type": "string", "minLength": 1 },
+            "executable_sha256": { "$ref": "#/$defs/sha256" },
+            "package_tree_sha256": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        "stable_receipt": { "type": "object" },
+        "pre_tree_sha256": { "$ref": "#/$defs/sha256" },
+        "post_tree_sha256": { "$ref": "#/$defs/sha256" },
+        "changed_paths": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/path" }
+        },
+        "file_evidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/file_evidence" }
+        }
+      }
+    },
+    "independent_verdict": { "$ref": "#/$defs/verdict" },
+    "head_targets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["intent", "plan", "action", "verifier", "memory", "completion"],
+      "properties": {
+        "intent": { "$ref": "#/$defs/head" },
+        "plan": { "$ref": "#/$defs/head" },
+        "action": { "$ref": "#/$defs/head" },
+        "verifier": { "$ref": "#/$defs/head" },
+        "memory": { "$ref": "#/$defs/head" },
+        "completion": { "$ref": "#/$defs/head" }
+      }
+    },
+    "model_authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "outputs_are_proposals",
+        "hard_verifier_external",
+        "action_apply_external",
+        "memory_admission_external",
+        "completion_gate_external",
+        "training_gate_external"
+      ],
+      "properties": {
+        "outputs_are_proposals": { "const": true },
+        "hard_verifier_external": { "const": true },
+        "action_apply_external": { "const": true },
+        "memory_admission_external": { "const": true },
+        "completion_gate_external": { "const": true },
+        "training_gate_external": { "const": true }
+      }
+    },
+    "training_license": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["eligible", "reasons", "allowed_uses", "forbidden_uses"],
+      "properties": {
+        "eligible": { "const": false },
+        "reasons": {
+          "const": [
+            "synthetic_operator_decision",
+            "disposable_clone_only",
+            "deterministic_plan_not_human_supervision",
+            "canary_verdict_not_production_acceptance"
+          ]
+        },
+        "allowed_uses": {
+          "const": ["contract_evaluation", "replay", "adversarial_validation"]
+        },
+        "forbidden_uses": {
+          "const": [
+            "supervised_training",
+            "preference_training",
+            "model_promotion",
+            "memory_consolidation",
+            "production_completion_label"
+          ]
+        }
+      }
+    },
+    "full_model_ready": { "const": false },
+    "audit_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observed_applied_at"],
+      "properties": {
+        "observed_applied_at": { "type": ["string", "null"] }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "public_key": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "fingerprint": { "type": "string", "pattern": "^[0-9a-f]{16}$" },
+    "path": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*$"
+    },
+    "head": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label_status"],
+      "properties": { "label_status": { "type": "string", "minLength": 1 } }
+    },
+    "plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "plan_id",
+        "schema_version",
+        "plan_packet_id",
+        "origin",
+        "bound_command_sha256",
+        "bound_llam_trace_id",
+        "objective",
+        "constraints",
+        "steps",
+        "acceptance_contract"
+      ],
+      "properties": {
+        "plan_id": { "$ref": "#/$defs/sha256" },
+        "schema_version": { "const": "cognitive-llam-plan-body/v0.1" },
+        "plan_packet_id": { "type": "string", "minLength": 1 },
+        "origin": { "const": "deterministic_canary_renderer" },
+        "bound_command_sha256": { "$ref": "#/$defs/sha256" },
+        "bound_llam_trace_id": { "$ref": "#/$defs/sha256" },
+        "objective": { "type": "string", "minLength": 1 },
+        "constraints": { "type": "object" },
+        "steps": { "type": "array", "minItems": 1, "items": { "type": "object" } },
+        "acceptance_contract": { "type": "object" }
+      }
+    },
+    "file_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "before_sha256", "after_sha256", "before_text", "after_text"],
+      "properties": {
+        "path": { "$ref": "#/$defs/path" },
+        "before_sha256": { "$ref": "#/$defs/sha256" },
+        "after_sha256": { "$ref": "#/$defs/sha256" },
+        "before_text": { "type": "string" },
+        "after_text": { "type": "string" }
+      }
+    },
+    "verdict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "verdict_id",
+        "verifier_id",
+        "bound_plan_id",
+        "bound_apply_receipt_id",
+        "pre_tree_sha256",
+        "post_tree_sha256",
+        "verdict",
+        "checks",
+        "attestation"
+      ],
+      "properties": {
+        "verdict_id": { "$ref": "#/$defs/sha256" },
+        "verifier_id": { "const": "independent-llam-canary-verifier/v0.1" },
+        "bound_plan_id": { "$ref": "#/$defs/sha256" },
+        "bound_apply_receipt_id": { "$ref": "#/$defs/sha256" },
+        "pre_tree_sha256": { "$ref": "#/$defs/sha256" },
+        "post_tree_sha256": { "$ref": "#/$defs/sha256" },
+        "verdict": { "const": "pass" },
+        "checks": { "type": "array", "minItems": 5, "maxItems": 5 },
+        "attestation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "key_class",
+            "public_key_hex",
+            "public_key_fingerprint",
+            "signature"
+          ],
+          "properties": {
+            "key_class": { "const": "synthetic_canary_verifier" },
+            "public_key_hex": { "$ref": "#/$defs/public_key" },
+            "public_key_fingerprint": { "$ref": "#/$defs/fingerprint" },
+            "signature": { "type": "string", "pattern": "^[0-9a-f]{128}$" }
+          }
+        }
+      }
+    }
+  }
+}

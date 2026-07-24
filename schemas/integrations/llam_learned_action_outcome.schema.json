@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.cognitive-os/schemas/integrations/llam_learned_action_outcome.schema.json",
+  "title": "CIP LLAM Learned Preview ActionOutcome",
+  "description": "An inert outcome from a content-pinned local learned proposer and the external LLAM verifier.",
+  "allOf": [
+    {
+      "$ref": "../cip/envelope.schema.json"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "header": {
+          "$ref": "llam_action_outcome.schema.json#/allOf/1/properties/header"
+        },
+        "epistemics": {
+          "$ref": "llam_action_outcome.schema.json#/allOf/1/properties/epistemics"
+        },
+        "permissions": {
+          "$ref": "llam_action_outcome.schema.json#/allOf/1/properties/permissions"
+        },
+        "payload": {
+          "type": "object",
+          "required": [
+            "contract_version",
+            "command_packet_id",
+            "disposition",
+            "repository",
+            "dry_run_performed",
+            "mutated_target",
+            "llam",
+            "model",
+            "artifacts",
+            "errors",
+            "replayable"
+          ],
+          "properties": {
+            "contract_version": {
+              "const": "cip-llam-learned-bridge/v0.2"
+            },
+            "command_packet_id": {
+              "$ref": "llam_action_outcome.schema.json#/allOf/1/properties/payload/properties/command_packet_id"
+            },
+            "disposition": {
+              "$ref": "llam_action_outcome.schema.json#/allOf/1/properties/payload/properties/disposition"
+            },
+            "repository": {
+              "$ref": "llam_action_outcome.schema.json#/allOf/1/properties/payload/properties/repository"
+            },
+            "dry_run_performed": {
+              "$ref": "llam_action_outcome.schema.json#/allOf/1/properties/payload/properties/dry_run_performed"
+            },
+            "mutated_target": {
+              "const": false
+            },
+            "llam": {
+              "$ref": "llam_action_outcome.schema.json#/allOf/1/properties/payload/properties/llam"
+            },
+            "model": {
+              "$ref": "llam_learned_action_command.schema.json#/$defs/learnedModelPin"
+            },
+            "artifacts": {
+              "$ref": "llam_action_outcome.schema.json#/allOf/1/properties/payload/properties/artifacts"
+            },
+            "errors": {
+              "$ref": "llam_action_outcome.schema.json#/allOf/1/properties/payload/properties/errors"
+            },
+            "replayable": {
+              "$ref": "llam_action_outcome.schema.json#/allOf/1/properties/payload/properties/replayable"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

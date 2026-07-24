@@ -1,0 +1,227 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.cognitive-os/schemas/integrations/llam_action_command.schema.json",
+  "title": "CIP LLAM Preview ActionCommand",
+  "description": "A proposal-only Cognitive OS command for LLAM's read-only preview boundary.",
+  "allOf": [
+    {
+      "$ref": "../cip/envelope.schema.json"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "header": {
+          "type": "object",
+          "properties": {
+            "packet_type": {
+              "const": "ActionCommand"
+            },
+            "source_engine": {
+              "const": "cognitive-os"
+            },
+            "target_engine": {
+              "const": "llam-control-plane"
+            },
+            "created_at": {
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+            },
+            "priority": {
+              "const": "P2"
+            }
+          }
+        },
+        "epistemics": {
+          "type": "object",
+          "properties": {
+            "confidence": {
+              "const": 0.8
+            },
+            "uncertainty_type": {
+              "const": "derived"
+            },
+            "epistemic_license": {
+              "const": "hypothesis_only"
+            },
+            "provenance": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 1,
+              "prefixItems": [
+                {
+                  "type": "object",
+                  "required": [
+                    "plan_packet_id"
+                  ],
+                  "properties": {
+                    "plan_packet_id": {
+                      "type": "string",
+                      "pattern": "^P_[A-Za-z0-9_-]+$"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              ],
+              "items": false
+            },
+            "contradictions": {
+              "maxItems": 0
+            }
+          }
+        },
+        "permissions": {
+          "type": "object",
+          "properties": {
+            "allowed_use": {
+              "minItems": 2,
+              "maxItems": 2,
+              "prefixItems": [
+                {
+                  "const": "sandbox_testing"
+                },
+                {
+                  "const": "human_explanation"
+                }
+              ],
+              "items": false
+            },
+            "forbidden_use": {
+              "minItems": 3,
+              "maxItems": 3,
+              "prefixItems": [
+                {
+                  "const": "direct_action"
+                },
+                {
+                  "const": "memory_consolidation"
+                },
+                {
+                  "const": "safety_certification"
+                }
+              ],
+              "items": false
+            }
+          }
+        },
+        "payload": {
+          "type": "object",
+          "required": [
+            "contract_version",
+            "intent",
+            "repository",
+            "runtime",
+            "allowed_scope",
+            "operation",
+            "execution_mode",
+            "approval_policy",
+            "proposer",
+            "artifact_policy",
+            "timeout_ms"
+          ],
+          "properties": {
+            "contract_version": {
+              "const": "cip-llam-bridge/v0.1"
+            },
+            "intent": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "repository": {
+              "type": "object",
+              "required": [
+                "repo_id",
+                "git_sha",
+                "language",
+                "working_tree"
+              ],
+              "properties": {
+                "repo_id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9._-]+$"
+                },
+                "git_sha": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+                },
+                "language": {
+                  "const": "python"
+                },
+                "working_tree": {
+                  "const": "clean_snapshot"
+                }
+              },
+              "additionalProperties": false
+            },
+            "runtime": {
+              "type": "object",
+              "required": [
+                "runtime_id",
+                "executable_sha256",
+                "package_tree_sha256"
+              ],
+              "properties": {
+                "runtime_id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9._+@-]+$"
+                },
+                "executable_sha256": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "package_tree_sha256": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              },
+              "additionalProperties": false
+            },
+            "allowed_scope": {
+              "type": "object",
+              "required": [
+                "paths"
+              ],
+              "properties": {
+                "paths": {
+                  "type": "array",
+                  "minItems": 1,
+                  "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 4,
+                  "pattern": "^(?!.*(?:^|/)\\.{1,2}(?:/|$))[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*\\.py$"
+                }
+                }
+              },
+              "additionalProperties": false
+            },
+            "operation": {
+              "type": "string",
+              "enum": [
+                "docstring_prepend",
+                "single_symbol_rename"
+              ]
+            },
+            "execution_mode": {
+              "const": "preview"
+            },
+            "approval_policy": {
+              "const": "human_required"
+            },
+            "proposer": {
+              "const": "rule"
+            },
+            "artifact_policy": {
+              "const": "external_only"
+            },
+            "timeout_ms": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 30000
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}
